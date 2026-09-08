@@ -7,6 +7,7 @@ import {
     matchesReportProcessingMeasurementDate,
     measurementDatesForReportProcessing,
 } from '@/lib/report-processing/measurement-dates';
+import { REPORT_PROCESSING_EXCLUDED_BUSINESS_NAME_PATTERN } from '@/lib/report-processing/scope';
 import { isValidDateString } from '@/lib/utils/date-validator';
 
 /**
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
         let query = supabase
             .from('measurement_business')
             .select('code, business_name, year, period, manager_email, is_email_sent, last_email_sent_at, delivery_status, delivery_error')
-            .not('business_name', 'ilike', '%번외%');
+            .not('business_name', 'ilike', REPORT_PROCESSING_EXCLUDED_BUSINESS_NAME_PATTERN);
 
         // 2. 필터 적용 (year/period가 'all'이 아닌 경우에만)
         if (year !== 'all') {
@@ -93,7 +94,7 @@ export async function GET(req: NextRequest) {
         
         let journalQuery = supabase
             .from('measurement_journal')
-            .select('code, measurement_year, measurement_period, k2b_send_date, k2b_status')
+            .select('code, measurement_year, measurement_period, k2b_send_date, k2b_status, k2b_verified_status, k2b_verified_at, k2b_verified_send_date, k2b_consistency_status, k2b_consistency_note')
             .in('code', codes);
 
         // 연도/주기 필터가 있으면 조인 쿼리에도 적용하여 효율화
@@ -120,7 +121,12 @@ export async function GET(req: NextRequest) {
                 ...record,
                 measurement_dates,
                 k2b_send_date: journal?.k2b_send_date || null,
-                k2b_status: journal?.k2b_status || null
+                k2b_status: journal?.k2b_status || null,
+                k2b_verified_status: journal?.k2b_verified_status || 'UNVERIFIED',
+                k2b_verified_at: journal?.k2b_verified_at || null,
+                k2b_verified_send_date: journal?.k2b_verified_send_date || null,
+                k2b_consistency_status: journal?.k2b_consistency_status || 'UNVERIFIED',
+                k2b_consistency_note: journal?.k2b_consistency_note || '실제결과 미검증'
             }];
         });
 

@@ -12,6 +12,7 @@ import { ExcelUpload } from "@/components/features/ExcelUpload";
 import { NewBusinessDocumentGeneration } from "@/components/features/NewBusinessDocumentGeneration";
 import { BusinessMapModal } from "@/components/features/BusinessMapModal";
 import { MeasurementTargetBusinessFormSections } from "@/components/features/MeasurementTargetBusinessFormSections";
+import { MeasurementTargetIntegrityPanel } from "@/components/features/MeasurementTargetIntegrityPanel";
 import {
     Table,
     TableHeader,
@@ -228,6 +229,7 @@ const generateYearPeriodOptions = () => {
 const YEAR_PERIOD_OPTIONS = generateYearPeriodOptions();
 
 export const MeasurementTargetBusinessManagement: React.FC = () => {
+    const [activeView, setActiveView] = useState<"list" | "integrity">("list");
     const { user } = useUser();
     const isAdmin = user?.role === "관리자";
     const [loading, setLoading] = useState(false);
@@ -1742,6 +1744,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         );
     };
 
+    if (activeView === "integrity") {
+        const [yearText, period] = filters.yearPeriod.split("-");
+        return <MeasurementTargetIntegrityPanel
+            year={Number(yearText)}
+            period={period}
+            onBack={() => setActiveView("list")}
+        />;
+    }
+
     return (
         <div className="p-4 w-full min-w-[1400px]">
             {/* Sticky Container for Filter & Table Header */}
@@ -1821,6 +1832,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
                         {/* Buttons Group */}
                         <div className="flex items-center gap-2 shrink-0">
+                            <Button onClick={() => setActiveView("integrity")} variant="secondary" className="h-9 px-3 text-sm font-medium whitespace-nowrap" title="현재 연도·주기 대상의 읽기 전용 정합성 점검">
+                                정합성 점검
+                            </Button>
                             <Button onClick={handleSearch} variant="primary" className="h-9 px-4 text-sm font-medium whitespace-nowrap">
                                 조회
                             </Button>

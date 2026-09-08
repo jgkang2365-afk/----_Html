@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Card } from '@/components/ui/Card';
+import { K2BExecutionStatusPanel } from '@/components/features/K2BExecutionStatusPanel';
 import {
     collectReportExplorerBusinessNames,
     deriveReportExplorerConnectionStatus,
@@ -44,6 +45,10 @@ interface BusinessRecord {
     last_email_sent_at: string | null;
     k2b_send_date: string | null;
     k2b_status: string | null;
+    k2b_verified_status: 'GREEN' | 'YELLOW' | 'RED' | 'UNVERIFIED' | 'STALE';
+    k2b_verified_at: string | null;
+    k2b_consistency_status: 'GREEN' | 'YELLOW' | 'RED' | 'UNVERIFIED' | 'STALE';
+    k2b_consistency_note: string;
     classification?: '정규' | '추가';
     delivery_status?: 'success' | 'bounced'; // 신규: 수신 성공/반송 여부
     delivery_error?: string | null;         // 신규: 반송 사유
@@ -57,6 +62,20 @@ const DEFAULT_REPORT_PROCESSING_FILTERS = {
     search: ''
 };
 const PAGE_SIZE = 10;
+const K2B_CONSISTENCY_SIGNAL_CLASS: Record<BusinessRecord['k2b_consistency_status'], string> = {
+    GREEN: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    YELLOW: 'border-amber-200 bg-amber-50 text-amber-800',
+    RED: 'border-rose-200 bg-rose-50 text-rose-800',
+    UNVERIFIED: 'border-slate-200 bg-slate-50 text-slate-600',
+    STALE: 'border-violet-200 bg-violet-50 text-violet-800',
+};
+const K2B_CONSISTENCY_SIGNAL: Record<BusinessRecord['k2b_consistency_status'], { icon: string; label: string }> = {
+    GREEN: { icon: '🟢', label: '정상' },
+    YELLOW: { icon: '🟡', label: '확인 필요' },
+    RED: { icon: '🔴', label: '오류' },
+    UNVERIFIED: { icon: '⚪', label: '미검증' },
+    STALE: { icon: '⚪', label: '검증 지연' },
+};
 
 function restoreReportProcessingFilters(value: string | null) {
     if (!value) return DEFAULT_REPORT_PROCESSING_FILTERS;
@@ -98,7 +117,8 @@ export default function ReportProcessingPage() {
     const [loading, setLoading] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [processingMessage, setProcessingMessage] = useState('');
-    const [activeJob, setActiveJob] = useState<{ id: string; type: 'email' | 'k2b' } | null>(null);
+    const [activeJob, setActiveJob] = useState<{ id: string; type: 'email' | 'k2b' | 'k2b_verify' } | null>(null);
+    const [k2bExecutionRefreshKey, setK2BExecutionRefreshKey] = useState<string | null>(null);
     const [refreshing, setRefreshing] = useState(false);
     const [records, setRecords] = useState<BusinessRecord[]>([]);
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]); // 기기: code 기반 -> key `${code}-${year}-${period}` 기반
@@ -254,7 +274,7 @@ export default function ReportProcessingPage() {
 
     const cancelActiveJob = useCallback(async () => {
         if (!activeJob) return;
-        const label = activeJob.type === 'email' ? '이메일 전송' : 'K2B 업로드';
+        const label = activeJob.type === 'email' ? '이메일 전송' : activeJob.type === 'k2b_verify' ? 'K2B 실제결과 검증' : 'K2B 업로드';
         if (!confirm(`진행 중인 ${label} 작업을 중단하시겠습니까?\n이미 처리된 항목은 되돌릴 수 없고, 남은 항목만 중단됩니다.`)) return;
 
         try {
@@ -291,7 +311,7 @@ export default function ReportProcessingPage() {
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [activeJob, cancelActiveJob, cancelReportExplorerRequest]);
     // 백그라운드 작업 상태 실시간 모니터링 헬퍼
-    const monitorJob = (jobId: string, jobType: 'email' | 'k2b') => {
+    const monitorJob = (jobId: string, jobType: 'email' | 'k2b' | 'k2b_verify') => {
         const startTime = Date.now();
         let notifiedProcessing = false;
 
@@ -306,25 +326,27 @@ export default function ReportProcessingPage() {
 
                 // 1. 상태가 processing으로 전환되었을 때 알림
                 if (status === 'processing' && !notifiedProcessing) {
-                    toast.info(`[${jobType === 'email' ? '이메일' : 'K2B'}] 사내 PC에서 백그라운드 작업을 시작했습니다.`);
+                    toast.info(`[${jobType === 'email' ? '이메일' : jobType === 'k2b_verify' ? 'K2B 검증' : 'K2B'}] 사내 PC에서 백그라운드 작업을 시작했습니다.`);
                     notifiedProcessing = true;
                 }
 
                 // 2. 완료 또는 실패 시 감시 종료 및 목록 새로고침
                 if (status === 'success') {
-                    toast.success(`[${jobType === 'email' ? '이메일' : 'K2B'}] 백그라운드 작업이 완료되었습니다.`);
+                    toast.success(`[${jobType === 'email' ? '이메일' : jobType === 'k2b_verify' ? 'K2B 검증' : 'K2B'}] 백그라운드 작업이 완료되었습니다.`);
                     clearInterval(interval);
                     setActiveJob(null);
+                    if (jobType === 'k2b_verify') setK2BExecutionRefreshKey(jobId);
                     fetchRecords(); // 목록 새로고침
                 } else if (status === 'cancelled') {
-                    toast.warning(`[${jobType === 'email' ? '이메일' : 'K2B'}] 사용자 요청으로 작업을 중단했습니다.`);
+                    toast.warning(`[${jobType === 'email' ? '이메일' : jobType === 'k2b_verify' ? 'K2B 검증' : 'K2B'}] 사용자 요청으로 작업을 중단했습니다.`);
                     clearInterval(interval);
                     setActiveJob(null);
                     fetchRecords();
                 } else if (status === 'failed') {
-                    toast.error(`[${jobType === 'email' ? '이메일' : 'K2B'}] 백그라운드 작업 실패: ${errorMsg || '알 수 없는 오류'}`);
+                    toast.error(`[${jobType === 'email' ? '이메일' : jobType === 'k2b_verify' ? 'K2B 검증' : 'K2B'}] 백그라운드 작업 실패: ${errorMsg || '알 수 없는 오류'}`);
                     clearInterval(interval);
                     setActiveJob(null);
+                    if (jobType === 'k2b_verify') setK2BExecutionRefreshKey(jobId);
                     fetchRecords(); // 목록 새로고침
                 }
 
@@ -475,6 +497,20 @@ export default function ReportProcessingPage() {
         }
     };
 
+    const handleManualK2BReverify = async () => {
+        const resultDate = window.prompt('읽기 전용 K2B 실제결과 검증일(YYYY-MM-DD)을 입력하세요. 업로드는 수행하지 않습니다.');
+        if (!resultDate) return;
+        try {
+            const response = await fetch('/api/report-processing/verify-k2b', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resultDate }) });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.error || '재검증 등록 실패');
+            toast.success(body.message || 'K2B 읽기 전용 재검증을 등록했습니다.');
+            setActiveJob({ id: body.jobId, type: 'k2b_verify' });
+            setK2BExecutionRefreshKey(body.jobId);
+            monitorJob(body.jobId, 'k2b_verify');
+        } catch (error) { toast.error(error instanceof Error ? error.message : 'K2B 재검증 등록 실패'); }
+    };
+
     const handleExplorerSearch = async () => {
         if (!effectiveExplorerYear || !effectiveExplorerPeriod) {
             toast.warning('보고서 탐색할 연도와 주기를 선택해주세요.');
@@ -574,6 +610,16 @@ export default function ReportProcessingPage() {
                     <Button
                         size="sm"
                         variant="secondary"
+                        onClick={handleManualK2BReverify}
+                        disabled={loading}
+                        className="h-10 px-4"
+                        title="업로드 없이 K2B 실제 접수결과만 읽기 전용으로 확인합니다."
+                    >
+                        K2B 실제결과 재검증
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="secondary"
                         onClick={handleUploadK2B}
                         disabled={loading || selectedKeys.length === 0}
                         className="h-10 px-4"
@@ -583,6 +629,8 @@ export default function ReportProcessingPage() {
                     </Button>
                 </div>
             </div>
+
+            <K2BExecutionStatusPanel refreshKey={k2bExecutionRefreshKey} />
 
             <Card className="grid gap-3 p-4 md:grid-cols-[10rem_10rem_10rem_minmax(16rem,1fr)] md:items-end">
                 <div>
@@ -662,7 +710,7 @@ export default function ReportProcessingPage() {
             </Card>
 
             <section aria-label="보고서 처리 결과" className="space-y-2">
-                <Table className="min-w-[1110px] table-fixed text-sm">
+                <Table className="min-w-[1280px] table-fixed text-sm">
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-11">
@@ -681,24 +729,27 @@ export default function ReportProcessingPage() {
                             <TableHead className="w-44">이메일 발송 상태</TableHead>
                             <TableHead className="w-28">K2B 전송일자</TableHead>
                             <TableHead className="w-28">K2B 상태</TableHead>
+                            <TableHead className="w-44">실제결과 정합성</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {loading && records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={11} className="h-20 text-center">
+                                <TableCell colSpan={12} className="h-20 text-center">
                                     <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
                                 </TableCell>
                             </TableRow>
                         ) : records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={11} className="h-20 text-center text-muted-foreground">
+                                <TableCell colSpan={12} className="h-20 text-center text-muted-foreground">
                                     조회된 데이터가 없습니다.
                                 </TableCell>
                             </TableRow>
                         ) : (
                             visibleRecords.map((record: BusinessRecord) => {
                                 const rowKey = `${record.code}-${record.year}-${record.period}`;
+                                const consistencyStatus = record.k2b_consistency_status || record.k2b_verified_status || 'UNVERIFIED';
+                                const consistencySignal = K2B_CONSISTENCY_SIGNAL[consistencyStatus];
                                 return (
                                     <TableRow key={rowKey} className="h-12">
                                         <TableCell className="px-4 py-2">
@@ -754,6 +805,18 @@ export default function ReportProcessingPage() {
                                             ) : (
                                                 <span className="text-muted-foreground text-sm">-</span>
                                             )}
+                                        </TableCell>
+                                        <TableCell title={record.k2b_consistency_note}>
+                                            <span
+                                                className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-sm font-semibold ${K2B_CONSISTENCY_SIGNAL_CLASS[consistencyStatus]}`}
+                                                aria-label={`K2B 실제결과 ${consistencySignal.label}`}
+                                                title={`${consistencySignal.label}: ${record.k2b_consistency_note || '상세 정보 없음'}`}
+                                            >
+                                                <span aria-hidden="true">{consistencySignal.icon}</span>
+                                                <span>{consistencySignal.label}</span>
+                                            </span>
+                                            <span className="block text-[11px] text-slate-500">{record.k2b_consistency_note || '실제결과 미검증'}</span>
+                                            {(record.k2b_consistency_status === 'STALE' || record.k2b_consistency_status === 'RED') && <span className="block text-[11px] text-slate-500">마지막 검증 {record.k2b_verified_at ? record.k2b_verified_at.substring(0, 16).replace('T', ' ') : '없음'}</span>}
                                         </TableCell>
                                     </TableRow>
                                 );
@@ -869,8 +932,4 @@ export default function ReportProcessingPage() {
         </div>
     );
 }
-
-
-
-
 

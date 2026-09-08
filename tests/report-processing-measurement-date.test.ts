@@ -76,4 +76,5 @@ test('보고서 처리 화면은 측정일을 조회 순서와 결과 표에 표
   assert.match(page, /const visibleRecordKeys = visibleRecords\.map/);
   assert.match(page, /setSelectedKeys\(\(current\) => Array\.from\(new Set\(\[\.\.\.current, \.\.\.visibleRecordKeys\]\)\)\)/);
   assert.match(page, /current\.filter\(\(key\) => !visibleRecordKeys\.includes\(key\)\)/);
+  assert.match(page, /<TableCell colSpan=\{12\}/);
 });
