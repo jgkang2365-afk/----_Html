@@ -227,25 +227,7 @@ export class K2BService {
             return isK2BSubmissionRefreshComplete(before, current, sawLoading);
         }, 20000, 'K2B 조회 완료 신호를 확인하지 못했습니다.', 150);
 
-        // 완료 신호 뒤 짧은 안정 구간에서 행 텍스트가 더 바뀌지 않는지 확인한다.
-        let previousSignature: string | null = null;
-        let previousMutationVersion: number | null = null;
-        let stablePolls = 0;
-        const settleStartedAt = Date.now();
-        await this.driver.wait(async () => {
-            const current = await this.captureSubmissionGridSnapshot();
-            if (current.loading) {
-                stablePolls = 0;
-                return false;
-            }
-            stablePolls = current.rowSignature === previousSignature
-                && current.mutationVersion === previousMutationVersion
-                ? stablePolls + 1
-                : 0;
-            previousSignature = current.rowSignature;
-            previousMutationVersion = current.mutationVersion;
-            return Date.now() - settleStartedAt >= 750 && stablePolls >= 2;
-        }, 3000, 'K2B 조회 결과가 안정되지 않았습니다.', 150);
+        await this.driver.sleep(1000);
     }
 
     /**
@@ -269,6 +251,7 @@ export class K2BService {
         if (isHeadless) {
             console.log('[K2B] 헤드리스 모드(Headless)로 브라우저를 구동합니다.');
             chromeOptions.addArguments('--headless=new');
+            chromeOptions.addArguments('--window-size=1920,1080');
         } else {
             chromeOptions.addArguments('--start-maximized');
         }
@@ -1254,7 +1237,7 @@ foreach ($window in $windows) {
           const text = element => String(element?.innerText || element?.textContent || '').trim();
           const head = [...document.querySelectorAll('[id*="grid_fileList_head"], [id*="grid_fileList_headGrid"]')]
             .map(element => ({ id: element.id, text: text(element) }))
-            .map(({ id, text }) => ({ match: id.match(/_cell_\\d+_(\\d+)/), text }))
+            .map(({ id, text }) => ({ match: id.match(/_cell_-?\\d+_(\\d+)/), text }))
             .filter(item => item.match && item.text)
             .map(item => ({ index: Number(item.match[1]), text: item.text }));
           const headerByIndex = new Map(head.map(item => [item.index, item.text]));
@@ -1281,11 +1264,13 @@ foreach ($window in $windows) {
         if (!this.driver) throw new Error('Driver not initialized');
         if (!this.readOnlyMode) throw new Error('K2B 날짜별 결과 조회는 읽기 전용 세션에서만 가능합니다.');
         if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate) throw new Error('K2B 조회 날짜 범위가 올바르지 않습니다.');
-        const startDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_cal_fromdate_input')), 10000);
-        const endDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_cal_todate_input')), 10000);
-        await startDateInput.clear();
+        const startDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_start_date_calendaredit_input')), 10000);
+        const endDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_end_date_calendaredit_input')), 10000);
+        await startDateInput.click();
+        await startDateInput.sendKeys(Key.CONTROL, 'a', Key.BACK_SPACE);
         await startDateInput.sendKeys(fromDate.replaceAll('-', ''));
-        await endDateInput.clear();
+        await endDateInput.click();
+        await endDateInput.sendKeys(Key.CONTROL, 'a', Key.BACK_SPACE);
         await endDateInput.sendKeys(toDate.replaceAll('-', ''));
         await this.beginSubmissionGridRefreshObservation();
         const beforeRefresh = await this.captureSubmissionGridSnapshot();
