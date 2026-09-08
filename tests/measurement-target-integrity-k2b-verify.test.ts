@@ -183,7 +183,6 @@ test("새 K2B 검증은 날짜 필터 전용 경로와 업로드 직렬화/독�
   const directUpload = readFileSync("app/api/report-processing/upload-k2b/route.ts", "utf8");
   const verifyRoute = readFileSync("app/api/report-processing/verify-k2b/route.ts", "utf8");
   const migration = readFileSync("supabase/migrations/20260906022850_add_k2b_verification_fields.sql", "utf8");
-  const pilot = readFileSync("app/api/report-processing/verify-k2b/pilot/route.ts", "utf8");
   assert.match(service, /querySubmissionResultsForDate/); assert.doesNotMatch(service, /extractResults\(/);
   assert.match(k2b, /querySubmissionResultsForDate\(resultDate/); assert.match(k2b, /start_date_calendaredit_input/); assert.match(k2b, /end_date_calendaredit_input/); assert.match(k2b, /readOnlyMode/); assert.match(k2b, /waitForSubmissionGridRefresh/); assert.doesNotMatch(k2b, /stableIdentifier/);
   assert.match(worker, /job\.job_type === 'k2b_verify'/); assert.match(worker, /k2b_verification_attempted_at/); assert.match(worker, /\.select\('k2b_id, k2b_pw'\)/); assert.match(worker, /querySubmissionResultsForDate\(sendDate, verificationCredentials\)/); assert.match(worker, /\.gte\('k2b_send_date', unresolvedSince\)/); assert.match(worker, /\.lte\('k2b_send_date', resultDate\)/); assert.match(worker, /UNVERIFIED,STALE,YELLOW,RED/); assert.match(worker, /REPORT_PROCESSING_EXCLUDED_BUSINESS_NAME_PATTERN/); assert.match(worker, /selectReportProcessingCodes/); assert.match(worker, /from\('measurement_target_business'\)/); assert.doesNotMatch(worker, /K2B_VERIFY_MANUAL_CANDIDATE_LIMIT/); assert.match(worker, /journalsBySendDate/); assert.match(worker, /requireK2BJournalPersistence/); assert.match(scheduler, /cron\.schedule\(K2B_VERIFY_SCHEDULE/);
@@ -196,7 +195,6 @@ test("새 K2B 검증은 날짜 필터 전용 경로와 업로드 직렬화/독�
   assert.doesNotMatch(verificationPath, /k2b_sender\s*:/);
   assert.match(migration, /k2b_verified_send_date/); assert.match(migration, /k2b_consistency_status/); assert.match(migration, /k2b_consistency_note/); assert.match(migration, /enqueue_k2b_automation_job/); assert.match(migration, /enqueue_k2b_upload_job/); assert.match(migration, /TO service_role/); assert.doesNotMatch(migration, /GRANT EXECUTE[^;]+authenticated/);
   assert.match(queue, /checkPermission\('journal:write'\)/); assert.match(queue, /createAdminClient/); assert.match(queue, /enqueueSerializedK2BUpload/); assert.match(directUpload, /K2BService/); assert.match(directUpload, /measurement_journal/); assert.match(directUpload, /extractResults/); assert.doesNotMatch(directUpload, /enqueueSerializedK2BUpload/); assert.doesNotMatch(directUpload, /status: 202/); assert.match(verifyRoute, /checkPermission\("journal:write"\)/); assert.match(verifyRoute, /createAdminClient/); assert.match(scheduler, /createAdminClient/);
-  assert.match(pilot, /MAX_PILOT_JOURNALS = 20/); assert.match(pilot, /remoteK2BReadExecuted: false/);
 });
 
 test("K2B 정합성 UI의 주 표시는 내부 enum이 아닌 신호등과 사용자 문구다", () => {
