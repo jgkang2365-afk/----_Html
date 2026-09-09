@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Dashboard } from "@/components/features/Dashboard";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
 import { SyncStatus } from "@/components/features/SyncStatus";
@@ -28,6 +28,7 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
     const [syncRefreshKey, setSyncRefreshKey] = useState(0);
     const [mesSyncStatus, setMesSyncStatus] = useState<'idle' | 'running' | 'success' | 'error' | 'cancelled'>('idle');
     const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
+    const mesPollIntervalRef = useRef<number | null>(null);
 
     const isSyncing = mesSyncStatus === 'running';
 
@@ -52,33 +53,6 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
             
             const data = await res.json();
             if (res.ok && data.success) {
-                // 수동 동기화 시작 후 3초 간격 폴링 시작
-                const pollInterval = setInterval(async () => {
-                    try {
-                        const statusRes = await fetch("/api/cron/mes-trigger");
-                        const statusData = await statusRes.json();
-                        if (statusRes.ok && statusData.success) {
-                            if (statusData.status === 'success') {
-                                setMesSyncStatus('success');
-                                clearInterval(pollInterval);
-                                setSyncRefreshKey(prev => prev + 1); // 데이터 리프레시 트리거
-                                setTimeout(() => {
-                                    setMesSyncStatus('idle');
-                                }, 2500);
-                            } else if (statusData.status === 'cancelled') {
-                                setMesSyncStatus('cancelled');
-                                setSyncErrorMessage(statusData.error || '사용자 요청으로 동기화를 중단했습니다.');
-                                clearInterval(pollInterval);
-                            } else if (statusData.status === 'error') {
-                                setMesSyncStatus('error');
-                                setSyncErrorMessage(statusData.error || "동기화 처리 중 서버 오류가 발생했습니다.");
-                                clearInterval(pollInterval);
-                            }
-                        }
-                    } catch (pollErr) {
-                        console.error("[DashboardClient] 동기화 상태 폴링 중 실패:", pollErr);
-                    }
-                }, 3000);
             } else {
                 setMesSyncStatus('error');
                 setSyncErrorMessage(data.error || "동기화 요청이 거부되었습니다.");
@@ -88,6 +62,49 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
             setSyncErrorMessage(err.message || String(err));
         }
     };
+
+    useEffect(() => {
+        if (mesSyncStatus !== 'running') return;
+        const clearMesPolling = () => {
+            if (mesPollIntervalRef.current !== null) {
+                window.clearInterval(mesPollIntervalRef.current);
+                mesPollIntervalRef.current = null;
+            }
+        };
+        const pollStatus = async () => {
+            if (document.visibilityState !== 'visible') return;
+            try {
+                const statusRes = await fetch("/api/cron/mes-trigger");
+                const statusData = await statusRes.json();
+                if (!statusRes.ok || !statusData.success) return;
+                if (statusData.status === 'success') {
+                    clearMesPolling();
+                    setMesSyncStatus('success');
+                    setSyncRefreshKey(prev => prev + 1);
+                    window.setTimeout(() => setMesSyncStatus('idle'), 2500);
+                } else if (statusData.status === 'cancelled') {
+                    clearMesPolling();
+                    setMesSyncStatus('cancelled');
+                    setSyncErrorMessage(statusData.error || '사용자 요청으로 동기화를 중단했습니다.');
+                } else if (statusData.status === 'error') {
+                    clearMesPolling();
+                    setMesSyncStatus('error');
+                    setSyncErrorMessage(statusData.error || "동기화 처리 중 서버 오류가 발생했습니다.");
+                }
+            } catch (pollErr) {
+                console.error("[DashboardClient] 동기화 상태 폴링 중 실패:", pollErr);
+            }
+        };
+        void pollStatus();
+        mesPollIntervalRef.current = window.setInterval(() => void pollStatus(), 30000);
+        window.addEventListener('focus', pollStatus);
+        document.addEventListener('visibilitychange', pollStatus);
+        return () => {
+            clearMesPolling();
+            window.removeEventListener('focus', pollStatus);
+            document.removeEventListener('visibilitychange', pollStatus);
+        };
+    }, [mesSyncStatus]);
 
     const handleCancelMesSync = useCallback(async () => {
         if (mesSyncStatus !== 'running') return;

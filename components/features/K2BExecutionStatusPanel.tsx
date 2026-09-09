@@ -104,8 +104,17 @@ export function K2BExecutionStatusPanel({ refreshKey }: { refreshKey: string | n
   useEffect(() => { void refresh(); }, [refresh, refreshKey]);
   useEffect(() => {
     if (!execution || !execution.queueStatus || TERMINAL_STATUSES.has(execution.queueStatus)) return;
-    const interval = window.setInterval(() => void refresh(), 5000);
-    return () => window.clearInterval(interval);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 30000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [execution, refresh]);
 
   return <Card className="space-y-3 p-4" aria-label="최근 K2B 실제결과 검증 실행상태">
