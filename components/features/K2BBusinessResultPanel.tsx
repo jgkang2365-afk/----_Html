@@ -66,6 +66,7 @@ export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFini
   const [adminFromDate, setAdminFromDate] = useState("");
   const [adminToDate, setAdminToDate] = useState("");
   const [adminQueueing, setAdminQueueing] = useState(false);
+  const [adminRangeOpen, setAdminRangeOpen] = useState(false);
   const completionNotifiedRef = useRef<string | null>(null);
   const completionCallbackRef = useRef(onExecutionFinished);
   const { user } = useUser();
@@ -168,6 +169,7 @@ export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFini
       if (!response.ok || typeof body.jobId !== "string") throw new Error(body.error || "관리자 기간 재검증 등록에 실패했습니다.");
       toast.success(body.message || "관리자 기간 K2B 실제결과 재검증을 등록했습니다.");
       onVerificationQueued(body.jobId);
+      setAdminRangeOpen(false);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : "관리자 기간 재검증 등록에 실패했습니다.");
     } finally {
@@ -184,14 +186,15 @@ export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFini
         </div>
         <div className="flex items-center gap-2">
           {execution?.queueStatus && <span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{executionStatusLabel(execution.queueStatus)}</span>}
+          {isAdmin && <Button type="button" size="sm" variant="secondary" aria-expanded={adminRangeOpen} onClick={() => setAdminRangeOpen((open) => !open)}>{adminRangeOpen ? "기간 설정 닫기" : "관리자 기간 재검증"}</Button>}
           <Button type="button" size="sm" variant="secondary" onClick={() => void refresh()} disabled={loading}>{loading ? "확인 중" : "새로고침"}</Button>
           <Button type="button" size="sm" variant="primary" disabled={selectedRows.length === 0 || execution?.queueStatus !== "success"} onClick={() => setApprovalOpen(true)}>선택 반영 ({selectedRows.length})</Button>
         </div>
       </div>
-      {isAdmin && <div className="flex flex-wrap items-end gap-2 rounded border border-slate-200 bg-slate-50 p-3">
-        <Input type="date" label="관리자 시작일" value={adminFromDate} onChange={(event) => setAdminFromDate(event.target.value)} className="h-9 text-sm" />
-        <Input type="date" label="관리자 종료일" value={adminToDate} onChange={(event) => setAdminToDate(event.target.value)} className="h-9 text-sm" />
-        <Button type="button" size="sm" variant="secondary" onClick={() => void requestAdminRangeVerification()} disabled={adminQueueing}>최대 31일 재검증</Button>
+      {isAdmin && adminRangeOpen && <div className="flex flex-wrap items-end gap-3 rounded border border-slate-200 bg-slate-50 p-3">
+        <div className="w-full sm:w-48"><Input type="date" label="시작일" value={adminFromDate} onChange={(event) => setAdminFromDate(event.target.value)} className="h-9 text-sm" /></div>
+        <div className="w-full sm:w-48"><Input type="date" label="종료일" value={adminToDate} onChange={(event) => setAdminToDate(event.target.value)} className="h-9 text-sm" /></div>
+        <Button type="button" size="sm" variant="primary" onClick={() => void requestAdminRangeVerification()} disabled={adminQueueing}>{adminQueueing ? "등록 중" : "최대 31일 재검증"}</Button>
       </div>}
       {error && <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>}
       {execution?.lastError && <p role="alert" className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">최근 검증 오류: {execution.lastError}</p>}

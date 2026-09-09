@@ -62,7 +62,9 @@ test("일반 범위는 KST 오늘 포함 7일, 관리자 직접 범위는 최대
   assert.match(verifyRoute, /session\?\.role !== "관리자"/);
   assert.match(verifyRoute, /enqueue_k2b_automation_job/);
   const panel = readFileSync("components/features/K2BBusinessResultPanel.tsx", "utf8");
-  assert.match(panel, /isAdmin &&/);
+  assert.match(panel, /isAdmin && <Button[^>]*aria-expanded=\{adminRangeOpen\}/);
+  assert.match(panel, /isAdmin && adminRangeOpen &&/);
+  assert.match(panel, /관리자 기간 재검증/);
   assert.match(panel, /최대 31일 재검증/);
 });
 
