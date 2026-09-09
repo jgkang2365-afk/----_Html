@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
         
         let journalQuery = supabase
             .from('measurement_journal')
-            .select('code, measurement_year, measurement_period, k2b_send_date, k2b_status, k2b_verified_status, k2b_verified_at, k2b_verified_send_date, k2b_consistency_status, k2b_consistency_note')
+            .select('code, measurement_year, measurement_period, industrial_accident_number, commencement_number, k2b_send_date, k2b_status, k2b_verified_status, k2b_verified_at, k2b_verified_send_date, k2b_verified_remote_status, k2b_consistency_status, k2b_consistency_note')
             .in('code', codes);
 
         // 연도/주기 필터가 있으면 조인 쿼리에도 적용하여 효율화
@@ -122,9 +122,12 @@ export async function GET(req: NextRequest) {
                 measurement_dates,
                 k2b_send_date: journal?.k2b_send_date || null,
                 k2b_status: journal?.k2b_status || null,
+                industrial_accident_number: journal?.industrial_accident_number || null,
+                commencement_number: journal?.commencement_number || null,
                 k2b_verified_status: journal?.k2b_verified_status || 'UNVERIFIED',
                 k2b_verified_at: journal?.k2b_verified_at || null,
                 k2b_verified_send_date: journal?.k2b_verified_send_date || null,
+                k2b_verified_remote_status: journal?.k2b_verified_remote_status || null,
                 k2b_consistency_status: journal?.k2b_consistency_status || 'UNVERIFIED',
                 k2b_consistency_note: journal?.k2b_consistency_note || '실제결과 미검증'
             }];

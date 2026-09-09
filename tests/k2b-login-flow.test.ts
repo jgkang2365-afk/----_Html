@@ -103,7 +103,7 @@ test("로그인 입력 전에는 고정 sleep이나 팝업별 wait를 사용하�
   const source = readFileSync("lib/automation/k2b-service.ts", "utf8");
   const popupHelperStart = source.indexOf("export async function closeExistingK2BLoginPopups");
   const popupHelperEnd = source.indexOf("type FileDialogDiagnosticContext", popupHelperStart);
-  const loginStart = source.indexOf("async login(id?: string, pw?: string)");
+  const loginStart = source.indexOf("async login()");
   const loginInputEnd = source.indexOf("// 로그인 성공 확인", loginStart);
   const popupHelper = source.slice(popupHelperStart, popupHelperEnd);
   const loginInputFlow = source.slice(loginStart, loginInputEnd);

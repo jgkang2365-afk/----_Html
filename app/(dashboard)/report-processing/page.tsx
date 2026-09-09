@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Card } from '@/components/ui/Card';
-import { K2BExecutionStatusPanel } from '@/components/features/K2BExecutionStatusPanel';
+import { K2BBusinessResultPanel } from '@/components/features/K2BBusinessResultPanel';
 import {
     collectReportExplorerBusinessNames,
     deriveReportExplorerConnectionStatus,
@@ -25,6 +25,7 @@ import {
     searchReportExplorer
 } from '@/lib/report-explorer/client';
 import { reportProcessingMeasurementDateLabel } from '@/lib/report-processing/measurement-dates';
+import { clearReportProcessingSearchFilters, shouldRunInitialReportProcessingQuery } from '@/lib/report-processing/query-control';
 import type {
     ReportExplorerConnectionStatus,
     ReportExplorerMatch,
@@ -45,6 +46,10 @@ interface BusinessRecord {
     last_email_sent_at: string | null;
     k2b_send_date: string | null;
     k2b_status: string | null;
+    industrial_accident_number: string | null;
+    commencement_number: string | null;
+    k2b_verified_send_date: string | null;
+    k2b_verified_remote_status: string | null;
     k2b_verified_status: 'GREEN' | 'YELLOW' | 'RED' | 'UNVERIFIED' | 'STALE';
     k2b_verified_at: string | null;
     k2b_consistency_status: 'GREEN' | 'YELLOW' | 'RED' | 'UNVERIFIED' | 'STALE';
@@ -138,22 +143,23 @@ export default function ReportProcessingPage() {
     const [explorerSearching, setExplorerSearching] = useState(false);
     const [explorerOpeningResultId, setExplorerOpeningResultId] = useState<string | null>(null);
     const explorerAbortControllerRef = useRef<AbortController | null>(null);
+    const initialQueryDoneRef = useRef(false);
 
     // 시스템 기준 현재 주기 정의 (정규/추가 구분용)
     const CURRENT_YEAR = new Date().getFullYear();
     const CURRENT_PERIOD = '상반기';
 
     // 데이터 조회
-    const fetchRecords = async (isRefresh = false) => {
+    const fetchRecords = async (isRefresh = false, queryFilters = filters) => {
         if (isRefresh) setRefreshing(true);
         else setLoading(true);
 
         try {
             const searchParams = new URLSearchParams({
-                year: filters.year,
-                period: filters.period,
-                measurementDate: filters.measurementDate,
-                search: filters.search,
+                year: queryFilters.year,
+                period: queryFilters.period,
+                measurementDate: queryFilters.measurementDate,
+                search: queryFilters.search,
                 t: Date.now().toString()
             });
             const res = await fetch(`/api/report-processing?${searchParams.toString()}`);
@@ -191,9 +197,16 @@ export default function ReportProcessingPage() {
     }, [filters, filtersReady]);
 
     useEffect(() => {
-        if (!filtersReady) return;
-        fetchRecords();
-    }, [filters.year, filters.period, filters.measurementDate, filtersReady]);
+        if (!shouldRunInitialReportProcessingQuery(filtersReady, initialQueryDoneRef.current)) return;
+        initialQueryDoneRef.current = true;
+        void fetchRecords();
+    }, [filtersReady]);
+
+    const clearSearchFilters = () => {
+        const next = clearReportProcessingSearchFilters(filters);
+        setFilters(next);
+        void fetchRecords(false, next);
+    };
 
     useEffect(() => {
         setExplorerYear(filters.year === 'all' ? '' : filters.year);
@@ -516,16 +529,13 @@ export default function ReportProcessingPage() {
     };
 
     const handleManualK2BReverify = async () => {
-        const resultDate = window.prompt('읽기 전용 K2B 실제결과 검증일(YYYY-MM-DD)을 입력하세요. 업로드는 수행하지 않습니다.');
-        if (!resultDate) return;
         try {
-            const response = await fetch('/api/report-processing/verify-k2b', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resultDate }) });
+            const response = await fetch('/api/report-processing/verify-k2b', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
             const body = await response.json();
             if (!response.ok) throw new Error(body.error || '재검증 등록 실패');
             toast.success(body.message || 'K2B 읽기 전용 재검증을 등록했습니다.');
             setActiveJob({ id: body.jobId, type: 'k2b_verify' });
             setK2BExecutionRefreshKey(body.jobId);
-            monitorJob(body.jobId, 'k2b_verify');
         } catch (error) { toast.error(error instanceof Error ? error.message : 'K2B 재검증 등록 실패'); }
     };
 
@@ -648,7 +658,21 @@ export default function ReportProcessingPage() {
                 </div>
             </div>
 
-            <K2BExecutionStatusPanel refreshKey={k2bExecutionRefreshKey} />
+            <K2BBusinessResultPanel
+                refreshKey={k2bExecutionRefreshKey}
+                onApproved={() => void fetchRecords(true)}
+                onVerificationQueued={(jobId) => {
+                    setActiveJob({ id: jobId, type: 'k2b_verify' });
+                    setK2BExecutionRefreshKey(jobId);
+                }}
+                onExecutionFinished={(status) => {
+                    setActiveJob((current) => current?.type === 'k2b_verify' ? null : current);
+                    if (status === 'success') toast.success('K2B 실제결과 검증이 완료되었습니다.');
+                    else if (status === 'cancelled') toast.warning('K2B 실제결과 검증이 취소되었습니다.');
+                    else toast.error('K2B 실제결과 검증에 실패했습니다.');
+                    void fetchRecords(true);
+                }}
+            />
 
             <Card className="grid gap-3 p-4 md:grid-cols-[10rem_10rem_10rem_minmax(16rem,1fr)] md:items-end">
                 <div>
@@ -702,20 +726,8 @@ export default function ReportProcessingPage() {
                             }}
                             className="h-10 pr-10 text-sm"
                         />
-                        {filters.search && !loading && (
-                            <button
-                                onClick={() => {
-                                    setFilters(prev => ({ ...prev, search: '' }));
-                                    // 검색어가 비워지면 즉시 조회
-                                    setTimeout(() => fetchRecords(), 0);
-                                }}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-400 hover:text-text-600 transition-colors"
-                                title="검색어 초기화"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        )}
                     </div>
+                    <Button size="sm" className="h-10 shrink-0 px-3" onClick={clearSearchFilters} variant="secondary" disabled={loading || refreshing}>초기화</Button>
                     <Button size="sm" className="h-10 shrink-0 px-4" onClick={() => fetchRecords(false)} variant="primary" disabled={loading || refreshing}>
                         {loading ? (
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />

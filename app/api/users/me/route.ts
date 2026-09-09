@@ -15,7 +15,7 @@ export async function PATCH(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { job, k2b_id, k2b_pw, survey_code } = body;
+        const { job, survey_code } = body;
 
         const supabase = await createClient();
 
@@ -24,12 +24,10 @@ export async function PATCH(request: NextRequest) {
             .from("users")
             .update({
                 ...(job && { job }),
-                ...(k2b_id !== undefined && { k2b_id }),
-                ...(k2b_pw !== undefined && { k2b_pw }),
                 ...(survey_code !== undefined && { survey_code: survey_code || null }),
             })
             .eq("id", session.userId)
-            .select("id, name, role, job, survey_code, k2b_id, updated_at")
+            .select("id, name, role, job, survey_code, updated_at")
             .single();
 
         if (updateError) {
