@@ -1305,23 +1305,22 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         ["신청중", "조회중", "신청완료대기"].includes(item.sync_status || "")
     );
 
-    // 깡통컴의 DB 변경을 화면에 반영합니다. 진행 중에는 빠르게, 평상시에는 낮은 빈도로 확인합니다.
+    // 진행 중인 국고 조회만 visible 탭에서 보완 확인한다.
     useEffect(() => {
         const refreshWhenVisible = () => {
             if (document.visibilityState === "visible") {
-                fetchData({ silent: true });
+                void fetchData({ silent: true });
             }
         };
 
-        const timer = window.setInterval(
-            refreshWhenVisible,
-            hasPendingNationalSupport ? 3000 : 15000,
-        );
+        const timer = hasPendingNationalSupport
+            ? window.setInterval(refreshWhenVisible, 30000)
+            : null;
         window.addEventListener("focus", refreshWhenVisible);
         document.addEventListener("visibilitychange", refreshWhenVisible);
 
         return () => {
-            window.clearInterval(timer);
+            if (timer !== null) window.clearInterval(timer);
             window.removeEventListener("focus", refreshWhenVisible);
             document.removeEventListener("visibilitychange", refreshWhenVisible);
         };

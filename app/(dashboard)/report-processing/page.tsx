@@ -128,6 +128,7 @@ export default function ReportProcessingPage() {
     const [manualExplorerNames, setManualExplorerNames] = useState('');
     const [explorerYear, setExplorerYear] = useState('');
     const [explorerPeriod, setExplorerPeriod] = useState<ReportExplorerPeriod | ''>('');
+    const jobMonitorIntervalRef = useRef<number | null>(null);
     const [reportPage, setReportPage] = useState(1);
     const [explorerPage, setExplorerPage] = useState(1);
     const [explorerResults, setExplorerResults] = useState<ReportExplorerQueryResult[]>([]);
@@ -272,6 +273,15 @@ export default function ReportProcessingPage() {
         };
     }, [cancelReportExplorerRequest]);
 
+    const clearJobMonitor = useCallback(() => {
+        if (jobMonitorIntervalRef.current !== null) {
+            window.clearInterval(jobMonitorIntervalRef.current);
+            jobMonitorIntervalRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => () => clearJobMonitor(), [clearJobMonitor]);
+
     const cancelActiveJob = useCallback(async () => {
         if (!activeJob) return;
         const label = activeJob.type === 'email' ? '이메일 전송' : activeJob.type === 'k2b_verify' ? 'K2B 실제결과 검증' : 'K2B 업로드';
@@ -286,14 +296,17 @@ export default function ReportProcessingPage() {
             const data = await res.json();
             if (res.ok && data.success) {
                 toast.info(`[${label}] 중단 요청을 전달했습니다.`);
-                if (data.status === 'cancelled') setActiveJob(null);
+                if (data.status === 'cancelled') {
+                    clearJobMonitor();
+                    setActiveJob(null);
+                }
             } else {
                 toast.error(data.error || '중단 요청을 전달하지 못했습니다.');
             }
         } catch {
             toast.error('중단 요청 중 서버 연결 오류가 발생했습니다.');
         }
-    }, [activeJob]);
+    }, [activeJob, clearJobMonitor]);
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
@@ -312,10 +325,12 @@ export default function ReportProcessingPage() {
     }, [activeJob, cancelActiveJob, cancelReportExplorerRequest]);
     // 백그라운드 작업 상태 실시간 모니터링 헬퍼
     const monitorJob = (jobId: string, jobType: 'email' | 'k2b' | 'k2b_verify') => {
+        clearJobMonitor();
         const startTime = Date.now();
         let notifiedProcessing = false;
 
-        const interval = setInterval(async () => {
+        const checkStatus = async () => {
+            if (document.visibilityState !== 'visible') return;
             try {
                 const res = await fetch(`/api/report-processing/job-status?id=${jobId}`);
                 if (!res.ok) return;
@@ -333,18 +348,18 @@ export default function ReportProcessingPage() {
                 // 2. 완료 또는 실패 시 감시 종료 및 목록 새로고침
                 if (status === 'success') {
                     toast.success(`[${jobType === 'email' ? '이메일' : jobType === 'k2b_verify' ? 'K2B 검증' : 'K2B'}] 백그라운드 작업이 완료되었습니다.`);
-                    clearInterval(interval);
+                    clearJobMonitor();
                     setActiveJob(null);
                     if (jobType === 'k2b_verify') setK2BExecutionRefreshKey(jobId);
                     fetchRecords(); // 목록 새로고침
                 } else if (status === 'cancelled') {
                     toast.warning(`[${jobType === 'email' ? '이메일' : jobType === 'k2b_verify' ? 'K2B 검증' : 'K2B'}] 사용자 요청으로 작업을 중단했습니다.`);
-                    clearInterval(interval);
+                    clearJobMonitor();
                     setActiveJob(null);
                     fetchRecords();
                 } else if (status === 'failed') {
                     toast.error(`[${jobType === 'email' ? '이메일' : jobType === 'k2b_verify' ? 'K2B 검증' : 'K2B'}] 백그라운드 작업 실패: ${errorMsg || '알 수 없는 오류'}`);
-                    clearInterval(interval);
+                    clearJobMonitor();
                     setActiveJob(null);
                     if (jobType === 'k2b_verify') setK2BExecutionRefreshKey(jobId);
                     fetchRecords(); // 목록 새로고침
@@ -357,13 +372,16 @@ export default function ReportProcessingPage() {
                         `[로컬 서버 미구동] 전송 요청이 접수되었으나 1분 동안 처리되지 않았습니다. 사내 로컬 컴퓨터의 개발 서버가 켜져 있는지 확인해 주세요.`,
                         { duration: 10000 }
                     );
-                    clearInterval(interval);
+                    clearJobMonitor();
                 }
 
             } catch (err) {
                 console.error("작업 상태 모니터링 오류:", err);
             }
-        }, 5000);
+        };
+
+        void checkStatus();
+        jobMonitorIntervalRef.current = window.setInterval(() => void checkStatus(), 30000);
     };
 
     // 메일 발송 처리 (합산 발송 로직 포함)

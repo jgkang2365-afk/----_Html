@@ -112,9 +112,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
 
   useEffect(() => {
     if (user) {
-      fetchNotifications();
-      const interval = setInterval(fetchNotifications, 60000); // 1분마다 확인
-      return () => clearInterval(interval);
+      void fetchNotifications();
     }
   }, [user]);
 
@@ -209,7 +207,10 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                 variant="secondary"
                 size="sm"
                 className="relative h-9 w-9 p-0 rounded-full"
-                onClick={() => setShowNotifications(!showNotifications)}
+                onClick={() => {
+                  if (!showNotifications) void fetchNotifications();
+                  setShowNotifications(!showNotifications);
+                }}
                 title="알림"
               >
                 <Bell size={20} className="text-text-600" />

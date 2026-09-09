@@ -3,6 +3,10 @@
  * 서버 시작 시 백그라운드 작업을 등록하기 위한 진입점
  */
 export async function register() {
+    // Vercel Fluid 인스턴스에는 로컬 자동화 daemon/cron을 올리지 않는다.
+    if (process.env.VERCEL) {
+        return;
+    }
     // 빌드 단계에서는 백그라운드 작업을 실행하지 않음
     if (process.env.NEXT_PHASE === 'phase-production-build') {
         return;
