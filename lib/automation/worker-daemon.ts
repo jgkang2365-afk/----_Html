@@ -3,7 +3,7 @@ import { EmailService } from '../email/email-service';
 import { K2BService } from './k2b-service';
 import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-verification-service';
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
-import { reconcileK2BSubmissionResults, statusToState, verificationFailureState } from '../k2b-verification';
+import { hasK2BReceiptError, reconcileK2BSubmissionResults, statusToState, verificationFailureState } from '../k2b-verification';
 import { buildGeneralK2BVerificationRange, buildK2BSyncRange, inclusiveK2BDates, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
 import os from 'node:os';
@@ -527,7 +527,11 @@ export class WorkerDaemon {
                   executionResult.remoteK2BReadExecuted = true;
                   executionResult.queriedDates = [range.fromDate, range.toDate];
                   executionResult.remoteRowCount = grid.rows.length;
+                  executionResult.remoteExpectedRowCount = grid.expectedRowCount;
+                  executionResult.gridReadMethod = grid.readMethod;
+                  executionResult.gridReadComplete = grid.completeness;
                   executionResult.dateResults = [{ fromDate: range.fromDate, toDate: range.toDate, outcome: grid.outcome, rowCount: grid.rows.length }];
+                  if (grid.completeness !== 'COMPLETE') throw new Error('K2B_GRID_READ_INCOMPLETE');
                   return grid.rows;
                 } catch (error: any) {
                   const message = error?.message || String(error);
@@ -555,7 +559,7 @@ export class WorkerDaemon {
                 if (journals?.length === 1) {
                     const journal = journals[0];
                     executionResult.journalVerification.matched += 1;
-                    const state = statusToState(receipt.status, { internalK2BStatus: journal.k2b_status, internalK2BSendDate: journal.k2b_send_date, resultDate: receipt.actualSubmissionDate }, receipt.errorViewAvailable);
+                    const state = statusToState(receipt.status, { internalK2BStatus: journal.k2b_status, internalK2BSendDate: journal.k2b_send_date, resultDate: receipt.actualSubmissionDate }, hasK2BReceiptError(receipt));
                     const { error: updateError } = await admin.from('measurement_journal').update({
                         k2b_verified_status: state, k2b_verified_at: getKSTISOString(), k2b_verified_send_date: receipt.actualSubmissionDate,
                         k2b_verified_result_date: receipt.actualSubmissionDate, k2b_verified_remote_status: receipt.status,
@@ -684,7 +688,10 @@ export class WorkerDaemon {
             executionResult.remoteK2BReadExecuted = true;
             executionResult.queriedDates = [verificationRange.fromDate, verificationRange.toDate];
             executionResult.remoteRowCount = rangeGrid.rows.length;
-            const rangeResults = rangeGrid.rows.map((row) => ({ managementNumber: row.managementNumber, commencementNumber: row.commencementNumber, companyName: row.companyName, submissionDate: row.actualSubmissionDate, status: row.status, errorViewAvailable: row.errorViewAvailable, errorDetail: row.errorDetail, submissionNumber: row.submissionNumber }));
+            executionResult.remoteExpectedRowCount = rangeGrid.expectedRowCount;
+            executionResult.gridReadMethod = rangeGrid.readMethod;
+            executionResult.gridReadComplete = rangeGrid.completeness;
+            const rangeResults = rangeGrid.rows.map((row) => ({ managementNumber: row.managementNumber, commencementNumber: row.commencementNumber, companyName: row.companyName, submissionDate: row.actualSubmissionDate, status: row.status, errorViewAvailable: row.errorViewAvailable, errorDetail: row.errorDetail, submissionNumber: row.submissionNumber, identityConflict: row.identityConflict }));
             // 과거 미해결 건은 오늘 날짜에 억지로 대입하지 않고 각 내부 전송일별로 재조회한다.
             const journalsBySendDate = new Map<string, any[]>();
             for (const journal of journals || []) {
@@ -705,7 +712,7 @@ export class WorkerDaemon {
                     journalId: journal.id, code: String(journal.code ?? ''), industrialAccidentNumber: journal.industrial_accident_number, commencementNumber: journal.commencement_number, businessName: String(journal.business_name ?? ''), resultDate: sendDate,
                     previousVerifiedStatus: journal.k2b_verified_status, previousVerifiedAt: journal.k2b_verified_at,
                     internalK2BStatus: journal.k2b_status, internalK2BSendDate: journal.k2b_send_date,
-                })), remoteResults);
+                })), remoteResults, rangeGrid);
                 for (let index = 0; index < reconciled.length; index++) {
                     const item = reconciled[index];
                     if (item.matchMethod === 'AMBIGUOUS') executionResult.matchCounts.ambiguous += 1;
@@ -717,7 +724,7 @@ export class WorkerDaemon {
                     reconciledWithJournal.push({ sendDate, journal: dateJournals[index], item });
                 }
             }
-            executionResult.remoteReadState = executionResult.remoteK2BReadExecuted ? 'completed' : 'not_required';
+            executionResult.remoteReadState = rangeGrid.completeness === 'COMPLETE' ? 'completed' : 'partial';
             for (const { sendDate, journal, item } of reconciledWithJournal) {
                 const attemptedAt = getKSTISOString();
                 executionResult.persistence.attempted += 1;
@@ -743,7 +750,7 @@ export class WorkerDaemon {
                 } else {
                     const { data: updatedRows, error: updateError } = await supabase.from('measurement_journal').update({
                         k2b_consistency_status: item.state,
-                        k2b_consistency_note: item.matchMethod === 'AMBIGUOUS' ? 'K2B 결과가 복수 후보여서 자동 확정하지 않음' : 'K2B 실제결과를 명확히 연결하지 못함',
+                        k2b_consistency_note: rangeGrid.completeness !== 'COMPLETE' ? 'K2B 전체 행 수집을 확인하지 못해 확인 필요' : item.matchMethod === 'AMBIGUOUS' ? 'K2B 결과가 복수 후보여서 자동 확정하지 않음' : 'K2B 실제결과를 명확히 연결하지 못함',
                         k2b_verification_attempted_at: attemptedAt,
                     }).eq('id', journal.id).select('id');
                     if (updateError) throw updateError;
@@ -766,7 +773,7 @@ export class WorkerDaemon {
                     : journal.k2b_status ?? null,
                 internalSubmissionDate: journal.k2b_send_date ?? null,
                 submissionNumber: item.match?.submissionNumber ?? null,
-                errorViewAvailable: item.match?.errorViewAvailable === true,
+                errorViewAvailable: item.match ? hasK2BReceiptError(item.match) : false,
                 errorDetail: item.match?.errorDetail ?? null,
                 approvalRequired: item.verdict === '날짜 불일치' || item.verdict === '내부 전송일자 없음',
             }));
@@ -950,6 +957,7 @@ export class WorkerDaemon {
                     errorViewAvailable: row.errorViewAvailable,
                     errorDetail: row.errorDetail,
                     submissionNumber: row.submissionNumber,
+                    identityConflict: row.identityConflict,
                 }));
 
                 for (const matchTarget of targets) {
@@ -963,15 +971,15 @@ export class WorkerDaemon {
                         resultDate: getKSTDateString(),
                         internalK2BStatus: null,
                         internalK2BSendDate: getKSTDateString(),
-                    }], gridResults);
+                    }], gridResults, grid);
                     const gr = reconciled?.match;
                     if (!gr || reconciled.matchMethod !== 'exact_keys') {
                         console.log(`[WorkerDaemon K2B] exact-key result unresolved: target=${matchTarget.code} method=${reconciled?.matchMethod || 'NONE'}`);
                         continue;
                     }
 
-                    const isNormal = String(gr.status || '').trim() === '\uC815\uC0C1\uCC98\uB9AC' && gr.errorViewAvailable !== true;
-                    const effectiveStatus = gr.errorViewAvailable
+                    const isNormal = String(gr.status || '').trim() === '\uC815\uC0C1\uCC98\uB9AC' && !hasK2BReceiptError(gr);
+                    const effectiveStatus = hasK2BReceiptError(gr)
                         ? `${String(gr.status || 'status-missing').trim()} / \uC624\uB958\uBCF4\uAE30`
                         : String(gr.status || 'status-missing').trim();
                     const updateGridData: Record<string, any> = {

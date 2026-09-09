@@ -17,7 +17,7 @@ test("K2B 자동 매핑은 사업장명/날짜가 아니라 산재관리번호+�
     { managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리" },
   ]);
   assert.equal(duplicate.matchMethod, "AMBIGUOUS");
-  const [oneKeyOnly] = reconcileK2BSubmissionResults([target], [{ managementNumber: "12345", commencementNumber: "99999", submissionDate: "2026-09-09", status: "정상처리" }]);
+  const [oneKeyOnly] = reconcileK2BSubmissionResults([target], [{ managementNumber: "12345", commencementNumber: "99999", submissionDate: "2026-09-09", status: "정상처리" }], { completeness: "COMPLETE" });
   assert.equal(oneKeyOnly.verdict, "미접수");
   const [normalAfterError] = reconcileK2BSubmissionResults([target], [
     { managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-08", status: "파일오류" },
@@ -31,7 +31,7 @@ test("K2B 자동 매핑은 사업장명/날짜가 아니라 산재관리번호+�
   assert.equal(errorsOnly.verdict, "오류");
 });
 
-test("정상처리라도 오류보기가 있으면 오류이고 날짜 관련 verdict는 승인 대상으로 남긴다", () => {
+test("정상처리라도 실제 오류 신호가 있으면 오류이고 날짜 관련 verdict는 승인 대상으로 남긴다", () => {
   const [error] = reconcileK2BSubmissionResults([target], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리", errorViewAvailable: true }]);
   assert.equal(error.verdict, "오류");
   const [mismatch] = reconcileK2BSubmissionResults([{ ...target, internalK2BSendDate: "2026-09-08" }], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리" }]);
@@ -56,6 +56,7 @@ test("일반 범위는 KST 오늘 포함 7일, 관리자 직접 범위는 최대
   assert.match(worker, /gte\('k2b_send_date', verificationRange\.fromDate\)/);
   assert.match(worker, /lte\('k2b_send_date', verificationRange\.toDate\)/);
   assert.deepEqual(buildGeneralK2BVerificationRange("2026-09-09"), { fromDate: "2026-09-03", toDate: "2026-09-09" });
+  assert.deepEqual(assertAdminK2BVerificationRange("2026-08-10", "2026-09-09"), { fromDate: "2026-08-10", toDate: "2026-09-09" });
   assert.throws(() => assertAdminK2BVerificationRange("2026-08-01", "2026-09-01"), /OVER_31/);
   const verifyRoute = readFileSync("app/api/report-processing/verify-k2b/route.ts", "utf8");
   assert.match(verifyRoute, /assertAdminK2BVerificationRange/);
@@ -92,7 +93,7 @@ test("웹 upload route는 Selenium을 실행하지 않고 local worker queue로�
   assert.doesNotMatch(service, /async login\(id\?: string, pw\?: string\)/);
   assert.match(worker, /readCurrentSubmissionResults/);
   assert.doesNotMatch(worker, /gr\.companyName\.includes/);
-  assert.match(worker, /gr\.errorViewAvailable !== true/);
+  assert.match(worker, /!hasK2BReceiptError\(gr\)/);
 
   assert.doesNotMatch(currentUser, /\bk2b_id\b|\bk2b_pw\b/);
 });

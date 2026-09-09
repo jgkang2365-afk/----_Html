@@ -5,7 +5,8 @@ import fs from 'fs';
 import os from 'os';
 import { execFileSync } from 'child_process';
 import { resolveWindowsDialogPath } from './windows-file-path';
-import { parseK2BSubmissionGrid, type K2BGridRead } from './k2b-original-sync';
+import { parseK2BSubmissionGrid, type K2BGridRead, type K2BGridReadEvidence } from './k2b-original-sync';
+import { K2B_BEGIN_SUBMISSION_REFRESH_SCRIPT, K2B_END_SUBMISSION_REFRESH_SCRIPT, K2B_READ_SUBMISSION_GRID_SCRIPT, K2B_SUBMISSION_REFRESH_STATE_SCRIPT } from './k2b-grid-reader';
 
 export async function runWithSingleRetry<T>(
     operation: (attempt: 1 | 2) => Promise<T>,
@@ -39,19 +40,28 @@ export type K2BSubmissionGridSnapshot = {
     rowSignature: string;
     explicitEmpty: boolean;
     mutationVersion: number;
+    datasetLoadVersion?: number;
+    datasetLoadFailed?: boolean;
+    searchVersion?: number;
+    datasetEventAvailable?: boolean;
 };
 
 export function isK2BSubmissionRefreshComplete(
     before: K2BSubmissionGridSnapshot,
     current: K2BSubmissionGridSnapshot,
-    sawLoading: boolean
+    _sawLoading: boolean
 ): boolean {
-    if (current.loading) return false;
-    return sawLoading
-        || (before.gridElementId != null && current.gridElementId !== before.gridElementId)
-        || current.rowSignature !== before.rowSignature
-        || (!before.explicitEmpty && current.explicitEmpty)
-        || current.mutationVersion > before.mutationVersion;
+    if (current.loading || current.datasetLoadFailed) return false;
+    // Dataset onload가 실제로 연결된 경우에는 완료 event가 가장 강한 증거다.
+    if (current.datasetEventAvailable) {
+        return typeof before.datasetLoadVersion === 'number' && typeof current.datasetLoadVersion === 'number'
+            && current.datasetLoadVersion > before.datasetLoadVersion;
+    }
+    // DOM-only Nexacro에서는 검색 click 뒤 Grid content가 갱신되고 안정화된 경우에만 읽는다.
+    // 같은 날짜 재조회도 renderer의 child/text 갱신으로 완료를 증명하며, style 변화는 제외된다.
+    return typeof before.searchVersion === 'number' && typeof current.searchVersion === 'number'
+        && typeof before.mutationVersion === 'number' && typeof current.mutationVersion === 'number'
+        && current.searchVersion > before.searchVersion && current.mutationVersion > before.mutationVersion;
 }
 
 export async function closeExistingK2BLoginPopups(
@@ -161,24 +171,7 @@ export class K2BService {
 
     private async beginSubmissionGridRefreshObservation(): Promise<void> {
         if (!this.driver) throw new Error('Driver not initialized');
-        await this.driver.executeScript(`
-            const key = '__k2bSubmissionGridRefreshObserver';
-            const previous = window[key];
-            if (previous?.observer) previous.observer.disconnect();
-            const root = document.getElementById('mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work');
-            const state = { version: 0, observer: null };
-            if (root) {
-                state.observer = new MutationObserver(() => { state.version += 1; });
-                state.observer.observe(root, {
-                    subtree: true,
-                    childList: true,
-                    characterData: true,
-                    attributes: true,
-                    attributeFilter: ['class', 'style', 'aria-busy'],
-                });
-            }
-            window[key] = state;
-        `);
+        await this.driver.executeScript(K2B_BEGIN_SUBMISSION_REFRESH_SCRIPT);
     }
 
     private async captureSubmissionGridSnapshot(): Promise<K2BSubmissionGridSnapshot> {
@@ -212,10 +205,13 @@ export class K2BService {
         ));
         const explicitEmpty = await Promise.all(emptyMessages.map(element => element.isDisplayed().catch(() => false)))
             .then(states => states.some(Boolean));
-        const mutationVersion = Number(await this.driver.executeScript(
-            "return window.__k2bSubmissionGridRefreshObserver?.version || 0;"
-        ));
-        return { loading, gridElementId, rowSignature, explicitEmpty, mutationVersion };
+        const refresh = await this.driver.executeScript(K2B_SUBMISSION_REFRESH_STATE_SCRIPT) as {
+            datasetLoadVersion: number; datasetLoadFailed: boolean; datasetLoading: boolean;
+            searchVersion: number; mutationVersion: number; datasetEventAvailable: boolean;
+        };
+        return { loading: loading || refresh.datasetLoading, gridElementId, rowSignature, explicitEmpty, mutationVersion: refresh.mutationVersion,
+            datasetLoadVersion: refresh.datasetLoadVersion, datasetLoadFailed: refresh.datasetLoadFailed,
+            searchVersion: refresh.searchVersion, datasetEventAvailable: refresh.datasetEventAvailable };
     }
 
     private async waitForSubmissionGridRefresh(before: K2BSubmissionGridSnapshot): Promise<void> {
@@ -1230,33 +1226,18 @@ foreach ($window in $windows) {
         return results;
     }
 
-    /** 현재 Nexacro grid의 실제 header/body를 함께 수집한다. header가 바뀌면 파서는 fail-safe로 중단한다. */
+    /** 원본 Dataset 우선. 접근 불가 런타임만 가상 스크롤로 전체 수집을 증명한다. */
     private async readSubmissionGridByHeaders(): Promise<K2BGridRead> {
         if (!this.driver) throw new Error('Driver not initialized');
-        const grid = await this.driver.executeScript(`
-          const text = element => String(element?.innerText || element?.textContent || '').trim();
-          const head = [...document.querySelectorAll('[id*="grid_fileList_head"], [id*="grid_fileList_headGrid"]')]
-            .map(element => ({ id: element.id, text: text(element) }))
-            .map(({ id, text }) => ({ match: id.match(/_cell_-?\\d+_(\\d+)/), text }))
-            .filter(item => item.match && item.text)
-            .map(item => ({ index: Number(item.match[1]), text: item.text }));
-          const headerByIndex = new Map(head.map(item => [item.index, item.text]));
-          const headers = [...headerByIndex.keys()].sort((a,b) => a-b).map(index => headerByIndex.get(index));
-          const indexes = [...headerByIndex.keys()].sort((a,b) => a-b);
-          const body = [...document.querySelectorAll('[id*="grid_fileList_body_gridrow_"][id*="GridCellTextContainerElement"]')]
-            .map(element => ({ id: element.id, text: text(element) }))
-            .map(({ id, text }) => ({ match: id.match(/gridrow_(\\d+)_cell_\\d+_(\\d+)/), text }))
-            .filter(item => item.match);
-          const rowMap = new Map();
-          for (const item of body) {
-            const row = Number(item.match[1]); const column = Number(item.match[2]);
-            if (!rowMap.has(row)) rowMap.set(row, new Map());
-            rowMap.get(row).set(column, item.text);
-          }
-          return { headers, rows: [...rowMap.keys()].sort((a,b) => a-b).map(row => indexes.map(column => rowMap.get(row).get(column) || '')) };
-        `) as { headers?: unknown; rows?: unknown };
-        if (!Array.isArray(grid.headers) || !Array.isArray(grid.rows)) throw new Error('K2B_GRID_SCHEMA_MISMATCH:grid_not_readable');
-        return parseK2BSubmissionGrid(grid.headers.map(String), grid.rows.map(row => Array.isArray(row) ? row.map(String) : []));
+        const grid = await this.driver.executeScript(K2B_READ_SUBMISSION_GRID_SCRIPT) as K2BGridReadEvidence & { headers: string[]; rows: string[][] };
+        if (!grid || !Array.isArray(grid.headers) || !Array.isArray(grid.rows)
+            || !['nexacro_dataset', 'virtual_scroll'].includes(grid.readMethod)
+            || !['COMPLETE', 'INCOMPLETE', 'UNKNOWN'].includes(grid.completeness)
+            || !Number.isSafeInteger(grid.collectedUniqueRowCount)) throw new Error('K2B_GRID_SCHEMA_MISMATCH:grid_not_readable');
+        return parseK2BSubmissionGrid(grid.headers, grid.rows, {
+            expectedRowCount: grid.expectedRowCount, collectedUniqueRowCount: grid.collectedUniqueRowCount,
+            readMethod: grid.readMethod, completeness: grid.completeness,
+        });
     }
 
     /** 검증 전용: inclusive 날짜 범위를 한 번 조회하고 실제 header 기반 원본 receipt를 반환한다. */
@@ -1278,12 +1259,30 @@ foreach ($window in $windows) {
         await endDateInput.click();
         await endDateInput.sendKeys(Key.CONTROL, 'a', Key.BACK_SPACE);
         await endDateInput.sendKeys(toDate.replaceAll('-', ''));
+        const enteredFrom = String(await startDateInput.getAttribute('value')).replace(/\D/g, '');
+        const enteredTo = String(await endDateInput.getAttribute('value')).replace(/\D/g, '');
+        if (enteredFrom !== fromDate.replaceAll('-', '') || enteredTo !== toDate.replaceAll('-', '')) throw new Error('K2B_GRID_RANGE_MISMATCH');
         await this.beginSubmissionGridRefreshObservation();
+        try {
         const beforeRefresh = await this.captureSubmissionGridSnapshot();
+        if (beforeRefresh.loading) throw new Error('K2B_GRID_REFRESH_UNVERIFIABLE:already_loading');
         const searchButton = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_btn_SearchTextBoxElement > div')), 10000);
         await searchButton.click();
         await this.waitForSubmissionGridRefresh(beforeRefresh);
-        return this.readSubmissionGridByHeaders();
+        const fresh = await this.captureSubmissionGridSnapshot();
+        if (!isK2BSubmissionRefreshComplete(beforeRefresh, fresh, false)) throw new Error('K2B_GRID_REFRESH_UNVERIFIABLE');
+        const grid = await this.readSubmissionGridByHeaders();
+        if (grid.rows.some(row => row.actualSubmissionDate < fromDate || row.actualSubmissionDate > toDate)) {
+            throw new Error('K2B_GRID_RANGE_MISMATCH:submission_date_outside_range');
+        }
+        const afterRead = await this.captureSubmissionGridSnapshot();
+        if (!isK2BSubmissionRefreshComplete(beforeRefresh, afterRead, false) || afterRead.datasetLoadVersion !== fresh.datasetLoadVersion) {
+            throw new Error('K2B_GRID_REFRESH_UNVERIFIABLE:changed_during_read');
+        }
+        return grid;
+        } finally {
+            await this.driver.executeScript(K2B_END_SUBMISSION_REFRESH_SCRIPT);
+        }
     }
 
     /** 기존 단일 날짜 검증 계약: 실제 화면 접수일을 반환하며 synthetic resultDate를 만들지 않는다. */
