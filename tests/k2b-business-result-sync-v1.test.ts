@@ -51,6 +51,10 @@ test("내부 전송일이 같은 정상·오류만 실제 처리상태를 자동
 });
 
 test("일반 범위는 KST 오늘 포함 7일, 관리자 직접 범위는 최대 31일이다", () => {
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  assert.doesNotMatch(worker, /getK2BVerifyUnresolvedSince/);
+  assert.match(worker, /gte\('k2b_send_date', verificationRange\.fromDate\)/);
+  assert.match(worker, /lte\('k2b_send_date', verificationRange\.toDate\)/);
   assert.deepEqual(buildGeneralK2BVerificationRange("2026-09-09"), { fromDate: "2026-09-03", toDate: "2026-09-09" });
   assert.throws(() => assertAdminK2BVerificationRange("2026-08-01", "2026-09-01"), /OVER_31/);
   const verifyRoute = readFileSync("app/api/report-processing/verify-k2b/route.ts", "utf8");
@@ -84,6 +88,10 @@ test("웹 upload route는 Selenium을 실행하지 않고 local worker queue로�
   assert.doesNotMatch(worker, /select\('name, k2b_id, k2b_pw'\)/); assert.match(worker, /k2b_sender = '대표계정'|k2b_sender: '대표계정'/);
   assert.match(service, /async login\(\)/); assert.match(service, /process\.env\.K2B_ID/); assert.match(service, /process\.env\.K2B_PW/);
   assert.doesNotMatch(service, /async login\(id\?: string, pw\?: string\)/);
+  assert.match(worker, /readCurrentSubmissionResults/);
+  assert.doesNotMatch(worker, /gr\.companyName\.includes/);
+  assert.match(worker, /gr\.errorViewAvailable !== true/);
+
   assert.doesNotMatch(currentUser, /\bk2b_id\b|\bk2b_pw\b/);
 });
 

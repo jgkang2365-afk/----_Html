@@ -4,7 +4,6 @@ import { K2BService } from './k2b-service';
 import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-verification-service';
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
 import { reconcileK2BSubmissionResults, statusToState, verificationFailureState } from '../k2b-verification';
-import { getK2BVerifyUnresolvedSince } from '../scheduler/k2b-verification-policy';
 import { buildGeneralK2BVerificationRange, buildK2BSyncRange, inclusiveK2BDates, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
 import os from 'node:os';
@@ -619,41 +618,48 @@ export class WorkerDaemon {
         const supabase = await createClient();
         await this.updateK2BExecutionResult(job.id, executionResult);
         // K2B 대표계정은 이 로컬 worker의 K2B_ID/K2B_PW만 사용한다. 요청자 DB credential은 읽지 않는다.
-        const unresolvedSince = getK2BVerifyUnresolvedSince(resultDate);
+        const verificationRange = job.payload?.fromDate && job.payload?.toDate
+            ? { fromDate: String(job.payload.fromDate), toDate: String(job.payload.toDate) }
+            : buildGeneralK2BVerificationRange(resultDate);
         const journalFields = 'id, code, business_name, industrial_accident_number, commencement_number, measurement_year, measurement_period, k2b_status, k2b_send_date, k2b_verified_status, k2b_verified_at';
         const { data: datedJournals, error: datedJournalError } = await supabase.from('measurement_journal')
             .select(journalFields)
             // measurement_journal DATE는 KST 업무일이다. UTC 시각 범위로 변환하지 않는다.
-            .gte('k2b_send_date', unresolvedSince)
-            .lte('k2b_send_date', resultDate)
+            .gte('k2b_send_date', verificationRange.fromDate)
+            .lte('k2b_send_date', verificationRange.toDate)
             .or('k2b_verified_status.is.null,k2b_verified_status.in.(UNVERIFIED,STALE,YELLOW,RED)');
         // 직원이 K2B에서 직접 처리해 내부 전송일이 비어 있는 최근 후보도 별도 조회한다.
         // 이들은 정확히 한 건이 맞더라도 YELLOW만 기록하며 원래 입력값은 절대 바꾸지 않는다.
-        const reportScope = getReportProcessingPeriodForDate(resultDate);
-        const { data: reportBusinesses, error: reportBusinessError } = await supabase.from('measurement_business')
+        const reportScopeKeys = new Set(inclusiveK2BDates(verificationRange).map((date) => {
+            const scope = getReportProcessingPeriodForDate(date);
+            return `${scope.year}|${scope.period}`;
+        }));
+        const reportYears = Array.from(new Set(Array.from(reportScopeKeys).map((key) => Number(key.split('|')[0]))));
+        const { data: reportBusinessRows, error: reportBusinessError } = await supabase.from('measurement_business')
             .select('code, year, period')
-            .eq('year', reportScope.year)
-            .eq('period', reportScope.period)
+            .in('year', reportYears)
             .not('business_name', 'ilike', REPORT_PROCESSING_EXCLUDED_BUSINESS_NAME_PATTERN);
-        const candidateReportCodes = Array.from(new Set((reportBusinesses || []).map((row: any) => row.code).filter(Boolean)));
+        const reportBusinesses = (reportBusinessRows || []).filter((row: any) => reportScopeKeys.has(`${row.year}|${row.period}`));
+        const candidateReportCodes = Array.from(new Set(reportBusinesses.map((row: any) => row.code).filter(Boolean)));
         const reportTargetResult = candidateReportCodes.length > 0
             ? await supabase.from('measurement_target_business')
                 .select('code, year, period, is_registered')
                 .in('code', candidateReportCodes)
-                .eq('year', reportScope.year)
-                .eq('period', reportScope.period)
+                .in('year', reportYears)
             : { data: [], error: null };
-        const reportCodes = selectReportProcessingCodes(reportBusinesses || [], reportTargetResult.data || []);
+        const reportTargets = (reportTargetResult.data || []).filter((row: any) => reportScopeKeys.has(`${row.year}|${row.period}`));
+        const reportCodes = selectReportProcessingCodes(reportBusinesses, reportTargets);
         const manualCandidateResult = reportCodes.length > 0
             ? await supabase.from('measurement_journal')
                 .select(journalFields)
                 .in('code', reportCodes)
-                .eq('measurement_year', reportScope.year)
-                .eq('measurement_period', reportScope.period)
+                .in('measurement_year', reportYears)
                 .is('k2b_send_date', null)
                 .or('k2b_verified_status.is.null,k2b_verified_status.in.(UNVERIFIED,STALE,YELLOW,RED)')
             : { data: [], error: null };
-        const manualCandidateJournals = manualCandidateResult.data;
+        const manualCandidateJournals = (manualCandidateResult.data || []).filter((row: any) =>
+            reportScopeKeys.has(`${row.measurement_year}|${row.measurement_period}`)
+        );
         const manualCandidateError = manualCandidateResult.error;
         if (datedJournalError || reportBusinessError || reportTargetResult.error || manualCandidateError) {
             executionResult.failureStage = 'load_candidates';
@@ -669,9 +675,6 @@ export class WorkerDaemon {
         };
         await this.updateK2BExecutionResult(job.id, executionResult);
         try {
-            const verificationRange = job.payload?.fromDate && job.payload?.toDate
-                ? { fromDate: String(job.payload.fromDate), toDate: String(job.payload.toDate) }
-                : buildGeneralK2BVerificationRange(resultDate);
             executionResult.fromDate = verificationRange.fromDate;
             executionResult.toDate = verificationRange.toDate;
             executionResult.remoteReadState = 'processing';
@@ -937,82 +940,85 @@ export class WorkerDaemon {
             try {
                 console.log("[WorkerDaemon K2B] 전송 후 10초 대기 중...");
                 await new Promise(resolve => setTimeout(resolve, 10000));
-                const gridResults = await k2b.extractResults();
+                const grid = await k2b.readCurrentSubmissionResults();
+                const gridResults = grid.rows.map((row) => ({
+                    managementNumber: row.managementNumber,
+                    commencementNumber: row.commencementNumber,
+                    companyName: row.companyName,
+                    submissionDate: row.actualSubmissionDate,
+                    status: row.status,
+                    errorViewAvailable: row.errorViewAvailable,
+                    errorDetail: row.errorDetail,
+                    submissionNumber: row.submissionNumber,
+                }));
 
-                for (const gr of gridResults) {
-                    const matchTarget = targets.find((t: any) =>
-                        gr.companyName.includes(t.business_name) || t.business_name.includes(gr.companyName)
+                for (const matchTarget of targets) {
+                    const rIdx = results.findIndex(r => r.code === matchTarget.code);
+                    if (rIdx !== -1) results[rIdx].success = false;
+                    const [reconciled] = reconcileK2BSubmissionResults([{
+                        code: String(matchTarget.code || ''),
+                        industrialAccidentNumber: matchTarget.industrial_accident_number,
+                        commencementNumber: matchTarget.commencement_number,
+                        businessName: String(matchTarget.business_name || ''),
+                        resultDate: getKSTDateString(),
+                        internalK2BStatus: null,
+                        internalK2BSendDate: getKSTDateString(),
+                    }], gridResults);
+                    const gr = reconciled?.match;
+                    if (!gr || reconciled.matchMethod !== 'exact_keys') {
+                        console.log(`[WorkerDaemon K2B] exact-key result unresolved: target=${matchTarget.code} method=${reconciled?.matchMethod || 'NONE'}`);
+                        continue;
+                    }
+
+                    const isNormal = String(gr.status || '').trim() === '\uC815\uC0C1\uCC98\uB9AC' && gr.errorViewAvailable !== true;
+                    const effectiveStatus = gr.errorViewAvailable
+                        ? `${String(gr.status || 'status-missing').trim()} / \uC624\uB958\uBCF4\uAE30`
+                        : String(gr.status || 'status-missing').trim();
+                    const updateGridData: Record<string, any> = {
+                        k2b_status: effectiveStatus,
+                        k2b_sender: '\uB300\uD45C\uACC4\uC815',
+                    };
+                    if (isNormal && /^\d{4}-\d{2}-\d{2}$/.test(String(gr.submissionDate || ''))) {
+                        updateGridData.k2b_send_date = gr.submissionDate;
+                    }
+                    await requireK2BJournalPersistence(
+                        supabase.from('measurement_journal').update(updateGridData)
+                            .eq('code', matchTarget.code)
+                            .eq('measurement_year', matchTarget.year)
+                            .eq('measurement_period', matchTarget.period)
                     );
-                    if (matchTarget) {
-                        // 진단: 그리드 접수현황 매칭 결과를 로그로 남긴다 (K2B 캘린더 자동동기화 미실행 원인 파악용)
-                        const rIdxDiag = results.findIndex(r => r.code === matchTarget.code);
-                        console.log(
-                            `[WorkerDaemon K2B] 그리드 매칭: company=${gr.companyName} status=${gr.status} ` +
-                            `target=${matchTarget.code} rIdx=${rIdxDiag}`
-                        );
 
-                        const updateGridData: Record<string, any> = { 
-                            k2b_status: gr.status,
-                            k2b_sender: '대표계정'
-                        };
+                    if (rIdx !== -1) {
+                        results[rIdx].status = effectiveStatus;
+                        results[rIdx].success = isNormal;
+                        if (!isNormal) results[rIdx].error = gr.errorDetail || effectiveStatus;
+                    }
 
-                        if (gr.status === '정상처리') {
-                            updateGridData.k2b_send_date = getKSTDateString();
-                        }
-
-                        await requireK2BJournalPersistence(
-                            supabase
-                                .from('measurement_journal')
-                                .update(updateGridData)
-                                .eq('code', matchTarget.code)
-                                .eq('measurement_year', matchTarget.year)
-                                .eq('measurement_period', matchTarget.period)
-                        );
-
-                        const rIdx = results.findIndex(r => r.code === matchTarget.code);
-                        if (rIdx !== -1) {
-                            results[rIdx].status = gr.status;
-                            if (gr.status === '정상처리') {
-                                results[rIdx].success = true;
+                    if (isNormal) {
+                        const apiPeriod = matchTarget.period === '\uC0C1\uBC18\uAE30'
+                            ? 'first'
+                            : matchTarget.period === '\uD558\uBC18\uAE30'
+                                ? 'second'
+                                : null;
+                        if (apiPeriod == null) {
+                            const periodErr = `Unsupported measurement_period: ${matchTarget.period}`;
+                            console.error(`[WorkerDaemon K2B] calendar sync skipped: code=${matchTarget.code} period=${String(matchTarget.period)}`);
+                            if (rIdx !== -1) {
+                                results[rIdx].calendarSyncSuccess = false;
+                                results[rIdx].calendarSyncError = periodErr;
+                            }
+                        } else {
+                            const calendarSync = await this.syncCalendarAfterK2B(
+                                calendarSyncApiUrl,
+                                matchTarget.code,
+                                matchTarget.year,
+                                apiPeriod
+                            );
+                            if (rIdx !== -1) {
+                                results[rIdx].calendarSyncSuccess = calendarSync.success;
+                                results[rIdx].calendarSyncError = calendarSync.error;
                             }
                         }
-
-                        // K2B 접수현황이 '정상처리'로 확인되면, results 배열에 담겼는지와 무관하게
-                        // 해당 사업장의 캘린더 동기화를 정확히 1회 보장한다.
-                        // (results push 실패/매칭 오류가 있어도 캘린더 반영이 누락되지 않도록 함)
-                        if (gr.status === '정상처리') {
-                            // period는 한글("상반기"/"하반기")이 전송 중 깨질 수 있으므로 ASCII 안전값으로 변환해 전달한다.
-                            const apiPeriod =
-                                matchTarget.period === '상반기'
-                                    ? 'first'
-                                    : matchTarget.period === '하반기'
-                                        ? 'second'
-                                        : null;
-                            if (apiPeriod == null) {
-                                const periodErr = `지원하지 않는 measurement_period: ${matchTarget.period}`;
-                                console.error(`[WorkerDaemon K2B] 캘린더 동기화 스킵: code=${matchTarget.code} period=${String(matchTarget.period)}`);
-                                if (rIdx !== -1) {
-                                    results[rIdx].calendarSyncSuccess = false;
-                                    results[rIdx].calendarSyncError = periodErr;
-                                }
-                            } else {
-                                const calendarSync = await this.syncCalendarAfterK2B(
-                                    calendarSyncApiUrl,
-                                    matchTarget.code,
-                                    matchTarget.year,
-                                    apiPeriod
-                                );
-                                if (rIdx !== -1) {
-                                    results[rIdx].calendarSyncSuccess = calendarSync.success;
-                                    results[rIdx].calendarSyncError = calendarSync.error;
-                                }
-                            }
-                        }
-                    } else {
-                        // 진단: 매칭되지 않은 그리드 행 (원인 파악용)
-                        console.log(
-                            `[WorkerDaemon K2B] 그리드 매칭 실패: company=${gr.companyName} status=${gr.status} (대상 목록에 매칭되는 사업장 없음)`
-                        );
                     }
                 }
             } catch (gridErr: any) {

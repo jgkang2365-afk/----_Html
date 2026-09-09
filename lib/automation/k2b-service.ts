@@ -1260,6 +1260,12 @@ foreach ($window in $windows) {
     }
 
     /** 검증 전용: inclusive 날짜 범위를 한 번 조회하고 실제 header 기반 원본 receipt를 반환한다. */
+    /** Read the current post-upload submission grid by headers without performing writes. */
+    async readCurrentSubmissionResults(): Promise<K2BGridRead> {
+        if (!this.driver) throw new Error('Driver not initialized');
+        return this.readSubmissionGridByHeaders();
+    }
+
     async querySubmissionResultsForRange(fromDate: string, toDate: string): Promise<K2BGridRead> {
         if (!this.driver) throw new Error('Driver not initialized');
         if (!this.readOnlyMode) throw new Error('K2B 날짜별 결과 조회는 읽기 전용 세션에서만 가능합니다.');

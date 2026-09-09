@@ -50,7 +50,7 @@ const executionStatusLabel = (status: string | null) => {
 };
 
 /** K2B worker가 저장한 관측 결과와 승인 대상만 업무 화면에 표시한다. */
-export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFinished }: {
+export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFinished, onVerificationQueued }: {
   refreshKey: string | null;
   onApproved: () => void;
   onExecutionFinished: (status: "success" | "failed" | "cancelled") => void;
