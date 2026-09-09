@@ -20,9 +20,11 @@
 
 ### 2.1 개발 서버
 
-- 로컬 개발 및 브라우저 테스트는 기본적으로 `npm run dev:turbo`를 사용한다.
+- 로컬 개발 및 브라우저 테스트는 기본적으로 `npm run dev:turbo -- -p <worktree별 전용 포트>`를 사용한다.
+- worktree마다 전용 포트를 사용하고 기존 개발 서버나 사용자 프로세스를 임의 종료하지 않는다.
 - 테스트 전에 동일 프로젝트의 개발 서버가 여러 포트에서 중복 실행 중인지 확인한다.
 - 실제 최신 코드가 실행 중인 포트를 확인한 뒤 테스트한다.
+- 상세 개발·검증 운영 기준은 `docs/operations/local-first-development-verification-v1.md`를 따른다.
 
 ### 2.2 변경 범위
 
@@ -35,6 +37,14 @@
 - 외부 API, 라이브러리, Excel 파서 등에서 반환되는 값은 `null`, `undefined`, `false`, 빈 배열 등 비정상 또는 선택적 반환을 고려한다.
 - TypeScript union type을 임의 단언으로 우회하지 않고 타입 가드를 사용한다.
 - 외부 응답 구조를 추측하지 말고 실제 응답 또는 공식 타입 정의를 확인한다.
+
+### 2.4 Local-first 검증 및 Vercel 사용
+
+- localhost에서 확인 가능한 API·UI·회귀 검증은 로컬에서 수행한다.
+- Vercel Preview는 기본 개발 검증 경로로 사용하지 않는다.
+- 승인된 `main` 반영 후 Production 배포 상태 확인과 핵심 smoke test 1회를 기본 Vercel 검증으로 한다.
+- 같은 deployment의 상태·로그·runtime을 Orca/Verifier/GPT가 반복 조회하지 않고 기존 증거를 재사용한다.
+- Production 환경변수, Cron, domain/alias, Vercel runtime 고유 문제처럼 로컬로 검증할 수 없는 항목만 예외적으로 최소 조회한다.
 
 ---
 
@@ -182,11 +192,11 @@
 ## 14. Supabase 환경 및 migration 승격
 
 - 로컬 개발 서버는 Docker Local Supabase의 `localhost` 또는 `127.0.0.1` 주소만 사용한다.
-- Vercel Preview는 운영과 분리된 Cloud Staging Supabase만 사용한다. Preview에서 Production Supabase에 연결하는 것은 금지한다.
+- Vercel Preview를 예외적으로 사용하는 경우 운영과 분리된 Cloud Staging Supabase만 사용한다. Preview에서 Production Supabase에 연결하는 것은 금지한다.
 - Vercel Production은 Production Supabase만 사용한다.
 - 브라우저·서버·관리자 DB client는 실행 환경과 Supabase project identity를 생성 전에 검증하고, 환경이 다르면 fail-fast한다.
 - Staging에는 schema/migration과 결정적인 합성 fixture만 적재한다. 운영 고객 데이터, 인증정보, PII, 운영 service role을 복제하지 않는다.
-- migration은 `Docker Local reset/replay 및 RPC E2E → Cloud Staging 적용 및 Preview 실제 CRUD → 사용자 승인 → Production 적용 및 사후 확인` 순서로 승격한다.
+- migration은 `Docker Local reset/replay 및 RPC E2E → Cloud Staging 적용 및 staging E2E → (Vercel 배포환경에서만 확인 가능한 문제가 있을 때만 Preview 실제 CRUD) → 사용자 승인 → Production 적용 및 사후 확인` 순서로 승격한다.
 - Local 또는 Staging 검증만으로 Production migration을 적용하지 않으며, Production 변경은 별도 승인 전 0건을 유지한다.
 - 환경별 service role은 서버 전용 환경변수로 분리하고 `NEXT_PUBLIC_` 변수, Git, PR, 로그에 노출하지 않는다.
 

@@ -68,7 +68,13 @@
 
 ## 6. 개발 및 검증
 
-- 로컬 웹 개발/브라우저 검증은 프로젝트 규칙에 따라 `npm run dev:turbo`를 우선 사용한다.
+- 상세 운영 기준은 `docs/operations/local-first-development-verification-v1.md`를 따른다.
+- 로컬 웹 개발/브라우저 검증은 `npm run dev:turbo -- -p <worktree별 전용 포트>`를 기본으로 한다.
+- localhost에서 확인 가능한 API·UI·회귀 검증은 localhost에서 수행한다. Vercel Preview/Production을 일상 개발 검증 환경으로 사용하지 않는다.
+- UI 자동 검증은 headless 또는 격리 세션을 우선하여 사용자의 마우스·키보드·활성 창에 간섭하지 않는다.
+- Vercel Preview는 기본 미사용이며, 승인된 `main` 반영 후 Production 배포 상태 확인과 핵심 smoke test 1회를 기본 종료 검증으로 한다.
+- Production 환경변수, Cron, domain/alias, Vercel runtime 고유 문제처럼 로컬에서 확인할 수 없는 항목만 예외적으로 최소 조회한다.
+- Orca/Worker/Fresh Verifier/GPT 사이에서 같은 외부 상태를 반복 조회하지 않고, 신뢰 가능한 기존 검증 증거를 우선 재사용한다.
 - 변경 파일에 맞는 최소 테스트부터 실행하고 필요할 때 범위를 확대한다.
 - TypeScript 변경은 가능한 경우 타입 검사를 수행한다.
 - 테스트 실패 시 실패한 영역부터 분석하며 무관한 영역까지 불필요하게 확대하지 않는다.
