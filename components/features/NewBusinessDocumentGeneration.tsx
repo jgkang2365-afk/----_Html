@@ -143,8 +143,20 @@ export function NewBusinessDocumentGeneration({
     setCancellationFailed(false);
   }, [businessId]);
   useEffect(() => {
-    void load();
+    let cancelled = false;
+    const loadWhenVisible = () => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", loadWhenVisible);
+      void load();
+    };
+    if (document.visibilityState === "visible") {
+      loadWhenVisible();
+    } else {
+      document.addEventListener("visibilitychange", loadWhenVisible);
+    }
     return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", loadWhenVisible);
       requestSequence.current += 1;
       requestController.current?.abort();
       requestController.current = null;
@@ -159,14 +171,49 @@ export function NewBusinessDocumentGeneration({
     if (delay === null) return;
     let cancelled = false;
     let timer: number | undefined;
-    const poll = async () => {
-      await load(true);
-      if (!cancelled) timer = window.setTimeout(() => void poll(), delay);
+    let pollingInFlight = false;
+    const clearTimer = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
     };
-    timer = window.setTimeout(() => void poll(), delay);
+    const isPageVisible = () => document.visibilityState === "visible";
+    const scheduleNextPoll = () => {
+      if (!cancelled && isPageVisible()) {
+        timer = window.setTimeout(() => void poll(), delay);
+      }
+    };
+    const poll = async () => {
+      if (cancelled || !isPageVisible() || pollingInFlight) return;
+      pollingInFlight = true;
+      try {
+        await load(true);
+      } finally {
+        pollingInFlight = false;
+        scheduleNextPoll();
+      }
+    };
+    const refreshWhenVisible = () => {
+      if (cancelled || !isPageVisible()) return;
+      clearTimer();
+      void poll();
+    };
+    const handleVisibilityChange = () => {
+      if (!isPageVisible()) {
+        clearTimer();
+        return;
+      }
+      refreshWhenVisible();
+    };
+    if (isPageVisible()) scheduleNextPoll();
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       cancelled = true;
-      if (timer !== undefined) window.clearTimeout(timer);
+      clearTimer();
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [status, isCancellationRequested, load]);
   useEffect(() => {
