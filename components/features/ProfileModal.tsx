@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { toast } from "sonner";
-import { Loader2, User, Key, Briefcase, Hash } from "lucide-react";
+import { Loader2, User } from "lucide-react";
 
 interface ProfileModalProps {
     isOpen: boolean;
@@ -25,8 +25,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     const [formData, setFormData] = useState({
         job: user?.job || "측정",
         survey_code: user?.survey_code || "",
-        k2b_id: user?.k2b_id || "",
-        k2b_pw: "", // 보안상 PW는 매번 새로 입력하도록 하거나, 마스킹된 상태로 관리
     });
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -84,31 +82,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                         value={formData.survey_code}
                         onChange={(e) => setFormData({ ...formData, survey_code: e.target.value })}
                     />
-                </div>
-
-                <div className="border-t pt-4 mt-2">
-                    <h4 className="text-sm font-bold text-text-800 mb-3 flex items-center gap-2">
-                        <Key size={16} className="text-primary-500" />
-                        K2B 계정 설정
-                    </h4>
-                    <div className="space-y-3">
-                        <Input
-                            label="K2B 아이디"
-                            placeholder="K2B ID 입력"
-                            value={formData.k2b_id}
-                            onChange={(e) => setFormData({ ...formData, k2b_id: e.target.value })}
-                        />
-                        <Input
-                            label="K2B 비밀번호"
-                            type="password"
-                            placeholder="변경할 경우에만 입력하세요"
-                            value={formData.k2b_pw}
-                            onChange={(e) => setFormData({ ...formData, k2b_pw: e.target.value })}
-                        />
-                        <p className="text-[10px] text-text-400">
-                            * K2B 비밀번호는 저장 시 암호화되어 안전하게 보관됩니다.
-                        </p>
-                    </div>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-4">

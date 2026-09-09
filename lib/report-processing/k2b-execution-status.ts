@@ -20,6 +20,31 @@ const asStringArray = (value: unknown): string[] | null =>
   Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;
 const asArray = (value: unknown): unknown[] | null => Array.isArray(value) ? value : null;
 
+function verificationRows(value: unknown) {
+  return (asArray(value) ?? []).flatMap((candidate) => {
+    const row = asRecord(candidate);
+    const journalId = asNumber(row?.journalId);
+    const verdict = asString(row?.verdict);
+    if (!Number.isSafeInteger(journalId) || !journalId || !verdict) return [];
+    return [{
+      journalId,
+      code: asString(row?.code),
+      businessName: asString(row?.businessName),
+      industrialAccidentNumber: asString(row?.industrialAccidentNumber),
+      commencementNumber: asString(row?.commencementNumber),
+      verdict,
+      actualStatus: asString(row?.actualStatus),
+      actualSubmissionDate: asString(row?.actualSubmissionDate),
+      internalStatus: asString(row?.internalStatus),
+      internalSubmissionDate: asString(row?.internalSubmissionDate),
+      submissionNumber: asString(row?.submissionNumber),
+      errorViewAvailable: asBoolean(row?.errorViewAvailable) === true,
+      errorDetail: asString(row?.errorDetail),
+      approvalRequired: asBoolean(row?.approvalRequired) === true,
+    }];
+  });
+}
+
 function persistedCounts(value: unknown) {
   const counts = asRecord(value);
   if (!counts) return null;
@@ -64,6 +89,7 @@ export function toK2BExecutionStatus(job: K2BJobRow) {
     remoteRowCount: asNumber(result?.remoteRowCount),
     candidateCounts: asRecord(result?.candidateCounts),
     matchCounts: asRecord(result?.matchCounts),
+    verificationRows: verificationRows(result?.verificationRows),
     persistence: asRecord(result?.persistence),
     rawReceiptPersistence: persistedCounts(result?.rawReceiptPersistence),
     journalVerification: persistedCounts(result?.journalVerification),

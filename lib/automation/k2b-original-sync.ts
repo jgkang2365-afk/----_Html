@@ -15,6 +15,8 @@ export type K2BOriginalReceipt = {
   commencementNumber: string;
   sequenceNumber: string;
   status: string;
+  errorViewAvailable: boolean;
+  errorDetail: string | null;
   raw: Record<string, string>;
   sourceKey: string;
   identityFallback: boolean;
@@ -25,7 +27,7 @@ export type K2BGridRead =
   | { outcome: "SUCCESS"; rows: K2BOriginalReceipt[]; headers: string[] }
   | { outcome: "SUCCESS_EMPTY"; rows: []; headers: string[] };
 
-const HEADER_ALIASES: Record<keyof Omit<K2BOriginalReceipt, "raw" | "sourceKey" | "identityFallback">, string[]> = {
+const HEADER_ALIASES: Record<keyof Omit<K2BOriginalReceipt, "raw" | "sourceKey" | "identityFallback" | "errorViewAvailable" | "errorDetail">, string[]> = {
   fileName: ["청구 파일명", "파일명", "파일 명"],
   companyName: ["사업장명", "사업장 명", "업체명"],
   actualSubmissionDate: ["접수일", "접수일자", "실제접수일", "제출일", "제출일자"],
@@ -33,7 +35,7 @@ const HEADER_ALIASES: Record<keyof Omit<K2BOriginalReceipt, "raw" | "sourceKey" 
   half: ["반기", "상반기하반기", "측정반기"],
   supportType: ["지원구분", "지원유형", "지원 유형"],
   submissionNumber: ["접수번호", "접수 번호", "제출번호", "파일접수번호"],
-  managementNumber: ["관리번호", "관리 번호"],
+  managementNumber: ["산재관리번호", "산재 관리번호", "관리번호", "관리 번호"],
   commencementNumber: ["개시번호", "개시 번호"],
   sequenceNumber: ["순번", "일련번호", "시퀀스번호"],
   status: ["처리상태", "처리 상태", "접수상태", "상태"],
@@ -101,6 +103,20 @@ export function inclusiveK2BDates(range: K2BRange): string[] {
   return dates;
 }
 
+/** 일반 재검증은 KST 오늘을 포함한 정확히 7 calendar days를 한 번에 조회한다. */
+export function buildGeneralK2BVerificationRange(today: string): K2BRange {
+  if (!asKstDate(today)) throw new Error("K2B_VERIFY_INVALID_TODAY");
+  return { fromDate: subtractDays(today, 6), toDate: today };
+}
+
+/** 관리자 직접 기간은 31 calendar days를 넘길 수 없다. */
+export function assertAdminK2BVerificationRange(fromDate: string, toDate: string): K2BRange {
+  if (!asKstDate(fromDate) || !asKstDate(toDate) || fromDate > toDate || inclusiveK2BDates({ fromDate, toDate }).length > 31) {
+    throw new Error("K2B_VERIFY_ADMIN_RANGE_INVALID_OR_OVER_31");
+  }
+  return { fromDate, toDate };
+}
+
 /** DOM 고정 column index를 믿지 않고 조회 화면의 header text를 기준으로 원본 행을 해석한다. */
 export function parseK2BSubmissionGrid(headers: readonly string[], rows: readonly (readonly string[])[]): K2BGridRead {
   const indexes = new Map<string, number[]>();
@@ -122,10 +138,13 @@ export function parseK2BSubmissionGrid(headers: readonly string[], rows: readonl
     const raw = Object.fromEntries(headers.map((header, index) => [header, String(row[index] ?? "").trim()]));
     const date = asKstDate(row[fieldIndexes.actualSubmissionDate]);
     const required = (field: keyof typeof fieldIndexes) => String(row[fieldIndexes[field]] ?? "").trim();
+    const errorView = Object.entries(raw).find(([header]) => normalized(header).includes("오류보기"));
+    const errorDetail = Object.entries(raw).find(([header]) => /오류(내용|상세|사유)/.test(normalized(header)));
     const receipt = { fileName: required("fileName"), companyName: required("companyName"), actualSubmissionDate: date ?? "",
       businessYear: required("businessYear"), half: required("half"), supportType: required("supportType"), submissionNumber: required("submissionNumber"),
       managementNumber: required("managementNumber"), commencementNumber: required("commencementNumber"), sequenceNumber: required("sequenceNumber"),
-      status: required("status"), raw, sourceKey: "", identityFallback: false };
+      status: required("status"), errorViewAvailable: Boolean(errorView?.[1]), errorDetail: errorDetail?.[1] || null,
+      raw, sourceKey: "", identityFallback: false };
     if (!date || !receipt.fileName || !receipt.companyName || !receipt.businessYear || !receipt.half || !receipt.supportType || !receipt.managementNumber || !receipt.commencementNumber || !receipt.sequenceNumber || !receipt.status) throw new Error(`K2B_GRID_SCHEMA_MISMATCH:invalid_required_row_${rowIndex}`);
     const identity = buildK2BSourceKey(receipt);
     return { ...receipt, ...identity };

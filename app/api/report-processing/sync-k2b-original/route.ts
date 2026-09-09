@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getSession } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertAdminK2BVerificationRange } from "@/lib/automation/k2b-original-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +13,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const fromDate = String(body.fromDate ?? "");
     const toDate = String(body.toDate ?? "");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate) return NextResponse.json({ error: "조회 기간은 YYYY-MM-DD 형식의 from/to여야 합니다." }, { status: 400 });
     const session = await getSession();
     if (!session?.userId) return NextResponse.json({ error: "수동 K2B 원본 동기화 요청자를 확인할 수 없습니다." }, { status: 401 });
+    if (session.role !== "관리자") return NextResponse.json({ error: "관리자만 K2B 직접 기간 재검증을 요청할 수 있습니다." }, { status: 403 });
+    try { assertAdminK2BVerificationRange(fromDate, toDate); } catch { return NextResponse.json({ error: "조회 기간은 YYYY-MM-DD 형식이며 최대 31일이어야 합니다." }, { status: 400 }); }
     const { data, error } = await createAdminClient().rpc("enqueue_k2b_original_sync_job", { p_payload: {
       trigger: "manual", requestedBy: session.userId, fromDate, toDate, cursorEligible: false, serializationDisposition: "accepted_without_active_k2b",
     } });

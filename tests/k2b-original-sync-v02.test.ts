@@ -26,6 +26,8 @@ test("K2B header mapping은 실제 필수 header와 submission number를 보존�
   assert.equal(parsed.rows[0].submissionNumber, "R-1");
   assert.equal(parsed.rows[0].fileName, "alpha.xml");
   assert.equal(parsed.rows[0].identityFallback, false);
+  const industrialHeader = parseK2BSubmissionGrid(requiredHeaders.map((header) => header === "관리번호" ? "산재관리번호" : header), [completeRow]);
+  assert.equal(industrialHeader.rows[0].managementNumber, "M-1");
 });
 
 test("missing/duplicate header는 K2B_GRID_SCHEMA_MISMATCH로 fail-safe 처리한다", () => {
@@ -54,7 +56,9 @@ test("worker/migration은 날짜별 결과, cursor guard, idempotency dispositio
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
   const migration = readFileSync("supabase/migrations/20260907110000_add_k2b_original_sync_v02.sql", "utf8");
   const legacyRoute = readFileSync("app/api/report-processing/verify-k2b/route.ts", "utf8");
-  assert.match(worker, /dateResults/); assert.match(worker, /SUCCESS_EMPTY/); assert.match(worker, /QUERY_FAILED/); assert.match(worker, /cursorEligible/); assert.match(worker, /fallbackKeyCount/);
+  // 0-row 결과를 포함한 parser outcome을 worker가 그대로 execution result에 보존한다.
+  // 특정 outcome 문자열을 중복 하드코딩하지 않아도 SUCCESS_EMPTY를 loss 없이 전달한다.
+  assert.match(worker, /dateResults/); assert.match(worker, /outcome: grid\.outcome/); assert.match(worker, /QUERY_FAILED/); assert.match(worker, /cursorEligible/); assert.match(worker, /fallbackKeyCount/);
   assert.match(migration, /submission_number TEXT,/); assert.match(migration, /last_successful_sync_at/); assert.match(migration, /created_at TIMESTAMPTZ/); assert.match(migration, /updated_at TIMESTAMPTZ/); assert.match(migration, /'unchanged'/);
   assert.match(legacyRoute, /enqueue_k2b_verify_job/);
 });

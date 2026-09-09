@@ -20,7 +20,7 @@ export async function getUser() {
     // 1차 조회 시도: is_national_support_manager 필드를 포함하여 조회
     const primaryAttempt = await supabase
       .from("users")
-      .select("id, name, role, job, survey_code, k2b_id, is_journal_manager, is_national_support_manager, is_designated_office_report_manager")
+      .select("id, name, role, job, survey_code, is_journal_manager, is_national_support_manager, is_designated_office_report_manager")
       .eq("id", session.userId)
       .limit(1)
       .maybeSingle();
@@ -31,7 +31,7 @@ export async function getUser() {
       // 2차 조회 시도: 해당 컬럼을 빼고 조회 (레거시 대응)
       const fallbackAttempt = await supabase
         .from("users")
-        .select("id, name, role, job, survey_code, k2b_id, is_journal_manager")
+        .select("id, name, role, job, survey_code, is_journal_manager")
         .eq("id", session.userId)
         .limit(1)
         .maybeSingle();
@@ -56,7 +56,6 @@ export async function getUser() {
       role: userData.role as "관리자" | "사용자",
       job: userData.job,
       survey_code: userData.survey_code,
-      k2b_id: userData.k2b_id,
       is_journal_manager: !!userData.is_journal_manager,
       is_national_support_manager: !!(userData as any).is_national_support_manager,
       is_designated_office_report_manager: !!(userData as any).is_designated_office_report_manager,

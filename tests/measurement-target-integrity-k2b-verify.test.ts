@@ -90,33 +90,33 @@ test("정합성 전체 결과에는 정상 행을 포함해 전체/이상건 필
   assert.deepEqual(rows.map((row) => [row.type, row.status]), [["정합성 이상 없음", "정상"]]);
 });
 
-test("K2B 재검증은 날짜와 내부 전송일을 함께 강제하고 상태 전이를 보수적으로 분류한다", () => {
-  const exactTarget = { code: "A", businessName: "알파", resultDate: "2026-09-05", internalK2BStatus: "정상처리", internalK2BSendDate: "2026-09-05" };
-  const [green] = reconcileK2BSubmissionResults([exactTarget], [{ companyName: "알파", status: "정상처리", submissionDate: "2026-09-05" }]);
-  assert.equal(green.matchMethod, "name_and_date"); assert.equal(green.state, "GREEN");
-  const [internalMismatch] = reconcileK2BSubmissionResults([{ ...exactTarget, internalK2BSendDate: "2026-09-04" }], [{ companyName: "알파", status: "정상처리", submissionDate: "2026-09-05" }]);
+test("K2B 재검증은 canonical 두 키로만 연계하고 날짜와 내부 전송일을 보수적으로 분류한다", () => {
+  const exactTarget = { code: "A", businessName: "알파", industrialAccidentNumber: "123-45", commencementNumber: "00001", resultDate: "2026-09-05", internalK2BStatus: "정상처리", internalK2BSendDate: "2026-09-05" };
+  const exactResult = { managementNumber: "12345", commencementNumber: "00001", status: "정상처리", submissionDate: "2026-09-05" };
+  const [green] = reconcileK2BSubmissionResults([exactTarget], [exactResult]);
+  assert.equal(green.matchMethod, "exact_keys"); assert.equal(green.state, "GREEN");
+  const [internalMismatch] = reconcileK2BSubmissionResults([{ ...exactTarget, internalK2BSendDate: "2026-09-04" }], [exactResult]);
   assert.equal(internalMismatch.state, "YELLOW");
-  const [remoteFailure] = reconcileK2BSubmissionResults([exactTarget], [{ companyName: "알파", status: "반려", submissionDate: "2026-09-05" }]);
+  const [remoteFailure] = reconcileK2BSubmissionResults([exactTarget], [{ ...exactResult, status: "반려" }]);
   assert.equal(remoteFailure.state, "RED");
   const [notFound] = reconcileK2BSubmissionResults([exactTarget], []);
   assert.equal(notFound.state, "YELLOW");
   const [manualMissing] = reconcileK2BSubmissionResults([
-    { code: "B", businessName: "수동처리", resultDate: "2026-09-05", internalK2BStatus: null, internalK2BSendDate: null },
-  ], [{ companyName: "수동처리", status: "정상처리", submissionDate: "2026-09-05" }]);
-  assert.equal(manualMissing.matchMethod, "name_and_date");
+    { ...exactTarget, code: "B", businessName: "수동처리", internalK2BStatus: null, internalK2BSendDate: null },
+  ], [exactResult]);
+  assert.equal(manualMissing.matchMethod, "exact_keys");
   assert.equal(manualMissing.state, "YELLOW");
   const [ambiguousManual] = reconcileK2BSubmissionResults([
-    { code: "C", businessName: "중복후보", resultDate: "2026-09-05", internalK2BStatus: null, internalK2BSendDate: null },
+    { ...exactTarget, code: "C", businessName: "중복후보", internalK2BStatus: null, internalK2BSendDate: null },
   ], [
-    { companyName: "중복후보", status: "정상처리", submissionDate: "2026-09-05" },
-    { companyName: "중복후보", status: "정상처리", submissionDate: "2026-09-05" },
+    exactResult, exactResult,
   ]);
   assert.equal(ambiguousManual.matchMethod, "AMBIGUOUS");
   assert.equal(ambiguousManual.match, null);
   const duplicateInternalCandidates = reconcileK2BSubmissionResults([
-    { code: "D", businessName: "동일사업장", resultDate: "2026-09-05", internalK2BStatus: null, internalK2BSendDate: null },
-    { code: "E", businessName: "동일사업장", resultDate: "2026-09-05", internalK2BStatus: null, internalK2BSendDate: null },
-  ], [{ companyName: "동일사업장", status: "정상처리", submissionDate: "2026-09-05" }]);
+    { ...exactTarget, code: "D", businessName: "동일사업장", internalK2BStatus: null, internalK2BSendDate: null },
+    { ...exactTarget, code: "E", businessName: "동일사업장", internalK2BStatus: null, internalK2BSendDate: null },
+  ], [exactResult]);
   assert.deepEqual(duplicateInternalCandidates.map((item) => [item.matchMethod, item.match, item.state]), [
     ["AMBIGUOUS", null, "YELLOW"],
     ["AMBIGUOUS", null, "YELLOW"],
@@ -174,7 +174,7 @@ test("K2B 조회 완료는 로딩 종료·grid 교체·행 변경·명시적 0�
   ), true);
 });
 
-test("새 K2B 검증은 날짜 필터 전용 경로와 업로드 직렬화/독립 필드를 사용한다", () => {
+test("새 K2B 검증은 대표계정 read-only 범위 조회와 업로드 직렬화/독립 필드를 사용한다", () => {
   const service = readFileSync("lib/automation/k2b-verification-service.ts", "utf8");
   const k2b = readFileSync("lib/automation/k2b-service.ts", "utf8");
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
@@ -183,18 +183,20 @@ test("새 K2B 검증은 날짜 필터 전용 경로와 업로드 직렬화/독�
   const directUpload = readFileSync("app/api/report-processing/upload-k2b/route.ts", "utf8");
   const verifyRoute = readFileSync("app/api/report-processing/verify-k2b/route.ts", "utf8");
   const migration = readFileSync("supabase/migrations/20260906022850_add_k2b_verification_fields.sql", "utf8");
-  assert.match(service, /querySubmissionResultsForDate/); assert.doesNotMatch(service, /extractResults\(/);
+  assert.match(service, /querySubmissionResultsForRange/); assert.doesNotMatch(service, /extractResults\(/);
   assert.match(k2b, /querySubmissionResultsForDate\(resultDate/); assert.match(k2b, /start_date_calendaredit_input/); assert.match(k2b, /end_date_calendaredit_input/); assert.match(k2b, /readOnlyMode/); assert.match(k2b, /waitForSubmissionGridRefresh/); assert.doesNotMatch(k2b, /stableIdentifier/);
-  assert.match(worker, /job\.job_type === 'k2b_verify'/); assert.match(worker, /k2b_verification_attempted_at/); assert.match(worker, /\.select\('k2b_id, k2b_pw'\)/); assert.match(worker, /querySubmissionResultsForDate\(sendDate, verificationCredentials\)/); assert.match(worker, /\.gte\('k2b_send_date', unresolvedSince\)/); assert.match(worker, /\.lte\('k2b_send_date', resultDate\)/); assert.match(worker, /UNVERIFIED,STALE,YELLOW,RED/); assert.match(worker, /REPORT_PROCESSING_EXCLUDED_BUSINESS_NAME_PATTERN/); assert.match(worker, /selectReportProcessingCodes/); assert.match(worker, /from\('measurement_target_business'\)/); assert.doesNotMatch(worker, /K2B_VERIFY_MANUAL_CANDIDATE_LIMIT/); assert.match(worker, /journalsBySendDate/); assert.match(worker, /requireK2BJournalPersistence/); assert.match(scheduler, /cron\.schedule\(K2B_VERIFY_SCHEDULE/);
+  assert.match(worker, /job\.job_type === 'k2b_verify'/); assert.match(worker, /k2b_verification_attempted_at/); assert.doesNotMatch(worker, /\.select\('k2b_id, k2b_pw'\)/); assert.match(worker, /querySubmissionResultsForRange\(verificationRange\.fromDate, verificationRange\.toDate\)/); assert.match(worker, /K2B 대표계정은 이 로컬 worker의 K2B_ID\/K2B_PW만 사용/); assert.match(worker, /\.gte\('k2b_send_date', unresolvedSince\)/); assert.match(worker, /\.lte\('k2b_send_date', resultDate\)/); assert.match(worker, /UNVERIFIED,STALE,YELLOW,RED/); assert.match(worker, /REPORT_PROCESSING_EXCLUDED_BUSINESS_NAME_PATTERN/); assert.match(worker, /selectReportProcessingCodes/); assert.match(worker, /from\('measurement_target_business'\)/); assert.doesNotMatch(worker, /K2B_VERIFY_MANUAL_CANDIDATE_LIMIT/); assert.match(worker, /journalsBySendDate/); assert.match(worker, /requireK2BJournalPersistence/); assert.match(scheduler, /cron\.schedule\(K2B_VERIFY_SCHEDULE/);
   const verifyStart = worker.indexOf("private async processK2BVerifyJob");
   const failurePath = worker.slice(worker.indexOf("} catch (error: any) {", verifyStart), worker.indexOf("private async processK2BJob", verifyStart));
   assert.match(failurePath, /k2b_verification_error/); assert.doesNotMatch(failurePath, /k2b_verified_status:/);
   const verificationPath = worker.slice(verifyStart, worker.indexOf("private async processK2BJob", verifyStart));
-  assert.doesNotMatch(verificationPath, /k2b_status\s*:/);
+  assert.match(verificationPath, /const reflectActualStatus = \['정상', '오류'\]\.includes\(item\.verdict\)/);
+  assert.match(verificationPath, /journal\.k2b_send_date === item\.match\.submissionDate/);
+  assert.match(verificationPath, /\.\.\.\(reflectActualStatus \? \{ k2b_status: item\.match\.status \} : \{\}\)/);
   assert.doesNotMatch(verificationPath, /k2b_send_date\s*:/);
   assert.doesNotMatch(verificationPath, /k2b_sender\s*:/);
   assert.match(migration, /k2b_verified_send_date/); assert.match(migration, /k2b_consistency_status/); assert.match(migration, /k2b_consistency_note/); assert.match(migration, /enqueue_k2b_automation_job/); assert.match(migration, /enqueue_k2b_upload_job/); assert.match(migration, /TO service_role/); assert.doesNotMatch(migration, /GRANT EXECUTE[^;]+authenticated/);
-  assert.match(queue, /checkPermission\('journal:write'\)/); assert.match(queue, /createAdminClient/); assert.match(queue, /enqueueSerializedK2BUpload/); assert.match(directUpload, /K2BService/); assert.match(directUpload, /measurement_journal/); assert.match(directUpload, /extractResults/); assert.doesNotMatch(directUpload, /enqueueSerializedK2BUpload/); assert.doesNotMatch(directUpload, /status: 202/); assert.match(verifyRoute, /checkPermission\("journal:write"\)/); assert.match(verifyRoute, /createAdminClient/); assert.match(scheduler, /createAdminClient/);
+  assert.match(queue, /checkPermission\('journal:write'\)/); assert.match(queue, /createAdminClient/); assert.match(queue, /enqueueSerializedK2BUpload/); assert.match(directUpload, /enqueueSerializedK2BUpload/); assert.match(directUpload, /status: 202/); assert.doesNotMatch(directUpload, /K2BService|\.login\(|\.init\(/); assert.match(verifyRoute, /checkPermission\("journal:write"\)/); assert.match(verifyRoute, /createAdminClient/); assert.match(scheduler, /createAdminClient/);
 });
 
 test("K2B 정합성 UI의 주 표시는 내부 enum이 아닌 신호등과 사용자 문구다", () => {

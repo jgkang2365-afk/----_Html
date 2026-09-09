@@ -286,7 +286,7 @@ export class K2BService {
      * 4. 로그인 성공 화면 대기
      * 5. 내부 팝업 닫기 후 '파일전송(신)' 진입
      */
-    async login(id?: string, pw?: string) {
+    async login() {
         if (!this.driver) throw new Error('Driver not initialized');
 
         // Step 0: K2B 접속
@@ -297,11 +297,11 @@ export class K2BService {
         await closeInitialK2BLoginPopups(this.driver);
 
         // Step 2: 로그인 정보 입력
-        const loginId = id || process.env.K2B_ID;
-        const loginPw = pw || process.env.K2B_PW;
+        const loginId = process.env.K2B_ID;
+        const loginPw = process.env.K2B_PW;
 
         if (!loginId || !loginPw) {
-            throw new Error('K2B ID 또는 PW가 제공되지 않았습니다.');
+            throw new Error('K2B 대표계정 환경변수(K2B_ID/K2B_PW)가 설정되지 않았습니다. 깡통컴 .env.local을 확인해주세요.');
         }
 
         // ID 입력 (WebDriverWait 20초)
