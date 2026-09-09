@@ -101,7 +101,9 @@ ${K2B_SUBMISSION_GRID_RUNTIME_SCRIPT}
   const identityReader = headers => {
     const fieldIndex = aliases => {
       const matches = headers.map((header, index) => aliases.includes(normalize(header)) ? index : -1).filter(index => index >= 0);
-      if (matches.length !== 1) fail('identity_schema');
+      // 실환경 진단에는 header 값이나 행 데이터를 포함하지 않는다. 어느 identity
+      // field의 physical column 개수가 잘못됐는지만 노출한다.
+      if (matches.length !== 1) fail('identity_schema:' + aliases[0] + '_matches_' + matches.length);
       return matches[0];
     };
     const submission = fieldIndex(['접수번호', '제출번호', '파일접수번호']);

@@ -17,10 +17,10 @@ const makeRows = (size = 30) => Array.from({ length: size }, (_, index) => [
 ]);
 
 /** 10개 슬롯의 DOM 객체/id를 재사용하는 Nexacro 런타임 fixture. 외부 조회는 없다. */
-function browserFixture(options: { dataset?: boolean; size?: number; expected?: number | null; frozen?: boolean } = {}) {
-  const fixtureHeaders = [...headers];
-  const rows = makeRows(options.size ?? 30);
-  const pool = Array.from({ length: Math.min(10, rows.length) }, (_, slot) => headers.map((_, col) => ({
+function browserFixture(options: { dataset?: boolean; size?: number; expected?: number | null; frozen?: boolean; fixtureHeaders?: string[]; fixtureRows?: string[][]; staticErrorColumn?: number } = {}) {
+  const fixtureHeaders = [...(options.fixtureHeaders ?? headers)];
+  const rows = options.fixtureRows ?? makeRows(options.size ?? 30);
+  const pool = Array.from({ length: Math.min(10, rows.length) }, (_, slot) => fixtureHeaders.map((_, col) => ({
     id: `fixture_grid_fileList_body_gridrow_${slot}_cell_${slot}_${col}GridCellTextContainerElement`, textContent: "",
   }))).flat();
   let position = 0;
@@ -37,7 +37,7 @@ function browserFixture(options: { dataset?: boolean; size?: number; expected?: 
       if (selector === "*") return [];
       if (selector.includes("_head")) return fixtureHeaders.map((header, col) => ({ id: `fixture_grid_fileList_head_cell_0_${col}GridCellTextContainerElement`, textContent: header }));
       const start = options.frozen ? 0 : Math.floor((componentPosition ?? position) / 20);
-      pool.forEach((node, i) => { node.textContent = rows[start + Math.floor(i / headers.length)]?.[i % headers.length] ?? ""; });
+      pool.forEach((node, i) => { node.textContent = rows[start + Math.floor(i / fixtureHeaders.length)]?.[i % fixtureHeaders.length] ?? ""; });
       return pool;
     },
   };
@@ -46,7 +46,7 @@ function browserFixture(options: { dataset?: boolean; size?: number; expected?: 
     addEventHandler: (_name: string, handler: (sender: unknown, event: { reason: number; errorcode: number }) => void) => { loadHandlers.add(handler); },
     removeEventHandler: (_name: string, handler: (sender: unknown, event: { reason: number; errorcode: number }) => void) => { loadHandlers.delete(handler); },
     getRowCount: () => rows.length,
-    getColumnInfo: (id: string) => /^c\d+$/.test(id) && Number(id.slice(1)) < headers.length ? { id } : null,
+    getColumnInfo: (id: string) => /^c\d+$/.test(id) && Number(id.slice(1)) < fixtureHeaders.length ? { id } : null,
     getColumn: (row: number, id: string) => rows[row][Number(id.slice(1))],
   };
   // body cell 순서를 head와 반대로 배치해 고정 index/동일 cell index 가정을 검출한다.
@@ -54,14 +54,14 @@ function browserFixture(options: { dataset?: boolean; size?: number; expected?: 
     id: "grid_fileList",
     getElement: () => ({ handle: root }),
     getBindDataset: () => options.dataset === false ? null : dataset,
-    getCellCount: () => headers.length,
+    getCellCount: () => fixtureHeaders.length,
     getCellProperty(band: string, cell: number, property: string): string | number {
-      const col = band === "head" ? cell : headers.length - 1 - cell;
+      const col = band === "head" ? cell : fixtureHeaders.length - 1 - cell;
       if (property === "col") return col;
       if (property === "colspan") return 1;
-      return band === "head" ? fixtureHeaders[col] : col === headers.length - 1 ? "오류보기" : `bind:c${col}`;
+      return band === "head" ? fixtureHeaders[col] : col === (options.staticErrorColumn ?? fixtureHeaders.length - 1) ? "오류보기" : `bind:c${col}`;
     },
-    getCellText: (row: number, cell: number) => rows[row][headers.length - 1 - cell],
+    getCellText: (row: number, cell: number) => rows[row][fixtureHeaders.length - 1 - cell],
   };
   const clickHandlers = new Set<() => void>();
   const mutationObservers = new Set<(records: { type: string }[]) => void>();
@@ -278,6 +278,27 @@ test("실제 K2B 14-column header: 별도 오류내용 없이 static 오류보�
     resultDate: "2026-09-01", internalK2BSendDate: "2026-09-01",
   }], read.rows.map(row => ({ ...row, submissionDate: row.actualSubmissionDate })), read);
   assert.equal(matched.verdict, "정상");
+});
+
+test("실제 14-column DOM header는 reader 전체 경로에서 identity schema를 충족한다", async () => {
+  const rows = Array.from({ length: 30 }, (_, index) => [
+    `fixture-${index}.xml`, index === 20 ? "한스오토스" : index === 29 ? "월드마스터" : `합성-${index}`,
+    "정상처리", "2026-09-01", "2026", "하반기", "국고", `R-${index}`, "내용보기", "오류보기", "",
+    index === 20 ? "31481904910" : index === 29 ? "46988023690" : String(10000000000 + index), "00000000000", String(index + 1),
+  ]);
+  const fixture = browserFixture({ fixtureHeaders: actualK2BHeaders, fixtureRows: rows, staticErrorColumn: 9 });
+  const result = await fixture.service.readCurrentSubmissionResults();
+  assert.equal(result.readMethod, "nexacro_dataset");
+  assert.equal(result.completeness, "COMPLETE");
+  assert.equal(result.rows.length, 30);
+  for (const [name, management] of [["한스오토스", "31481904910"], ["월드마스터", "46988023690"]]) {
+    const [matched] = reconcileK2BSubmissionResults([{
+      code: name, businessName: name, industrialAccidentNumber: management, commencementNumber: "00000000000",
+      resultDate: "2026-09-01", internalK2BSendDate: "2026-09-01",
+    }], result.rows.map(row => ({ ...row, submissionDate: row.actualSubmissionDate })), result);
+    assert.equal(matched.matchMethod, "exact_keys");
+    assert.equal(matched.verdict, "정상");
+  }
 });
 
 test("Dataset NF API는 존재해도 현재 검색 결과 수집에서 호출하지 않는다", async () => {
