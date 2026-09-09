@@ -1,4 +1,4 @@
-export const DOCUMENT_GENERATION_POLL_INTERVAL_MS = 3000;
+export const DOCUMENT_GENERATION_POLL_INTERVAL_MS = 30000;
 
 export const DOCUMENT_GENERATION_STATUS_LABELS: Record<string, string> = {
   NOT_REQUESTED: "문서 생성",

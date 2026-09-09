@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  DOCUMENT_GENERATION_POLL_INTERVAL_MS,
   DOCUMENT_GENERATION_STATUS_LABELS,
   documentGenerationPollDelay,
   isDocumentGenerationRunning,
@@ -28,17 +29,54 @@ test("문서 생성 상태 7종은 실행 여부와 버튼 문구를 정확히 �
   }
 });
 
-test("PROCESSING에서 COMPLETED가 되면 polling과 spinner 상태가 함께 종료된다", () => {
-  assert.equal(documentGenerationPollDelay("PROCESSING"), 3000);
+test("Case 1: 활성 상태만 30초 polling하며 terminal 상태는 예약하지 않는다", () => {
+  assert.equal(DOCUMENT_GENERATION_POLL_INTERVAL_MS, 30000);
+  assert.equal(documentGenerationPollDelay("PENDING"), 30000);
+  assert.equal(documentGenerationPollDelay("PROCESSING"), 30000);
   assert.equal(isDocumentGenerationRunning("PROCESSING"), true);
   assert.equal(documentGenerationPollDelay("COMPLETED"), null);
   assert.equal(isDocumentGenerationRunning("COMPLETED"), false);
 });
 
-test("완료·부분 성공·실패·취소 상태에서는 추가 polling을 예약하지 않는다", () => {
-  for (const status of ["COMPLETED", "PARTIAL_SUCCESS", "FAILED", "CANCELLED"]) {
+test("Case 2: NOT_REQUESTED·모든 terminal·알 수 없는 상태는 polling을 예약하지 않는다", () => {
+  for (const status of ["NOT_REQUESTED", "COMPLETED", "PARTIAL_SUCCESS", "FAILED", "CANCELLED", "UNKNOWN"]) {
     assert.equal(documentGenerationPollDelay(status), null);
   }
+});
+
+test("Case 3: 최초 조회는 visible 탭에서만 시작한다", () => {
+  assert.match(component, /document\.visibilityState !== "visible"/);
+  assert.match(component, /if \(document\.visibilityState === "visible"\) \{\s+loadWhenVisible\(\);/);
+  assert.match(component, /document\.addEventListener\("visibilitychange", loadWhenVisible\)/);
+});
+
+test("Case 4: hidden 전환은 polling timer를 중단한다", () => {
+  assert.match(component, /if \(!isPageVisible\(\)\) \{\s+clearTimer\(\);\s+return;/);
+});
+
+test("Case 5: visible 복귀는 즉시 상태를 조회하고 다음 polling을 예약한다", () => {
+  assert.match(component, /window\.addEventListener\("focus", refreshWhenVisible\)/);
+  assert.match(component, /document\.addEventListener\("visibilitychange", handleVisibilityChange\)/);
+  assert.match(component, /refreshWhenVisible\(\);/);
+  assert.match(component, /window\.setTimeout\(\(\) => void poll\(\), delay\)/);
+});
+
+test("Case 6: focus와 visibilitychange 연속 이벤트는 단일 polling 요청으로 제한한다", () => {
+  assert.match(component, /if \(cancelled \|\| !isPageVisible\(\) \|\| pollingInFlight\) return;/);
+});
+
+test("Case 7: terminal 응답은 polling listener와 timer를 남기지 않는다", () => {
+  assert.match(component, /if \(delay === null\) return;/);
+  assert.match(component, /window\.removeEventListener\("focus", refreshWhenVisible\)/);
+  assert.match(component, /document\.removeEventListener\("visibilitychange", handleVisibilityChange\)/);
+  assert.match(component, /clearTimer\(\);/);
+});
+
+test("Case 8: unmount는 요청 자원을 정리하고 수동 새로고침은 유지한다", () => {
+  assert.match(component, /requestSequence\.current \+= 1;/);
+  assert.match(component, /requestController\.current\?\.abort\(\)/);
+  assert.match(component, /const refreshStatus = async \(\) => \{[\s\S]*?await load\(true\);/);
+  assert.match(component, /onClick=\{\(\) => void refreshStatus\(\)\}/);
 });
 
 test("취소 요청이 확인되면 자동 polling과 생성 spinner를 중단한다", () => {
