@@ -159,19 +159,24 @@ test("수동 K2B 후보의 보고서 처리 기간은 기준일의 연도/반기
   ]), ["ACTIVE", "HISTORICAL"]);
 });
 
-test("K2B 조회 완료는 로딩 종료·grid 교체·행 변경·명시적 0건 전환만 인정한다", () => {
-  const before = { loading: false, gridElementId: "grid-1", rowSignature: "이전|정상", explicitEmpty: false, mutationVersion: 0 };
+test("K2B 조회 완료는 Dataset load 또는 검색 후 Grid content 갱신으로만 인정한다", () => {
+  const before = { loading: false, gridElementId: "grid-1", rowSignature: "이전|정상", explicitEmpty: false, mutationVersion: 0, datasetLoadVersion: 0, searchVersion: 0, datasetEventAvailable: true };
   assert.equal(isK2BSubmissionRefreshComplete(before, before, false), false);
   assert.equal(isK2BSubmissionRefreshComplete(before, { ...before, loading: true }, true), false);
-  assert.equal(isK2BSubmissionRefreshComplete(before, before, true), true);
-  assert.equal(isK2BSubmissionRefreshComplete(before, { ...before, gridElementId: "grid-2" }, false), true);
-  assert.equal(isK2BSubmissionRefreshComplete(before, { ...before, rowSignature: "신규|정상" }, false), true);
-  assert.equal(isK2BSubmissionRefreshComplete(before, { ...before, explicitEmpty: true, rowSignature: "" }, false), true);
+  assert.equal(isK2BSubmissionRefreshComplete(before, before, true), false);
+  assert.equal(isK2BSubmissionRefreshComplete(before, { ...before, gridElementId: "grid-2" }, false), false);
+  assert.equal(isK2BSubmissionRefreshComplete(before, { ...before, rowSignature: "신규|정상" }, false), false);
+  assert.equal(isK2BSubmissionRefreshComplete(before, { ...before, explicitEmpty: true, rowSignature: "" }, false), false);
   assert.equal(isK2BSubmissionRefreshComplete(
     { ...before, rowSignature: "", explicitEmpty: true },
     { ...before, rowSignature: "", explicitEmpty: true, mutationVersion: 1 },
     false,
-  ), true);
+  ), false);
+  assert.equal(isK2BSubmissionRefreshComplete(before, { ...before, datasetLoadVersion: 1 }, false), true);
+  assert.equal(isK2BSubmissionRefreshComplete(before, { ...before, datasetLoadVersion: 1, datasetLoadFailed: true }, false), false);
+  const domOnly = { ...before, datasetEventAvailable: false };
+  assert.equal(isK2BSubmissionRefreshComplete(domOnly, { ...domOnly, searchVersion: 1 }, false), false);
+  assert.equal(isK2BSubmissionRefreshComplete(domOnly, { ...domOnly, searchVersion: 1, mutationVersion: 1 }, false), true);
 });
 
 test("새 K2B 검증은 대표계정 read-only 범위 조회와 업로드 직렬화/독립 필드를 사용한다", () => {

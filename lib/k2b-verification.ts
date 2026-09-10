@@ -23,6 +23,7 @@ export type K2BSubmissionResult = {
   errorViewAvailable?: boolean;
   errorDetail?: string | null;
   submissionNumber?: string | null;
+  identityConflict?: boolean;
 };
 
 export type K2BVerificationVerdict = "정상" | "오류" | "날짜 불일치" | "내부 전송일자 없음" | "미접수" | "확인 필요";
@@ -40,7 +41,12 @@ const normalizeKey = (value: unknown) => String(value ?? "").replace(/\D/g, "");
 const NORMAL_K2B_STATUS = /^정상처리$/;
 
 function isNormalReceipt(row: K2BSubmissionResult): boolean {
-  return NORMAL_K2B_STATUS.test(String(row.status ?? "").trim()) && !row.errorViewAvailable;
+  return NORMAL_K2B_STATUS.test(String(row.status ?? "").trim()) && !hasK2BReceiptError(row);
+}
+
+/** 수집기가 산출한 실제 오류 신호와 오류내용을 함께 판정한다. */
+export function hasK2BReceiptError(row: Pick<K2BSubmissionResult, "errorViewAvailable" | "errorDetail">): boolean {
+  return row.errorViewAvailable === true || Boolean(String(row.errorDetail ?? "").trim());
 }
 
 /**
@@ -49,6 +55,7 @@ function isNormalReceipt(row: K2BSubmissionResult): boolean {
  * 때만 그 행을 확정한다. 정상 행이 전혀 없고 모두 오류면 오류 사실만 유지한다.
  */
 function resolveExactReceipt(candidates: K2BSubmissionResult[]): K2BSubmissionResult | null {
+  if (candidates.some(row => row.identityConflict)) return null;
   const normal = candidates.filter(isNormalReceipt);
   if (normal.length === 1) return normal[0];
   if (normal.length === 0 && candidates.length > 0 && candidates.every((row) => !isNormalReceipt(row))) {
@@ -57,7 +64,7 @@ function resolveExactReceipt(candidates: K2BSubmissionResult[]): K2BSubmissionRe
   return null;
 }
 
-export function reconcileK2BSubmissionResults(targets: K2BVerificationTarget[], results: K2BSubmissionResult[]): K2BReconciliation[] {
+export function reconcileK2BSubmissionResults(targets: K2BVerificationTarget[], results: K2BSubmissionResult[], read?: { completeness: "COMPLETE" | "INCOMPLETE" | "UNKNOWN" }): K2BReconciliation[] {
   const candidates = targets.map((target) => {
     const management = normalizeKey(target.industrialAccidentNumber);
     const commencement = normalizeKey(target.commencementNumber);
@@ -74,7 +81,7 @@ export function reconcileK2BSubmissionResults(targets: K2BVerificationTarget[], 
       return { target: candidate.target, match: null, matchMethod: "AMBIGUOUS" as const, state: "YELLOW" as const, verdict: "확인 필요" as const };
     }
     if (!candidate.match) {
-      return { target: candidate.target, match: null, matchMethod: candidate.matchMethod, state: "YELLOW" as const, verdict: candidate.matchMethod === "NONE" ? "미접수" as const : "확인 필요" as const };
+      return { target: candidate.target, match: null, matchMethod: candidate.matchMethod, state: "YELLOW" as const, verdict: candidate.matchMethod === "NONE" && read?.completeness === "COMPLETE" ? "미접수" as const : "확인 필요" as const };
     }
     const verdict = verdictFor(candidate.target, candidate.match);
     return {
@@ -88,22 +95,22 @@ export function reconcileK2BSubmissionResults(targets: K2BVerificationTarget[], 
 }
 
 export function verdictFor(target: K2BVerificationTarget, row: K2BSubmissionResult): K2BVerificationVerdict {
-  // 실제 처리 상태가 비정상이거나 오류보기 링크가 있으면 날짜가 달라도 정상/승인
+  // 실제 처리 상태가 비정상이거나 실제 오류내용이 있으면 날짜가 달라도 정상/승인
   // 대상으로 분류하지 않는다. K2B의 "정상처리"만으로 정상 판정할 수 없다.
-  if (!NORMAL_K2B_STATUS.test(String(row.status ?? "").trim()) || row.errorViewAvailable) return "오류";
+  if (!NORMAL_K2B_STATUS.test(String(row.status ?? "").trim()) || hasK2BReceiptError(row)) return "오류";
   if (!target.internalK2BSendDate) return "내부 전송일자 없음";
   if (row.submissionDate !== target.internalK2BSendDate) return "날짜 불일치";
   return "정상";
 }
 
-export function statusToState(status: string | null | undefined, target?: Pick<K2BVerificationTarget, "internalK2BStatus" | "internalK2BSendDate" | "resultDate">, errorViewAvailable = false): K2BVerificationState {
+export function statusToState(status: string | null | undefined, target?: Pick<K2BVerificationTarget, "internalK2BStatus" | "internalK2BSendDate" | "resultDate">, hasActualError = false): K2BVerificationState {
   const actual = String(status ?? "").trim();
   const internal = String(target?.internalK2BStatus ?? "").trim();
   const hasExactInternalDate = Boolean(target?.internalK2BSendDate) && target?.internalK2BSendDate === target?.resultDate;
   const internalIsNormal = NORMAL_K2B_STATUS.test(internal);
-  // 업무 판정에서 정상은 오직 "정상처리 + 오류보기 없음"이다. 그 밖의 실제
+  // 업무 판정에서 정상은 오직 "정상처리 + 실제 오류내용 없음"이다. 그 밖의 실제
   // 상태는 내부 날짜/상태와 관계없이 오류 관측으로 표시한다.
-  if (!actual || !NORMAL_K2B_STATUS.test(actual) || errorViewAvailable) return "RED";
+  if (!actual || !NORMAL_K2B_STATUS.test(actual) || hasActualError) return "RED";
   if (NORMAL_K2B_STATUS.test(actual) && internalIsNormal && hasExactInternalDate) return "GREEN";
   return "YELLOW";
 }

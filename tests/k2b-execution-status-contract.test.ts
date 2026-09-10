@@ -10,6 +10,7 @@ test("K2B 원본 동기화 상태 계약은 execution_result에 저장된 관측
       trigger: "scheduled", fromDate: "2026-09-03", toDate: "2026-09-06", sourceHost: "worker-a", queriedDates: ["2026-09-03", "2026-09-04"],
       dateResults: [{ date: "2026-09-03", outcome: "SUCCESS_EMPTY", rowCount: 0 }, { date: "2026-09-04", outcome: "QUERY_FAILED", rowCount: 0 }],
       remoteK2BReadAttempted: true, remoteK2BReadExecuted: false, remoteReadState: "partial", cursorBefore: "2026-09-02", cursorAfter: null, cursorAdvanced: false,
+      remoteRowCount: 29, remoteExpectedRowCount: 30, gridReadMethod: "virtual_scroll", gridReadComplete: "INCOMPLETE",
       rawReceiptPersistence: { attempted: 4, saved: 3, failed: 1, insertedCount: 2, updatedCount: 1, unchangedCount: 0, fallbackKeyCount: 1 },
       journalVerification: { matched: 2, saved: 2 }, databaseSaveCompleted: false, uploadExecuted: false, failureStage: "QUERY_FAILED",
     },
@@ -22,6 +23,10 @@ test("K2B 원본 동기화 상태 계약은 execution_result에 저장된 관측
   assert.deepEqual(execution.queriedDates, ["2026-09-03", "2026-09-04"]);
   assert.equal(execution.remoteK2BReadAttempted, true);
   assert.equal(execution.remoteK2BReadExecuted, false);
+  assert.equal(execution.remoteRowCount, 29);
+  assert.equal(execution.remoteExpectedRowCount, 30);
+  assert.equal(execution.gridReadMethod, "virtual_scroll");
+  assert.equal(execution.gridReadComplete, "INCOMPLETE");
   assert.equal(execution.rawReceiptPersistence?.saved, 3);
   assert.equal(execution.cursorAfter, null);
   assert.equal(execution.failureStage, "QUERY_FAILED");
@@ -40,4 +45,7 @@ test("기록되지 않은 실행 결과는 payload나 0/false 기본값으로 �
   assert.equal(execution.remoteK2BReadAttempted, null);
   assert.equal(execution.rawReceiptPersistence, null);
   assert.equal(execution.remoteReadState, null);
+  assert.equal(execution.remoteExpectedRowCount, null);
+  assert.equal(execution.gridReadMethod, null);
+  assert.equal(execution.gridReadComplete, null);
 });

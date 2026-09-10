@@ -20,14 +20,22 @@ export type K2BOriginalReceipt = {
   raw: Record<string, string>;
   sourceKey: string;
   identityFallback: boolean;
+  /** 동일 접수 고유키에서 서로 다른 값이 관측되면 자동 후보 선택을 금지한다. */
+  identityConflict?: boolean;
 };
 
 export type K2BRange = { fromDate: string; toDate: string };
-export type K2BGridRead =
+export type K2BGridReadEvidence = {
+  expectedRowCount: number | null;
+  collectedUniqueRowCount: number;
+  readMethod: "nexacro_dataset" | "virtual_scroll";
+  completeness: "COMPLETE" | "INCOMPLETE" | "UNKNOWN";
+};
+export type K2BGridRead = K2BGridReadEvidence & (
   | { outcome: "SUCCESS"; rows: K2BOriginalReceipt[]; headers: string[] }
-  | { outcome: "SUCCESS_EMPTY"; rows: []; headers: string[] };
+  | { outcome: "SUCCESS_EMPTY"; rows: []; headers: string[] });
 
-const HEADER_ALIASES: Record<keyof Omit<K2BOriginalReceipt, "raw" | "sourceKey" | "identityFallback" | "errorViewAvailable" | "errorDetail">, string[]> = {
+const HEADER_ALIASES: Record<keyof Omit<K2BOriginalReceipt, "raw" | "sourceKey" | "identityFallback" | "identityConflict" | "errorViewAvailable" | "errorDetail">, string[]> = {
   fileName: ["청구 파일명", "파일명", "파일 명"],
   companyName: ["사업장명", "사업장 명", "업체명"],
   actualSubmissionDate: ["접수일", "접수일자", "실제접수일", "제출일", "제출일자"],
@@ -118,7 +126,17 @@ export function assertAdminK2BVerificationRange(fromDate: string, toDate: string
 }
 
 /** DOM 고정 column index를 믿지 않고 조회 화면의 header text를 기준으로 원본 행을 해석한다. */
-export function parseK2BSubmissionGrid(headers: readonly string[], rows: readonly (readonly string[])[]): K2BGridRead {
+export function parseK2BSubmissionGrid(headers: readonly string[], rows: readonly (readonly string[])[], evidence?: K2BGridReadEvidence): K2BGridRead {
+  // 행 배열만으로는 전체 수집을 증명할 수 없다. 브라우저의 수집 근거와 개수를 함께 검증한다.
+  const read: K2BGridReadEvidence = evidence ? { ...evidence } : {
+    expectedRowCount: null, collectedUniqueRowCount: rows.length, readMethod: "virtual_scroll", completeness: "UNKNOWN",
+  };
+  if (read.expectedRowCount != null && (!Number.isSafeInteger(read.expectedRowCount) || read.expectedRowCount < 0)) {
+    read.expectedRowCount = null;
+    read.completeness = "UNKNOWN";
+  }
+  if (read.collectedUniqueRowCount !== rows.length || (read.expectedRowCount != null && read.expectedRowCount !== rows.length)) read.completeness = "INCOMPLETE";
+  if (read.expectedRowCount == null && read.completeness === "COMPLETE") read.completeness = "UNKNOWN";
   const indexes = new Map<string, number[]>();
   for (const [index, header] of headers.entries()) {
     const key = normalized(header);
@@ -133,21 +151,35 @@ export function parseK2BSubmissionGrid(headers: readonly string[], rows: readonl
     return matches[0] ?? -1;
   };
   const fieldIndexes = Object.fromEntries((Object.keys(HEADER_ALIASES) as (keyof typeof HEADER_ALIASES)[]).map(field => [field, indexFor(field, true)])) as Record<keyof typeof HEADER_ALIASES, number>;
-  if (rows.length === 0) return { outcome: "SUCCESS_EMPTY", rows: [], headers: [...headers] };
+  if (rows.length === 0) return { outcome: "SUCCESS_EMPTY", rows: [], headers: [...headers], ...read };
   const parsed = rows.map((row, rowIndex) => {
+    if (!Array.isArray(row) || row.length !== headers.length) throw new Error('K2B_GRID_SCHEMA_MISMATCH:incomplete_row');
     const raw = Object.fromEntries(headers.map((header, index) => [header, String(row[index] ?? "").trim()]));
     const date = asKstDate(row[fieldIndexes.actualSubmissionDate]);
     const required = (field: keyof typeof fieldIndexes) => String(row[fieldIndexes[field]] ?? "").trim();
-    const errorView = Object.entries(raw).find(([header]) => normalized(header).includes("오류보기"));
-    const errorDetail = Object.entries(raw).find(([header]) => /오류(내용|상세|사유)/.test(normalized(header)));
+    const errorDetail = Object.entries(raw).filter(([header]) => /오류(내용|상세|사유)/.test(normalized(header)))
+      .map(([, value]) => value.trim()).filter(Boolean).join('; ');
     const receipt = { fileName: required("fileName"), companyName: required("companyName"), actualSubmissionDate: date ?? "",
       businessYear: required("businessYear"), half: required("half"), supportType: required("supportType"), submissionNumber: required("submissionNumber"),
       managementNumber: required("managementNumber"), commencementNumber: required("commencementNumber"), sequenceNumber: required("sequenceNumber"),
-      status: required("status"), errorViewAvailable: Boolean(errorView?.[1]), errorDetail: errorDetail?.[1] || null,
+      // 오류보기 버튼/라벨은 모든 정상 행에도 있을 수 있다. 실제 오류값만 관측한다.
+      status: required("status"), errorViewAvailable: Boolean(errorDetail), errorDetail: errorDetail || null,
       raw, sourceKey: "", identityFallback: false };
     if (!date || !receipt.fileName || !receipt.companyName || !receipt.businessYear || !receipt.half || !receipt.supportType || !receipt.managementNumber || !receipt.commencementNumber || !receipt.sequenceNumber || !receipt.status) throw new Error(`K2B_GRID_SCHEMA_MISMATCH:invalid_required_row_${rowIndex}`);
     const identity = buildK2BSourceKey(receipt);
     return { ...receipt, ...identity };
   });
-  return { outcome: "SUCCESS", rows: parsed, headers: [...headers] };
+  const rowKey = (row: K2BOriginalReceipt) => row.submissionNumber
+    ? JSON.stringify(["submission", row.submissionNumber.trim()])
+    : JSON.stringify([row.managementNumber.replace(/\D/g, ""), row.commencementNumber.replace(/\D/g, ""), row.sequenceNumber.trim(), row.fileName.trim()]);
+  const identities = new Map<string, number>();
+  for (const row of parsed) {
+    const key = rowKey(row);
+    identities.set(key, (identities.get(key) ?? 0) + 1);
+  }
+  read.collectedUniqueRowCount = identities.size;
+  if (identities.size !== parsed.length || (read.expectedRowCount != null && identities.size !== read.expectedRowCount)) read.completeness = "INCOMPLETE";
+  // 동일 내용도 원본 identity 중복이다. 행을 보존하고 중복 exact 후보의 자동 선택을 차단한다.
+  const receipts = parsed.map(row => identities.get(rowKey(row))! > 1 ? { ...row, identityConflict: true } : row);
+  return { outcome: "SUCCESS", rows: receipts, headers: [...headers], ...read };
 }

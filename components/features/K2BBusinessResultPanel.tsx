@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Checkbox } from "@/components/ui/Checkbox";
@@ -67,6 +67,8 @@ export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFini
   const [adminToDate, setAdminToDate] = useState("");
   const [adminQueueing, setAdminQueueing] = useState(false);
   const [adminRangeOpen, setAdminRangeOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const detailId = useId();
   const completionNotifiedRef = useRef<string | null>(null);
   const completionCallbackRef = useRef(onExecutionFinished);
   const { user } = useUser();
@@ -123,6 +125,16 @@ export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFini
   }, [execution?.queueStatus, isDocumentVisible, refresh]);
 
   const approvalRows = useMemo(() => execution?.verificationRows.filter((row) => row.approvalRequired && !row.errorViewAvailable && row.actualStatus && row.actualSubmissionDate) ?? [], [execution]);
+  const summary = useMemo(() => (execution?.verificationRows ?? []).reduce((counts, row) => {
+    if (row.verdict === "정상") counts.normal += 1;
+    else if (row.verdict === "오류") counts.error += 1;
+    else counts.review += 1;
+    return counts;
+  }, { normal: 0, review: 0, error: 0 }), [execution?.verificationRows]);
+  const statusLabel = error ? "조회 실패"
+    : refreshKey && refreshKey !== execution?.runId ? "검증 진행 중"
+      : execution?.queueStatus ? executionStatusLabel(execution.queueStatus)
+        : loading ? "확인 중" : "검증 대기";
   const selectedRows = useMemo(() => approvalRows.filter((row) => selectedIds.includes(row.journalId)), [approvalRows, selectedIds]);
   const groupedRows = useMemo(() => Object.entries(selectedRows.reduce<Record<string, VerificationRow[]>>((groups, row) => {
     (groups[row.verdict] ??= []).push(row);
@@ -180,18 +192,26 @@ export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFini
   return <>
     <Card className="space-y-3 p-4" aria-label="K2B 실제결과">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h2 className="text-base font-bold text-slate-800">K2B 실제결과</h2>
-          <p className="text-xs text-slate-500">대표계정 로컬 작업기의 저장 결과입니다. 날짜 차이는 검토 후 선택 반영합니다.</p>
+          <span role="status" className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{statusLabel}</span>
+          <p aria-label="검증 결과 요약" className="text-xs text-slate-600">{execution?.verificationRows.length
+            ? <>정상 {summary.normal}건 · 확인 필요 {summary.review}건 · 오류 {summary.error}건</>
+            : "아직 저장 결과 없음"}</p>
         </div>
-        <div className="flex items-center gap-2">
-          {execution?.queueStatus && <span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{executionStatusLabel(execution.queueStatus)}</span>}
-          {isAdmin && <Button type="button" size="sm" variant="secondary" aria-expanded={adminRangeOpen} onClick={() => setAdminRangeOpen((open) => !open)}>{adminRangeOpen ? "기간 설정 닫기" : "관리자 기간 재검증"}</Button>}
+        <Button type="button" size="sm" variant="secondary" aria-expanded={detailOpen} aria-controls={detailId} onClick={() => setDetailOpen((open) => !open)}>{detailOpen ? "접기" : "상세 보기"}</Button>
+      </div>
+      <div id={detailId} hidden={!detailOpen}>
+      {detailOpen && <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-slate-500">대표계정 로컬 작업기의 저장 결과입니다. 날짜 차이는 검토 후 선택 반영합니다.</p>
+          <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && <Button type="button" size="sm" variant="secondary" aria-expanded={adminRangeOpen} aria-controls={`${detailId}-admin-range`} onClick={() => setAdminRangeOpen((open) => !open)}>{adminRangeOpen ? "기간 설정 닫기" : "관리자 기간 재검증"}</Button>}
           <Button type="button" size="sm" variant="secondary" onClick={() => void refresh()} disabled={loading}>{loading ? "확인 중" : "새로고침"}</Button>
           <Button type="button" size="sm" variant="primary" disabled={selectedRows.length === 0 || execution?.queueStatus !== "success"} onClick={() => setApprovalOpen(true)}>선택 반영 ({selectedRows.length})</Button>
+          </div>
         </div>
-      </div>
-      {isAdmin && adminRangeOpen && <div className="flex flex-wrap items-end gap-3 rounded border border-slate-200 bg-slate-50 p-3">
+      {isAdmin && adminRangeOpen && <div id={`${detailId}-admin-range`} className="flex flex-wrap items-end gap-3 rounded border border-slate-200 bg-slate-50 p-3">
         <div className="w-full sm:w-48"><Input type="date" label="시작일" value={adminFromDate} onChange={(event) => setAdminFromDate(event.target.value)} className="h-9 text-sm" /></div>
         <div className="w-full sm:w-48"><Input type="date" label="종료일" value={adminToDate} onChange={(event) => setAdminToDate(event.target.value)} className="h-9 text-sm" /></div>
         <Button type="button" size="sm" variant="primary" onClick={() => void requestAdminRangeVerification()} disabled={adminQueueing}>{adminQueueing ? "등록 중" : "최대 31일 재검증"}</Button>
@@ -208,6 +228,8 @@ export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFini
           <TableCell className="font-mono">{row.code || "-"}</TableCell><TableCell className="truncate font-medium" title={row.businessName || undefined}>{row.businessName || "-"}</TableCell><TableCell className="font-mono">{row.industrialAccidentNumber || "-"}</TableCell><TableCell className="font-mono">{row.commencementNumber || "-"}</TableCell><TableCell className="text-center">{row.internalSubmissionDate || "-"}</TableCell><TableCell className="text-center">{row.actualSubmissionDate || "-"}</TableCell><TableCell>{row.internalStatus || "-"}</TableCell><TableCell>{row.actualStatus || "-"}{row.errorViewAvailable ? " · 오류보기" : ""}</TableCell><TableCell className="text-center"><span className={`rounded border px-2 py-1 text-xs font-semibold ${verdictClass(row.verdict)}`}>{row.verdict}</span></TableCell><TableCell className="truncate" title={row.errorDetail || undefined}>{row.errorDetail || "-"}</TableCell>
         </TableRow>)}</TableBody>
       </Table>}
+      </div>}
+      </div>
     </Card>
     <Modal isOpen={approvalOpen} onClose={() => !approving && setApprovalOpen(false)} title="K2B 실제결과 반영 확인" size="lg">
       <div className="space-y-4 pt-4">
