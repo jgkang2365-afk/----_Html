@@ -11,6 +11,8 @@ import type {
 } from "@/lib/report-explorer/types";
 
 export const REPORT_EXPLORER_BASE_URL = "http://127.0.0.1:17653";
+export const REPORT_EXPLORER_CONNECTED_HEALTH_INTERVAL_MS = 60_000;
+export const REPORT_EXPLORER_RECONNECT_DELAYS_MS = [3_000, 10_000, 30_000, 60_000] as const;
 type JsonObject = Record<string, unknown>;
 
 export class ReportExplorerClientError extends Error {
@@ -81,9 +83,14 @@ function issuesFromPayload(payload: unknown, fallback: string, status?: number):
   return issueKindsFromPayload(payload, status).map((kind) => ({ kind, message: messageFromPayload(payload, fallback) }));
 }
 
-export function deriveReportExplorerConnectionStatus(issues: ReportExplorerIssue[], requestSucceeded: boolean): ReportExplorerConnectionStatus {
+export function reportExplorerConnectionStatusFromIssues(issues: ReportExplorerIssue[]): ReportExplorerConnectionStatus | null {
   if (issues.some((issue) => issue.kind === "root")) return "storage-error";
-  return requestSucceeded && issues.length === 0 ? "connected" : "disconnected";
+  if (issues.some((issue) => issue.kind === "disconnected" || issue.kind === "permission")) return "disconnected";
+  return null;
+}
+
+export function deriveReportExplorerConnectionStatus(issues: ReportExplorerIssue[], requestSucceeded: boolean): ReportExplorerConnectionStatus {
+  return reportExplorerConnectionStatusFromIssues(issues) ?? (requestSucceeded ? "connected" : "disconnected");
 }
 
 async function readJson(response: Response): Promise<unknown> {

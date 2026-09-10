@@ -19,6 +19,9 @@ import {
     collectReportExplorerBusinessNames,
     deriveReportExplorerConnectionStatus,
     getReportExplorerHealth,
+    reportExplorerConnectionStatusFromIssues,
+    REPORT_EXPLORER_CONNECTED_HEALTH_INTERVAL_MS,
+    REPORT_EXPLORER_RECONNECT_DELAYS_MS,
     hasReportExplorerFolderMatches,
     openReportExplorerResult,
     ReportExplorerClientError,
@@ -140,9 +143,12 @@ export default function ReportProcessingPage() {
     const [explorerHasSearched, setExplorerHasSearched] = useState(false);
     const [explorerConnectionStatus, setExplorerConnectionStatus] = useState<ReportExplorerConnectionStatus>('unchecked');
     const [explorerMessage, setExplorerMessage] = useState<string | null>(null);
+    const [explorerHealthChecking, setExplorerHealthChecking] = useState(false);
     const [explorerSearching, setExplorerSearching] = useState(false);
     const [explorerOpeningResultId, setExplorerOpeningResultId] = useState<string | null>(null);
     const explorerAbortControllerRef = useRef<AbortController | null>(null);
+    const explorerHealthAbortControllerRef = useRef<AbortController | null>(null);
+    const explorerHealthInFlightRef = useRef(false);
     const initialQueryDoneRef = useRef(false);
 
     // 시스템 기준 현재 주기 정의 (정규/추가 구분용)
@@ -259,32 +265,91 @@ export default function ReportProcessingPage() {
         return controller;
     }, [cancelReportExplorerRequest]);
 
-    const updateExplorerHealth = useCallback(async () => {
-        const controller = createExplorerRequestController();
+    const updateExplorerHealth = useCallback(async (): Promise<ReportExplorerConnectionStatus | null> => {
+        if (explorerHealthInFlightRef.current) return null;
+        const controller = new AbortController();
+        explorerHealthAbortControllerRef.current = controller;
+        explorerHealthInFlightRef.current = true;
+        setExplorerHealthChecking(true);
         try {
             const health = await getReportExplorerHealth(controller.signal);
-            if (explorerAbortControllerRef.current !== controller) return;
-            setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(health.issues, health.status === 'ok' && health.issues.length === 0));
+            if (explorerHealthAbortControllerRef.current !== controller) return null;
+            const status = deriveReportExplorerConnectionStatus(health.issues, health.status === 'ok' && health.issues.length === 0);
+            setExplorerConnectionStatus(status);
             setExplorerMessage(health.issues.length > 0 ? health.message : null);
+            return status;
         } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') return;
+            if (error instanceof DOMException && error.name === 'AbortError') return null;
             if (error instanceof ReportExplorerClientError) {
-                setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(error.issues, false));
+                const status = deriveReportExplorerConnectionStatus(error.issues, false);
+                setExplorerConnectionStatus(status);
                 setExplorerMessage(error.message);
-                return;
+                return status;
             }
             setExplorerConnectionStatus('disconnected');
             setExplorerMessage('보고서 탐색기 상태를 확인할 수 없습니다.');
+            return 'disconnected';
         } finally {
-            if (explorerAbortControllerRef.current === controller) explorerAbortControllerRef.current = null;
+            if (explorerHealthAbortControllerRef.current === controller) {
+                explorerHealthAbortControllerRef.current = null;
+                explorerHealthInFlightRef.current = false;
+                setExplorerHealthChecking(false);
+            }
         }
-    }, [createExplorerRequestController]);
+    }, []);
 
     useEffect(() => {
         return () => {
             cancelReportExplorerRequest(false);
         };
     }, [cancelReportExplorerRequest]);
+    useEffect(() => {
+        let stopped = false;
+        let timer: number | null = null;
+        let retryAttempt = 0;
+
+        const clearTimer = () => {
+            if (timer !== null) window.clearTimeout(timer);
+            timer = null;
+        };
+        const schedule = (delay: number) => {
+            clearTimer();
+            if (!stopped && document.visibilityState === 'visible') timer = window.setTimeout(() => void run(), delay);
+        };
+        const run = async () => {
+            if (stopped || document.visibilityState !== 'visible') return;
+            const status = await updateExplorerHealth();
+            if (stopped || document.visibilityState !== 'visible' || status === null) return;
+            if (status === 'connected') {
+                retryAttempt = 0;
+                schedule(REPORT_EXPLORER_CONNECTED_HEALTH_INTERVAL_MS);
+                return;
+            }
+            const delay = REPORT_EXPLORER_RECONNECT_DELAYS_MS[Math.min(retryAttempt, REPORT_EXPLORER_RECONNECT_DELAYS_MS.length - 1)];
+            retryAttempt = Math.min(retryAttempt + 1, REPORT_EXPLORER_RECONNECT_DELAYS_MS.length - 1);
+            schedule(delay);
+        };
+        const recheckNow = () => {
+            if (document.visibilityState !== 'visible') {
+                clearTimer();
+                explorerHealthAbortControllerRef.current?.abort();
+                return;
+            }
+            clearTimer();
+            void run();
+        };
+
+        void run();
+        document.addEventListener('visibilitychange', recheckNow);
+        window.addEventListener('focus', recheckNow);
+        return () => {
+            stopped = true;
+            clearTimer();
+            explorerHealthAbortControllerRef.current?.abort();
+            document.removeEventListener('visibilitychange', recheckNow);
+            window.removeEventListener('focus', recheckNow);
+        };
+    }, [updateExplorerHealth]);
 
     const clearJobMonitor = useCallback(() => {
         if (jobMonitorIntervalRef.current !== null) {
@@ -564,7 +629,8 @@ export default function ReportProcessingPage() {
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') return;
             if (error instanceof ReportExplorerClientError) {
-                setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(error.issues, false));
+                const connectionStatus = reportExplorerConnectionStatusFromIssues(error.issues);
+                if (connectionStatus) setExplorerConnectionStatus(connectionStatus);
                 setExplorerMessage(error.message);
             } else {
                 setExplorerConnectionStatus('disconnected');
@@ -590,7 +656,8 @@ export default function ReportProcessingPage() {
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') return;
             if (error instanceof ReportExplorerClientError) {
-                setExplorerConnectionStatus(deriveReportExplorerConnectionStatus(error.issues, false));
+                const connectionStatus = reportExplorerConnectionStatusFromIssues(error.issues);
+                if (connectionStatus) setExplorerConnectionStatus(connectionStatus);
                 setExplorerMessage(error.message);
             } else {
                 setExplorerConnectionStatus('disconnected');
@@ -872,8 +939,8 @@ export default function ReportProcessingPage() {
                         </span>
                     </div>
                     <div className="flex items-center gap-2 text-xs">
-                        <span className={`rounded-full border px-2 py-1 font-medium ${reportExplorerConnectionStatusClass(explorerConnectionStatus)}`}>{reportExplorerConnectionStatusLabel(explorerConnectionStatus)}</span>
-                        <Button type="button" variant="secondary" size="sm" className="h-8 px-3 text-xs" onClick={() => void updateExplorerHealth()} disabled={explorerSearching || explorerOpeningResultId !== null}>연결 확인</Button>
+                        <span className={`rounded-full border px-2 py-1 font-medium ${reportExplorerConnectionStatusClass(explorerConnectionStatus)}`} aria-live="polite">{explorerHealthChecking && explorerConnectionStatus !== 'connected' ? '로컬 탐색기 재연결 중…' : reportExplorerConnectionStatusLabel(explorerConnectionStatus)}</span>
+                        <Button type="button" variant="secondary" size="sm" className="h-8 px-3 text-xs" onClick={() => void updateExplorerHealth()} disabled={explorerHealthChecking || explorerSearching || explorerOpeningResultId !== null}>연결 확인</Button>
                     </div>
                 </div>
                 {explorerMessage && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{explorerMessage}</p>}
