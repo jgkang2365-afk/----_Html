@@ -196,20 +196,40 @@ test("탐색기 연결 상태는 확인 전·권한 거부·Z: 저장소 오류�
   assert.equal(client.deriveReportExplorerConnectionStatus([], true), "connected");
 });
 
-test("페이지 마운트와 useEffect는 localhost health를 자동 호출하지 않는다", () => {
+test("자동 재연결 간격과 업무 오류의 연결 상태 보존 정책을 고정한다", async () => {
+  const client = await import("../lib/report-explorer/client");
+  assert.equal(client.REPORT_EXPLORER_CONNECTED_HEALTH_INTERVAL_MS, 60_000);
+  assert.deepEqual([...client.REPORT_EXPLORER_RECONNECT_DELAYS_MS], [3_000, 10_000, 30_000, 60_000]);
+  assert.equal(client.reportExplorerConnectionStatusFromIssues([]), null);
+  assert.equal(client.reportExplorerConnectionStatusFromIssues([{ kind: "disconnected", message: "helper down" }]), "disconnected");
+  assert.equal(client.reportExplorerConnectionStatusFromIssues([{ kind: "root", message: "Z: down" }]), "storage-error");
+});
+
+test("보고서 탐색기는 페이지 진입 즉시 health를 확인하고 visible 상태에서 자동 재연결한다", () => {
   const page = source(pagePath);
   const effects = reactHookBodies(page, "useEffect");
-
-  assert.notEqual(effects.length, 0, "page mount effects must be inspectable");
-  for (const effect of effects) {
-    assert.doesNotMatch(effect, /\b(?:getReportExplorerHealth|updateExplorerHealth|checkReportExplorerHealth)\s*\(/);
-  }
-  assert.match(page, /useState<ReportExplorerConnectionStatus>\(["']unchecked["']\)/);
-  assert.match(page, /status === ["']unchecked["'][\s\S]*?["']연결 확인 전["']/);
+  const healthEffect = effects.find((effect) => /updateExplorerHealth\(\)/.test(effect));
+  assert.ok(healthEffect, "health auto-connect effect must exist");
+  assert.match(healthEffect, /void run\(\)/);
+  assert.match(healthEffect, /document\.visibilityState !== 'visible'/);
+  assert.match(healthEffect, /REPORT_EXPLORER_CONNECTED_HEALTH_INTERVAL_MS/);
+  assert.match(healthEffect, /REPORT_EXPLORER_RECONNECT_DELAYS_MS/);
+  assert.match(healthEffect, /visibilitychange/);
+  assert.match(healthEffect, /window\.addEventListener\('focus'/);
+  assert.match(healthEffect, /explorerHealthAbortControllerRef\.current\?\.abort\(\)/);
+  assert.match(page, /로컬 탐색기 재연결 중…/);
   assert.match(page, /연결 확인/);
 });
 
-test("localhost 호출은 연결 확인·검색·열기 같은 명시적 작업에서만 시작한다", async () => {
+test("자동 health는 검색·열기 AbortController와 분리되어 사용자 작업을 취소하지 않는다", () => {
+  const page = source(pagePath);
+  const healthHandler = namedInitializer(page, ["updateExplorerHealth"]);
+  assert.match(page, /explorerHealthAbortControllerRef/);
+  assert.match(page, /explorerAbortControllerRef/);
+  assert.match(healthHandler, /new AbortController\(\)/);
+  assert.doesNotMatch(healthHandler, /createExplorerRequestController/);
+});
+test("클라이언트 API 호출은 localhost helper로만 가고 Supabase·Next API를 거치지 않는다", async () => {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   globalThis.fetch = async (input, init) => {
@@ -235,7 +255,7 @@ test("localhost 호출은 연결 확인·검색·열기 같은 명시적 작업�
 
   try {
     const client = await import("../lib/report-explorer/client");
-    assert.equal(requests.length, 0, "import/mount contract must not contact localhost");
+    assert.equal(requests.length, 0, "client module import must not contact localhost");
 
     await client.getReportExplorerHealth();
     await client.searchReportExplorer({
