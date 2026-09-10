@@ -17,11 +17,11 @@ const makeRows = (size = 30) => Array.from({ length: size }, (_, index) => [
 ]);
 
 /** 10개 슬롯의 DOM 객체/id를 재사용하는 Nexacro 런타임 fixture. 외부 조회는 없다. */
-function browserFixture(options: { dataset?: boolean; size?: number; expected?: number | null; frozen?: boolean; fixtureHeaders?: string[]; fixtureRows?: string[][]; staticErrorColumn?: number } = {}) {
+function browserFixture(options: { dataset?: boolean; size?: number; expected?: number | null; frozen?: boolean; fixtureHeaders?: string[]; fixtureRows?: string[][]; staticErrorColumn?: number; viewport?: number; deepApplication?: boolean } = {}) {
   const fixtureHeaders = [...(options.fixtureHeaders ?? headers)];
   const rows = options.fixtureRows ?? makeRows(options.size ?? 30);
-  const pool = Array.from({ length: Math.min(10, rows.length) }, (_, slot) => fixtureHeaders.map((_, col) => ({
-    id: `fixture_grid_fileList_body_gridrow_${slot}_cell_${slot}_${col}GridCellTextContainerElement`, textContent: "",
+  const pool = Array.from({ length: Math.min(options.viewport ?? 10, rows.length) }, (_, slot) => fixtureHeaders.map((_, col) => ({
+    id: `fixture_grid_fileList_body_gridrow_${slot}_cell_${slot}_${col}`, textContent: "",
   }))).flat();
   let position = 0;
   let componentPosition: number | null = null;
@@ -35,7 +35,7 @@ function browserFixture(options: { dataset?: boolean; size?: number; expected?: 
     dispatchEvent: () => true,
     querySelectorAll(selector: string) {
       if (selector === "*") return [];
-      if (selector.includes("_head")) return fixtureHeaders.map((header, col) => ({ id: `fixture_grid_fileList_head_cell_0_${col}GridCellTextContainerElement`, textContent: header }));
+      if (selector.includes("_head")) return fixtureHeaders.map((header, col) => ({ id: `fixture_grid_fileList_head_gridrow_-1_cell_-1_${col}GridCellTextSimpleContainerElement`, textContent: header }));
       const start = options.frozen ? 0 : Math.floor((componentPosition ?? position) / 20);
       pool.forEach((node, i) => { node.textContent = rows[start + Math.floor(i / fixtureHeaders.length)]?.[i % fixtureHeaders.length] ?? ""; });
       return pool;
@@ -75,9 +75,12 @@ function browserFixture(options: { dataset?: boolean; size?: number; expected?: 
     observe() { mutationObservers.add(this.callback); }
     disconnect() { mutationObservers.delete(this.callback); }
   }
+  const deepComponents = Array.from({ length: 511 }, (_, index) => index === 510 ? grid : { id: `component_${index}` });
   const browser = {
     document: { querySelectorAll: () => [root], getElementById: () => searchButton },
-    window: { nexacro: { getApplication: () => ({ mainframe: { form: { components: [grid] } } }) } },
+    window: options.deepApplication
+      ? { nexacro: { getApplication: () => ({}) }, application: { components: deepComponents } }
+      : { nexacro: { getApplication: () => ({ mainframe: { form: { components: [grid] } } }) } },
     setTimeout: (callback: () => void) => { callback(); return 0; }, Event: class {}, MutationObserver: FixtureMutationObserver,
   };
   const service = new K2BService();
@@ -281,16 +284,19 @@ test("실제 K2B 14-column header: 별도 오류내용 없이 static 오류보�
 });
 
 test("실제 14-column DOM header는 reader 전체 경로에서 identity schema를 충족한다", async () => {
-  const rows = Array.from({ length: 30 }, (_, index) => [
-    `fixture-${index}.xml`, index === 20 ? "한스오토스" : index === 29 ? "월드마스터" : `합성-${index}`,
+  const rows = Array.from({ length: 28 }, (_, index) => [
+    `fixture-${index}.xml`, index === 20 ? "한스오토스" : index === 27 ? "월드마스터" : `합성-${index}`,
     "정상처리", "2026-09-01", "2026", "하반기", "국고", `R-${index}`, "내용보기", "오류보기", "",
-    index === 20 ? "31481904910" : index === 29 ? "46988023690" : String(10000000000 + index), "00000000000", String(index + 1),
+    index === 20 ? "31481904910" : index === 27 ? "46988023690" : String(10000000000 + index), "00000000000", String(index + 1),
   ]);
-  const fixture = browserFixture({ fixtureHeaders: actualK2BHeaders, fixtureRows: rows, staticErrorColumn: 9 });
+  const fixture = browserFixture({ fixtureHeaders: actualK2BHeaders, fixtureRows: rows, staticErrorColumn: 9, viewport: 22, deepApplication: true });
   const result = await fixture.service.readCurrentSubmissionResults();
   assert.equal(result.readMethod, "nexacro_dataset");
   assert.equal(result.completeness, "COMPLETE");
-  assert.equal(result.rows.length, 30);
+  assert.equal(result.expectedRowCount, 28);
+  assert.equal(result.collectedUniqueRowCount, 28);
+  assert.equal(result.rows.length, 28);
+  assert.equal(fixture.pool.length, actualK2BHeaders.length * 22);
   for (const [name, management] of [["한스오토스", "31481904910"], ["월드마스터", "46988023690"]]) {
     const [matched] = reconcileK2BSubmissionResults([{
       code: name, businessName: name, industrialAccidentNumber: management, commencementNumber: "00000000000",

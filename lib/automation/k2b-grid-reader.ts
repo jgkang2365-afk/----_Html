@@ -15,20 +15,19 @@ const K2B_SUBMISSION_GRID_RUNTIME_SCRIPT = String.raw`
   // DOM control 연결 또는 Application의 명시적 component/frame 트리만 탐색한다.
   // 실제 DOM에는 control 연결이 없을 수 있다. Dataset은 작은 명시 component 트리에서
   // 화면 handle까지 일치하는 Grid를 찾을 때만 사용하고, 그 밖에는 DOM reader로 넘긴다.
-  for (let cursor = 0; cursor < queue.length && cursor < 256; cursor++) {
+  for (let cursor = 0; cursor < queue.length && cursor < 1024; cursor++) {
     const item = queue[cursor];
     if (!item || typeof item !== 'object' || visited.has(item)) continue;
     visited.add(item);
     if ((item.id === 'grid_fileList' || item.name === 'grid_fileList') && typeof item.getCellProperty === 'function') {
-      const handle = item.getElement?.()?.handle;
-      if (!handle || handle === root || handle.id === root.id) grids.add(item);
+      grids.add(item);
     }
     for (const key of ['mainframe', 'form', 'components', 'frames', 'all', 'objects', 'VFrameSet', 'MainFrame']) {
       const child = item[key];
       if (!child || typeof child !== 'object') continue;
       queue.push(child);
       if (typeof child.length === 'number') {
-        for (let i = 0; i < Math.min(child.length, 256); i++) queue.push(child[i]);
+        for (let i = 0; i < Math.min(child.length, 1024); i++) queue.push(child[i]);
       }
     }
   }
@@ -182,7 +181,7 @@ ${K2B_SUBMISSION_GRID_RUNTIME_SCRIPT}
 
   const cellText = element => text(element.innerText || element.textContent);
   const headersByIndex = new Map();
-  for (const element of root.querySelectorAll('[id*="_head"][id*="GridCellTextContainerElement"]')) {
+  for (const element of root.querySelectorAll('[id*="_head"][id*="GridCellTextSimpleContainerElement"], [id*="_head"][id*="GridCellTextContainerElement"]')) {
     const match = element.id.match(/_cell_-?\d+_(\d+)/);
     if (match && cellText(element)) {
       const index = Number(match[1]);
@@ -247,8 +246,8 @@ ${K2B_SUBMISSION_GRID_RUNTIME_SCRIPT}
   const expectedRowCount = expected();
   const snapshot = () => {
     const rowMap = new Map();
-    for (const element of root.querySelectorAll('[id*="_body_gridrow_"][id*="GridCellTextContainerElement"]')) {
-      const match = element.id.match(/gridrow_(\d+)_cell_\d+_(\d+)/);
+    for (const element of root.querySelectorAll('[id*="_body_gridrow_"][id*="_cell_"]')) {
+      const match = element.id.match(/gridrow_(\d+)_cell_\d+_(\d+)$/);
       if (!match) continue;
       const row = Number(match[1]), column = Number(match[2]);
       if (!rowMap.has(row)) rowMap.set(row, new Map());
