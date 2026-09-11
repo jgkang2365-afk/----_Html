@@ -160,3 +160,13 @@ test("MES manual and scheduled requests use one active execution lane", () => {
   assert.match(dashboard, /mesRequestIdRef\.current \?\? crypto\.randomUUID\(\)/);
   assert.match(dashboard, /mesRequestIdRef\.current = null/);
 });
+
+test("14:00 MES post-sync action is coupled to the verified terminal transition", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  assert.match(migration, /trigger_mes_final_post_sync_check/);
+  assert.match(migration, /OLD\.status <> 'COMPLETED' AND NEW\.status = 'COMPLETED'/);
+  assert.match(migration, /NEW\.job_type = 'MES_SYNC'/);
+  assert.match(migration, /NEW\.request_payload->>'final_check'/);
+  assert.match(migration, /NEW\.result_payload->>'syncSuccess'/);
+  assert.match(migration, /INSERT INTO public\.notifications/);
+});

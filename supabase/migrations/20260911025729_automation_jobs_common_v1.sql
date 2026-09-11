@@ -747,3 +747,50 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- The 14:00 MES final check is a server-side, transaction-coupled post action.
+-- It is deliberately triggered only by the one successful terminal transition,
+-- never by the scheduler enqueue, a timer, or a worker-side GUI decision.
+CREATE OR REPLACE FUNCTION public.run_mes_final_post_sync_check(p_job_id UUID)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE names TEXT[];
+DECLARE message TEXT;
+BEGIN
+  SELECT array_agg(s.business_name ORDER BY s.business_name) INTO names
+  FROM public.preliminary_survey s
+  WHERE s.measurement_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
+    AND s.year IS NOT NULL AND trim(coalesce(s.period,'')) <> ''
+    AND NOT EXISTS (
+      SELECT 1 FROM public.measurement_business m
+      WHERE m.year = s.year AND m.period = s.period AND (
+        (nullif(trim(s.code),'') IS NOT NULL AND trim(m.code) = trim(s.code)) OR
+        (nullif(trim(s.business_name),'') IS NOT NULL AND
+          replace(replace(replace(coalesce(m.business_name,''),' ',''),'(주)',''),'주식회사','')
+          LIKE '%' || replace(replace(replace(trim(s.business_name),' ',''),'(주)',''),'주식회사','') || '%')
+      )
+    );
+  IF coalesce(array_length(names,1),0) = 0 THEN RETURN; END IF;
+  message := format('[MES 미등록 경고] ''%s''%s 업체가 금일 14:00까지 MES에 등록되지 않았습니다. 기사의 당일 등록 확인이 필요합니다.',
+    names[1], CASE WHEN array_length(names,1) > 1 THEN format(' 외 %s개', array_length(names,1)-1) ELSE '' END);
+  INSERT INTO public.notifications(user_id,type,message,is_read)
+  SELECT id, 'mes_sync_warning', message, false FROM public.users WHERE is_journal_manager = true;
+END;
+$$;
+CREATE OR REPLACE FUNCTION public.trigger_mes_final_post_sync_check()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF OLD.status <> 'COMPLETED' AND NEW.status = 'COMPLETED'
+    AND NEW.job_type = 'MES_SYNC'
+    AND coalesce((NEW.request_payload->>'final_check')::boolean,false)
+    AND coalesce((NEW.result_payload->>'syncSuccess')::boolean,false) THEN
+    PERFORM public.run_mes_final_post_sync_check(NEW.id);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_mes_final_post_sync_check ON public.automation_jobs;
+CREATE TRIGGER trg_mes_final_post_sync_check
+AFTER UPDATE OF status ON public.automation_jobs
+FOR EACH ROW EXECUTE FUNCTION public.trigger_mes_final_post_sync_check();
+REVOKE ALL ON FUNCTION public.run_mes_final_post_sync_check(UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.trigger_mes_final_post_sync_check() FROM PUBLIC;
