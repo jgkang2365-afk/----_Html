@@ -16,7 +16,7 @@ import { findReportFiles } from '../utils/findReportFiles';
 import { getKSTISOString, getKSTDateString } from '../utils/date-utils';
 import { requestK2BCalendarSync } from "./k2b-calendar-sync-client";
 import { processNationalSupportJob } from "./national-support-worker";
-import { enqueueNationalSupportJob } from "../national-support/job-queue";
+import { enqueueAutomationJob } from "./jobs";
 import {
     NATIONAL_SUPPORT_STALE_THRESHOLD_MS,
     NATIONAL_SUPPORT_STALE_WATCHDOG_MS,
@@ -301,27 +301,17 @@ export class WorkerDaemon {
             await this.updateJobStatus(job.id, 'success');
             if (result.followUp) {
                 const supabase = await createClient();
-                try {
-                    await enqueueNationalSupportJob(
-                        supabase,
-                        result.followUp.payload,
-                        result.followUp.availableAt,
-                    );
-                } catch (queueError: any) {
-                    const { error: fallbackError } = await supabase
-                        .from('background_jobs')
-                        .update({
-                            status: 'pending',
-                            payload: result.followUp.payload,
-                            available_at: result.followUp.availableAt.toISOString(),
-                            attempt_count: result.followUp.payload.attempt_count || 0,
-                            error_message: "후속 조회 등록 재사용: " + (queueError?.message || String(queueError)),
-                            updated_at: getKSTISOString(),
-                        })
-                        .eq('id', job.id);
-                    if (fallbackError) throw fallbackError;
-                    console.warn("[WorkerDaemon] 후속 조회 작업을 현재 작업 ID로 재등록: " + job.id);
-                }
+                const payload = result.followUp.payload;
+                const { data: journal } = await supabase.from('measurement_journal')
+                    .select('code').eq('code', payload.code).eq('measurement_year', Number(payload.year))
+                    .eq('measurement_period', payload.period).maybeSingle();
+                if (!journal) await enqueueAutomationJob(supabase, {
+                    jobType: 'NATIONAL_SUPPORT',
+                    idempotencyKey: `national-support:legacy-final:${job.id}:${payload.attempt_count || 0}`,
+                    targetKey: `national-support:${payload.target_id}`,
+                    requestPayload: payload,
+                    availableAt: result.followUp.availableAt.toISOString(),
+                });
             }
         } catch (error: any) {
             await this.updateJobStatus(

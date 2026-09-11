@@ -707,6 +707,13 @@ SET search_path = public
 AS $$
 DECLARE target_id TEXT;
 BEGIN
+  IF TG_OP = 'INSERT' AND NEW.job_type = 'national_support' THEN
+    RAISE EXCEPTION 'NATIONAL_SUPPORT_LEGACY_DRAIN_ONLY';
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.job_type = 'national_support'
+     AND OLD.status IN ('success','failed','cancelled') AND NEW.status = 'pending' THEN
+    RAISE EXCEPTION 'NATIONAL_SUPPORT_LEGACY_REQUEUE_FORBIDDEN';
+  END IF;
   IF NEW.job_type <> 'national_support' THEN RETURN NEW; END IF;
   target_id := nullif(NEW.payload->>'target_id', '');
   IF target_id IS NULL THEN RETURN NEW; END IF;
@@ -724,7 +731,7 @@ END;
 $$;
 DROP TRIGGER IF EXISTS trg_background_jobs_national_support_cutover ON public.background_jobs;
 CREATE TRIGGER trg_background_jobs_national_support_cutover
-BEFORE INSERT ON public.background_jobs
+BEFORE INSERT OR UPDATE OF status ON public.background_jobs
 FOR EACH ROW EXECUTE FUNCTION public.guard_legacy_national_support_enqueue();
 REVOKE ALL ON FUNCTION public.guard_legacy_national_support_enqueue() FROM PUBLIC;
 
