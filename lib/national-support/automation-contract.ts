@@ -24,6 +24,18 @@ export function nationalSupportCompatibilityStatus(code: NationalSupportResultCo
   }
 }
 
+/** The only result-code to legacy sync_status projection used by automation workers. */
+export function nationalSupportCompatibilityProjection(
+  code: NationalSupportResultCode,
+  syncErrorMessage: string | null = null,
+) {
+  return {
+    sync_status: nationalSupportCompatibilityStatus(code),
+    sync_error_message: syncErrorMessage,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 /** Production canonical mapping: target(year/period) -> journal(measurement_year/measurement_period). */
 export async function hasMeasurementJournalForTarget(
   supabase: SupabaseClient<any>,

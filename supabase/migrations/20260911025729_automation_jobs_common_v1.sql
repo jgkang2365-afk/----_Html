@@ -125,8 +125,10 @@ BEGIN
 END;
 $$;
 
--- Reconnect recovery is deliberately conservative: a stale RUNNING job is
--- never re-run because an external GUI effect may already have happened.
+-- Recovery has three deliberately distinct paths.  Before an external effect
+-- starts a job can safely return to PENDING.  Once an effect has started but
+-- is not evidenced, retrying would duplicate work and requires confirmation.
+-- A confirmed effect is terminalised only when its worker recorded evidence.
 CREATE OR REPLACE FUNCTION public.reconcile_stale_automation_jobs(
   p_job_types TEXT[]
 )
@@ -136,6 +138,32 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
+  -- Safe recovery: no external effect boundary was crossed.
+  UPDATE public.automation_jobs
+  SET status = 'PENDING', worker_id = NULL, worker_lease_expires_at = NULL,
+      claimed_at = NULL, started_at = NULL,
+      progress_stage = 'Worker 재연결 대기', progress_percent = 0,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE status = 'RUNNING'
+    AND job_type = ANY(p_job_types)
+    AND worker_lease_expires_at < CURRENT_TIMESTAMP
+    AND effect_started_at IS NULL;
+
+  -- Terminal acknowledgement was lost after a verified effect.  The result
+  -- payload is evidence, not the timestamp alone.
+  UPDATE public.automation_jobs
+  SET status = 'COMPLETED', progress_stage = '확인된 효과 복구', progress_percent = 100,
+      finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+  WHERE status = 'RUNNING'
+    AND job_type = ANY(p_job_types)
+    AND worker_lease_expires_at < CURRENT_TIMESTAMP
+    AND effect_confirmed_at IS NOT NULL
+    AND result_payload IS NOT NULL
+    AND (
+      (result_payload ? 'files' AND jsonb_array_length(coalesce(result_payload->'files', '[]'::jsonb)) > 0)
+      OR result_payload @> '{"syncSuccess": true}'::jsonb
+    );
+
   RETURN QUERY
   UPDATE public.automation_jobs
   SET status = 'CONFIRM_REQUIRED',
@@ -149,6 +177,7 @@ BEGIN
   WHERE status = 'RUNNING'
     AND job_type = ANY(p_job_types)
     AND worker_lease_expires_at < CURRENT_TIMESTAMP
+    AND effect_started_at IS NOT NULL
   RETURNING public.automation_jobs.*;
 END;
 $$;
@@ -245,6 +274,24 @@ CREATE TRIGGER trg_document_generation_automation_job
 AFTER INSERT ON public.document_generation_jobs
 FOR EACH ROW EXECUTE FUNCTION public.enqueue_document_automation_job();
 REVOKE ALL ON FUNCTION public.enqueue_document_automation_job() FROM PUBLIC;
+
+-- The legacy claim RPC is intentionally disabled after the common trigger is
+-- installed.  DOCUMENT_GENERATION ownership must pass through
+-- claim_next_automation_job; an old worker therefore cannot race the common
+-- worker for the same legacy row.
+CREATE OR REPLACE FUNCTION public.claim_next_document_generation_job(
+  p_worker_id TEXT,
+  p_worker_lease_id UUID
+)
+RETURNS SETOF public.document_generation_jobs
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN;
+END;
+$$;
 
 DO $$
 BEGIN

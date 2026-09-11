@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import {
-  DOCUMENT_GENERATION_POLL_INTERVAL_MS,
-  DOCUMENT_GENERATION_STATUS_LABELS,
-  documentGenerationPollDelay,
-  isDocumentGenerationRunning,
-  shouldApplyDocumentGenerationResponse,
-} from "../lib/document-generation/polling";
+import { DOCUMENT_GENERATION_STATUS_LABELS, isDocumentGenerationRunning, shouldApplyDocumentGenerationResponse } from "../lib/document-generation/polling";
 
 const component = readFileSync("components/features/NewBusinessDocumentGeneration.tsx", "utf8");
 const route = readFileSync("app/api/document-generation/route.ts", "utf8");
@@ -29,19 +23,10 @@ test("문서 생성 상태 7종은 실행 여부와 버튼 문구를 정확히 �
   }
 });
 
-test("Case 1: 활성 상태만 30초 polling하며 terminal 상태는 예약하지 않는다", () => {
-  assert.equal(DOCUMENT_GENERATION_POLL_INTERVAL_MS, 30000);
-  assert.equal(documentGenerationPollDelay("PENDING"), 30000);
-  assert.equal(documentGenerationPollDelay("PROCESSING"), 30000);
-  assert.equal(isDocumentGenerationRunning("PROCESSING"), true);
-  assert.equal(documentGenerationPollDelay("COMPLETED"), null);
-  assert.equal(isDocumentGenerationRunning("COMPLETED"), false);
-});
-
-test("Case 2: NOT_REQUESTED·모든 terminal·알 수 없는 상태는 polling을 예약하지 않는다", () => {
-  for (const status of ["NOT_REQUESTED", "COMPLETED", "PARTIAL_SUCCESS", "FAILED", "CANCELLED", "UNKNOWN"]) {
-    assert.equal(documentGenerationPollDelay(status), null);
-  }
+test("Realtime이 primary이며 idle interval polling을 만들지 않는다", () => {
+  assert.match(component, /subscribeAutomationJob\(automationJobId/);
+  assert.doesNotMatch(component, /window\.setTimeout/);
+  assert.doesNotMatch(component, /window\.setInterval/);
 });
 
 test("Case 3: 최초 조회는 visible 탭에서만 시작한다", () => {
@@ -50,26 +35,14 @@ test("Case 3: 최초 조회는 visible 탭에서만 시작한다", () => {
   assert.match(component, /document\.addEventListener\("visibilitychange", loadWhenVisible\)/);
 });
 
-test("Case 4: hidden 전환은 polling timer를 중단한다", () => {
-  assert.match(component, /if \(!isPageVisible\(\)\) \{\s+clearTimer\(\);\s+return;/);
+test("Case 4: focus/visibility 복귀는 1회 복구 조회만 수행한다", () => {
+  assert.match(component, /window\.addEventListener\("focus", refreshOnFocus\)/);
+  assert.match(component, /document\.visibilityState === "visible"/);
 });
 
-test("Case 5: visible 복귀는 즉시 상태를 조회하고 다음 polling을 예약한다", () => {
-  assert.match(component, /window\.addEventListener\("focus", refreshWhenVisible\)/);
-  assert.match(component, /document\.addEventListener\("visibilitychange", handleVisibilityChange\)/);
-  assert.match(component, /refreshWhenVisible\(\);/);
-  assert.match(component, /window\.setTimeout\(\(\) => void poll\(\), delay\)/);
-});
-
-test("Case 6: focus와 visibilitychange 연속 이벤트는 단일 polling 요청으로 제한한다", () => {
-  assert.match(component, /if \(cancelled \|\| !isPageVisible\(\) \|\| pollingInFlight\) return;/);
-});
-
-test("Case 7: terminal 응답은 polling listener와 timer를 남기지 않는다", () => {
-  assert.match(component, /if \(delay === null\) return;/);
-  assert.match(component, /window\.removeEventListener\("focus", refreshWhenVisible\)/);
-  assert.match(component, /document\.removeEventListener\("visibilitychange", handleVisibilityChange\)/);
-  assert.match(component, /clearTimer\(\);/);
+test("Case 5: Realtime 및 focus listener는 unmount 시 정리한다", () => {
+  assert.match(component, /return subscribeAutomationJob/);
+  assert.match(component, /window\.removeEventListener\("focus", refreshOnFocus\)/);
 });
 
 test("Case 8: unmount는 요청 자원을 정리하고 수동 새로고침은 유지한다", () => {
@@ -79,8 +52,8 @@ test("Case 8: unmount는 요청 자원을 정리하고 수동 새로고침은 �
   assert.match(component, /onClick=\{\(\) => void refreshStatus\(\)\}/);
 });
 
-test("취소 요청이 확인되면 자동 polling과 생성 spinner를 중단한다", () => {
-  assert.match(component, /if \(isCancellationRequested\) return;/);
+test("취소 요청은 Realtime terminal 갱신을 유지하면서 생성 spinner를 중단한다", () => {
+  assert.match(component, /subscribeAutomationJob\(automationJobId, \(\) => void load\(true\)\)/);
   assert.match(component, /isRunning && !isCancellationRequested/);
   assert.match(component, /cancel_requested_at/);
   assert.match(component, /문서 생성 취소 요청이 접수되었습니다\./);
@@ -124,13 +97,13 @@ test("늦게 도착한 PROCESSING 응답은 최신 COMPLETED 응답을 덮어쓰
   assert.equal(status, "COMPLETED");
 });
 
-test("polling 요청은 이전 조회와 unmount를 정리하고 job 객체 전체에 의존하지 않는다", () => {
+test("Realtime 화면은 이전 조회와 unmount를 정리한다", () => {
   assert.match(component, /requestController\.current\?\.abort\(\)/);
   assert.match(
     component,
     /shouldApplyDocumentGenerationResponse\(sequence, requestSequence\.current\)/
   );
-  assert.match(component, /window\.setTimeout\(\(\) => void poll\(\), delay\)/);
+  assert.doesNotMatch(component, /window\.setTimeout/);
   assert.doesNotMatch(component, /\[context\?\.job, load\]/);
 });
 

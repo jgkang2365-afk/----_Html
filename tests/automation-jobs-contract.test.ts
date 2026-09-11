@@ -10,6 +10,10 @@ import {
   nationalSupportIdempotencyKey,
   terminalAutomationStatus,
 } from "../lib/automation/jobs";
+import {
+  hasMeasurementJournalForTarget,
+  nationalSupportCompatibilityStatus,
+} from "../lib/national-support/automation-contract";
 
 test("automation job status contract has only the approved states", () => {
   assert.deepEqual(AUTOMATION_JOB_STATUSES, [
@@ -37,6 +41,41 @@ test("migration protects payload and uses SKIP LOCKED atomic claim", () => {
   assert.match(migration, /worker_lease_expires_at/);
   assert.match(migration, /reconcile_stale_automation_jobs/);
   assert.match(migration, /status = 'CONFIRM_REQUIRED'/);
+  assert.match(migration, /effect_started_at IS NULL/);
+  assert.match(migration, /status = 'PENDING'/);
+  assert.match(migration, /effect_confirmed_at IS NOT NULL/);
+  assert.match(migration, /claim_next_document_generation_job/);
+});
+
+test("Production canonical journal key and compatibility projection are fixed", async () => {
+  const calls: Array<[string, unknown]> = [];
+  const query: any = {
+    select: () => query,
+    eq: (column: string, value: unknown) => { calls.push([column, value]); return query; },
+    limit: async () => ({ data: [], error: null }),
+  };
+  const client: any = { from: () => query };
+  assert.equal(await hasMeasurementJournalForTarget(client, { code: "A", year: 2026, period: "하반기" }), false);
+  assert.deepEqual(calls, [["code", "A"], ["measurement_year", 2026], ["measurement_period", "하반기"]]);
+  assert.equal(nationalSupportCompatibilityStatus("SUPPORT"), "성공");
+  assert.equal(nationalSupportCompatibilityStatus("NON_SUPPORT"), "성공");
+  assert.equal(nationalSupportCompatibilityStatus("OVER_50_RECHECK"), "비대상대기");
+  assert.equal(nationalSupportCompatibilityStatus("NO_EMPLOYEE_INFO_RECHECK"), "비대상대기");
+  assert.equal(nationalSupportCompatibilityStatus("EMPLOYEE_CHECK_FAILED_RECHECK"), "비대상대기");
+  assert.equal(nationalSupportCompatibilityStatus("APPLIED_WAITING_RESULT"), "신청완료대기");
+  assert.equal(nationalSupportCompatibilityStatus("ALREADY_APPLIED"), "확인대기");
+  assert.equal(nationalSupportCompatibilityStatus("APPLICATION_UNCERTAIN"), "수동확인필요");
+});
+
+test("document and national-support boundaries are explicit rather than inferred from display strings", () => {
+  const documentWorker = fs.readFileSync(path.join(process.cwd(), "document_worker.py"), "utf8");
+  const nationalWorker = fs.readFileSync(path.join(process.cwd(), "lib/automation/local-automation-worker.ts"), "utf8");
+  const flow = fs.readFileSync(path.join(process.cwd(), "scratch/national_support_flow_cli.py"), "utf8");
+  assert.match(documentWorker, /mark_final_publish_effect\(client, job_id\)/);
+  assert.match(documentWorker, /effect-started/);
+  assert.match(flow, /worker_boundary\("journal_guard_before_apply"\)/);
+  assert.match(flow, /worker_boundary\("effect_started"\)/);
+  assert.doesNotMatch(nationalWorker, /includes\(.*result/i);
 });
 
 test("MES upload requires explicit database synchronization acknowledgement", () => {

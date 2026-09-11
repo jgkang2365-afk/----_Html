@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { claimNextAutomationJob, updateAutomationJob } from "@/lib/automation/jobs";
 import { processNationalSupportJob, type NationalSupportJobPayload } from "@/lib/automation/national-support-worker";
-import { hasMeasurementJournalForTarget, nationalSupportCompatibilityStatus, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
+import { hasMeasurementJournalForTarget, nationalSupportCompatibilityProjection, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
 
 const NATIONAL_SUPPORT = "NATIONAL_SUPPORT";
 const workerId = `local-automation-${process.pid}`;
@@ -34,23 +34,9 @@ export class LocalAutomationWorker {
     wake(); // allowed one-time startup reconciliation
   }
 
-  private resultCode(status: string): NationalSupportResultCode {
-    const codes: Record<string, NationalSupportResultCode> = {
-      대상: "SUPPORT", 비대상: "NON_SUPPORT", JOURNAL_REGISTERED_SKIP: "JOURNAL_REGISTERED_SKIP",
-      "50인↑ (신청보류)": "OVER_50_RECHECK", "근로자수없음 (신청보류)": "NO_EMPLOYEE_INFO_RECHECK",
-      "근로자수확인실패 (신청보류)": "EMPLOYEE_CHECK_FAILED_RECHECK",
-      확인대기: "ALREADY_APPLIED", "신청완료(결과 대기)": "APPLIED_WAITING_RESULT", 수동확인필요: "APPLICATION_UNCERTAIN",
-    };
-    const code = codes[status];
-    if (!code) throw new Error(`NATIONAL_SUPPORT_RESULT_CODE_UNKNOWN:${status}`);
-    return code;
-  }
-
   private async projectCompatibility(payload: NationalSupportJobPayload, code: NationalSupportResultCode) {
-    const { error } = await createAdminClient().from("measurement_target_business").update({
-      sync_status: nationalSupportCompatibilityStatus(code),
-      updated_at: new Date().toISOString(),
-    }).eq("id", payload.target_id);
+    const { error } = await createAdminClient().from("measurement_target_business")
+      .update(nationalSupportCompatibilityProjection(code)).eq("id", payload.target_id);
     if (error) throw error;
   }
 
@@ -90,14 +76,32 @@ export class LocalAutomationWorker {
             await this.projectCompatibility(payload, "JOURNAL_REGISTERED_SKIP");
             continue;
           }
-          const result = await processNationalSupportJob(payload);
-          const code = this.resultCode(result.status);
+          let effectStarted = false;
+          const result = await processNationalSupportJob(payload, {
+            onWorkerEvent: async (event) => {
+              if (event === "journal_guard_before_apply") {
+                return { allow: !(await hasMeasurementJournalForTarget(supabase, payload)) };
+              }
+              if (event === "effect_started") {
+                effectStarted = true;
+                await updateAutomationJob(supabase, job.id, {
+                  effect_started_at: new Date().toISOString(),
+                  progress_stage: "신청 요청 전송", progress_percent: 70,
+                });
+                return { allow: true };
+              }
+              return { allow: false };
+            },
+          });
+          const code = result.resultCode;
           await updateAutomationJob(supabase, job.id, {
             status: code === "APPLICATION_UNCERTAIN" ? "CONFIRM_REQUIRED" : "COMPLETED",
             progress_stage: code === "APPLICATION_UNCERTAIN" ? "신청 결과 확인 필요" : "결과 확인",
             progress_percent: 100, result_code: code,
-            result_payload: { status: result.status },
-            effect_confirmed_at: code === "APPLICATION_UNCERTAIN" ? undefined : new Date().toISOString(),
+            result_payload: { result_code: code },
+            ...(effectStarted && code !== "APPLICATION_UNCERTAIN"
+              ? { effect_confirmed_at: new Date().toISOString() }
+              : {}),
           });
           await this.projectCompatibility(payload, code);
         } catch (error: any) {

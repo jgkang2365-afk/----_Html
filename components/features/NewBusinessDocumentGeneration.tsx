@@ -12,6 +12,7 @@ import {
   isNewBusinessDocumentGenerationEligible,
 } from "@/lib/document-generation/business-eligibility";
 import { subscribeAutomationJob } from "@/lib/automation/job-client";
+import AutomationProgressModal from "@/components/features/AutomationProgressModal";
 type Document = {
   definition?: {
     id: string;
@@ -102,6 +103,7 @@ export function NewBusinessDocumentGeneration({
     [cancelling, setCancelling] = useState(false),
     [cancellationMessage, setCancellationMessage] = useState(""),
     [cancellationFailed, setCancellationFailed] = useState(false),
+    [showProgress, setShowProgress] = useState(false),
     [currentTime, setCurrentTime] = useState(() => Date.now()),
     [error, setError] = useState("");
   const requestSequence = useRef(0);
@@ -261,6 +263,7 @@ export function NewBusinessDocumentGeneration({
       setCancellationFailed(false);
       await load(true);
       setIsOpen(false);
+      setShowProgress(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "문서 생성 요청 실패");
     } finally {
@@ -322,7 +325,15 @@ export function NewBusinessDocumentGeneration({
   )
     return null;
   return (
-    <>
+      <>
+        {showProgress && context?.automationJob?.id && (
+          <AutomationProgressModal
+            jobId={context.automationJob.id}
+            title="문서 생성 진행"
+            stages={["요청 전달", "문서 생성", "파일 확인", "완료"]}
+            onClose={() => setShowProgress(false)}
+          />
+        )}
       <div className="flex items-center gap-2">
         {isRunning && (
           <span

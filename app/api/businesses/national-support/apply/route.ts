@@ -8,6 +8,7 @@ import { syncToMasterTables } from "@/lib/sync/master-tables";
 import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
 import { enqueueAutomationJob, nationalSupportIdempotencyKey } from "@/lib/automation/jobs";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { hasMeasurementJournalForTarget } from "@/lib/national-support/automation-contract";
 
 /**
  * 건강디딤돌 자동 신청 API
@@ -83,6 +84,18 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
+
+    // Guard 1: never enqueue an application when the canonical journal key
+    // already exists.  Guard 2 remains inside the local flow at its effect boundary.
+    if (jobMode === "apply_if_missing" && await hasMeasurementJournalForTarget(createAdminClient(), {
+      code: String(code), year: Number(year), period: String(period),
+    })) {
+      return NextResponse.json({
+        success: true,
+        resultCode: "JOURNAL_REGISTERED_SKIP",
+        message: "측정일지가 등록되어 건강디딤돌 신청을 생성하지 않았습니다.",
+      });
+    }
 
     // 중복 전송 방지를 위한 락(Lock) 확인 및 설정
     const { data: currentPlan, error: selectError } = await supabase

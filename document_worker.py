@@ -501,6 +501,7 @@ class DocumentWorkerClient:
         self.token = token
         self.worker_id = worker_id
         self.worker_lease_id = worker_lease_id or str(uuid.uuid4())
+        self.automation_job_ids: dict[str, str] = {}
 
     def _request(self, path: str, method: str = "GET", body: dict[str, Any] | None = None) -> bytes:
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -528,7 +529,10 @@ class DocumentWorkerClient:
                 },
             )
         )
-        return result.get("job")
+        job = result.get("job")
+        if isinstance(job, dict) and job.get("id") and job.get("automation_job_id"):
+            self.automation_job_ids[str(job["id"])] = str(job["automation_job_id"])
+        return job
 
     def download_template(self, job_id: str, template_id: str, destination: Path) -> None:
         try:
@@ -546,6 +550,9 @@ class DocumentWorkerClient:
             "worker_id": self.worker_id,
             "worker_lease_id": self.worker_lease_id,
         }
+        automation_job_id = self.automation_job_ids.get(str(job_id))
+        if automation_job_id:
+            body["automation_job_id"] = automation_job_id
         if result_files is not None:
             body["result_files"] = result_files
         result = json.loads(
@@ -562,6 +569,16 @@ class DocumentWorkerClient:
         self, job_id: str, result_files: list[dict[str, Any]]
     ) -> bool:
         return self.heartbeat(job_id, result_files)
+
+    def mark_effect_started(self, job_id: str) -> None:
+        automation_job_id = self.automation_job_ids.get(str(job_id))
+        if not automation_job_id:
+            raise RuntimeError("문서 공통 automation 작업 ID가 없습니다.")
+        self._request(f"/api/document-worker/jobs/{job_id}/effect-started", "POST", {
+            "worker_id": self.worker_id,
+            "worker_lease_id": self.worker_lease_id,
+            "automation_job_id": automation_job_id,
+        })
 
     def recover_cancelled_jobs(self) -> list[dict[str, Any]]:
         result = json.loads(
@@ -693,6 +710,13 @@ def checkpoint_job_progress(
     except Exception as error:
         LOGGER.warning("문서 게시 결과 checkpoint 실패 job=%s error=%s", job_id, error)
         return True, False
+
+
+def mark_final_publish_effect(client: Any, job_id: str) -> None:
+    """Cross the common-job effect boundary immediately before final publish."""
+    marker = getattr(client, "mark_effect_started", None)
+    if callable(marker):
+        marker(job_id)
 
 
 def cancelled_document_result(
@@ -870,6 +894,7 @@ def process_job(
                     if not working_file.exists() or working_file.stat().st_size <= 0:
                         raise RuntimeError("저장 검증에 실패했습니다.")
                     raise_if_job_cancellation_requested(client, job_id)
+                    mark_final_publish_effect(client, job_id)
                     destination = publish_file(
                         working_file,
                         final_folder / working_file.name,
@@ -930,6 +955,7 @@ def process_job(
                 if not working_file.exists() or working_file.stat().st_size <= 0:
                     raise RuntimeError("저장 검증에 실패했습니다.")
                 raise_if_job_cancellation_requested(client, job_id)
+                mark_final_publish_effect(client, job_id)
                 destination = publish_file(
                     working_file,
                     final_folder / working_file.name,

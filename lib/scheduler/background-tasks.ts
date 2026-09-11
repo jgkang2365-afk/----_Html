@@ -6,6 +6,7 @@ import { getKSTDateString, getKSTISOString } from '../utils/date-utils';
 import { K2B_VERIFY_SCHEDULE } from '../constants/k2b-verification';
 import { buildK2BSyncRange, K2B_SYNC_OVERLAP_DAYS } from '../automation/k2b-original-sync';
 import { enqueueAutomationJob, mesScheduledIdempotencyKey, nationalSupportIdempotencyKey } from '../automation/jobs';
+import { hasMeasurementJournalForTarget } from '../national-support/automation-contract';
 
 const KST_CRON_OPTIONS = { timezone: 'Asia/Seoul' };
 
@@ -153,11 +154,7 @@ export class BackgroundTasks {
         for (const target of targets || []) {
             if (String(target.period).includes('(수시)')) continue;
             if (!target.industrial_accident_number || !target.commencement_number || !target.representative_name) continue;
-            const { data: journal, error: journalError } = await admin.from('measurement_journal').select('id')
-                .eq('code', target.code).eq('measurement_year', Number(target.year))
-                .eq('measurement_period', target.period).limit(1);
-            if (journalError) throw journalError;
-            if (journal?.length) continue;
+            if (await hasMeasurementJournalForTarget(admin, target)) continue;
             await enqueueAutomationJob(admin, {
                 jobType: 'NATIONAL_SUPPORT',
                 idempotencyKey: nationalSupportIdempotencyKey('scheduled_lookup', String(target.code), target.year, target.period, date),

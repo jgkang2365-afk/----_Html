@@ -46,7 +46,7 @@ test("업체 단위 통합 CLI는 WebDriver 하나를 조회와 신청에 재사
 test("신청은 통합 CLI를 사용하고 개별·일괄·후속 결과 조회는 조회 전용 CLI를 사용한다", () => {
   assert.match(workerSource, /runCrawler[\s\S]*?"apply_national_support_cli\.py"/);
   assert.match(workerSource, /runIntegratedFlow[\s\S]*?"national_support_flow_cli\.py"/);
-  assert.match(workerSource, /if \(mode === "apply_if_missing"\)[\s\S]*runIntegratedFlow\(payload\)/);
+  assert.match(workerSource, /if \(mode === "apply_if_missing"\)[\s\S]*runIntegratedFlow\(payload, options\.onWorkerEvent\)/);
   assert.match(workerSource, /const lookupResult = resultCode\([\s\S]*await runCrawler\(payload\)/);
   assert.match(workerSource, /if \(mode === "final_lookup"\)/);
   assert.match(lookupSource, /health-support\/step-stone\/cont\/sub1/);
@@ -64,10 +64,10 @@ test("DB는 건강디딤돌 processing 작업을 한 건으로 제한한다", ()
   assert.match(migrationSource, /status = 'processing'/);
 });
 
-test("측정대상 목록은 깡통컴의 국고 상태 변경을 계속 자동 반영한다", () => {
+test("측정대상 목록은 focus/visibility 복귀 시 상태를 한 번 복구한다", () => {
   assert.match(targetManagementSource, /cache: "no-store"/);
   assert.match(targetManagementSource, /"신청중", "조회중", "신청완료대기"/);
-  assert.match(targetManagementSource, /hasPendingNationalSupport \? 3000 : 15000/);
+  assert.doesNotMatch(targetManagementSource, /hasPendingNationalSupport \? 3000 : 15000/);
   assert.match(targetManagementSource, /window\.addEventListener\("focus", refreshWhenVisible\)/);
   assert.match(targetManagementSource, /document\.addEventListener\("visibilitychange", refreshWhenVisible\)/);
 });

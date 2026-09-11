@@ -34,7 +34,12 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
     const { data: legacy, error } = await admin
       .from("document_generation_jobs")
-      .update({ status: "PROCESSING", worker_id: workerId, worker_lease_id: workerLeaseId, started_at: now, updated_at: now })
+      .update({
+        status: "PROCESSING", worker_id: workerId, worker_lease_id: workerLeaseId,
+        worker_heartbeat_at: now,
+        worker_lease_expires_at: new Date(Date.now() + 90_000).toISOString(),
+        started_at: now, updated_at: now,
+      })
       .eq("id", legacyId).eq("status", "PENDING")
       .select("*").maybeSingle();
     if (error || !legacy) {

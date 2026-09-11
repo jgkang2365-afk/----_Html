@@ -13,6 +13,7 @@ import {
   isValidNationalSupportContactName,
   isValidNationalSupportMobile,
 } from "@/lib/national-support/eligibility";
+import type { NationalSupportResultCode } from "@/lib/national-support/automation-contract";
 
 export type NationalSupportJobPayload = {
   target_id: number | string;
@@ -31,11 +32,11 @@ export type NationalSupportJobPayload = {
 
 type AutomationResult = {
   status?: string;
-  result?: PortalLookupResult | ApplicationResult;
+  result?: PortalLookupResult | ApplicationResult | "JOURNAL_REGISTERED_SKIP";
 };
 
 export type NationalSupportProcessResult = {
-  status: string;
+  resultCode: NationalSupportResultCode;
   followUp?: {
     payload: NationalSupportJobPayload;
     availableAt: Date;
@@ -66,6 +67,7 @@ function runPythonAutomation(
   args: string[],
   label: string,
   timeoutMs: number,
+  onWorkerEvent?: (event: string) => Promise<{ allow: boolean }>,
 ): Promise<AutomationResult> {
   return new Promise((resolve, reject) => {
     const script = path.join(process.cwd(), "scratch", scriptName);
@@ -89,7 +91,26 @@ function runPythonAutomation(
 
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", data => { stdout += data.toString(); });
+    let stdoutBuffer = "";
+    child.stdout.on("data", data => {
+      const chunk = data.toString();
+      stdout += chunk;
+      stdoutBuffer += chunk;
+      const lines = stdoutBuffer.split("\n");
+      stdoutBuffer = lines.pop() || "";
+      for (const line of lines) {
+        try {
+          const event = JSON.parse(line.trim());
+          if (event?.event && onWorkerEvent && child.stdin.writable) {
+            void onWorkerEvent(String(event.event))
+              .then(reply => child.stdin.write(`${JSON.stringify(reply)}\n`))
+              .catch(() => child.stdin.write('{"allow":false}\n'));
+          }
+        } catch {
+          // Non-protocol output is retained for the final structured result.
+        }
+      }
+    });
     child.stderr.on("data", data => { stderr += data.toString(); });
     child.on("error", error => finish(() => reject(error)));
     child.on("close", exitCode => {
@@ -136,7 +157,10 @@ function runCrawler(payload: NationalSupportJobPayload) {
   );
 }
 
-function runIntegratedFlow(payload: NationalSupportJobPayload) {
+function runIntegratedFlow(
+  payload: NationalSupportJobPayload,
+  onWorkerEvent?: (event: string) => Promise<{ allow: boolean }>,
+) {
   if (
     !isValidNationalSupportContactName(payload.contact_name) ||
     !isValidNationalSupportMobile(payload.contact_phone)
@@ -148,11 +172,13 @@ function runIntegratedFlow(payload: NationalSupportJobPayload) {
     [...commonArgs(payload), "--year", String(payload.year)],
     "건강디딤돌 업체 단위 조회·신청",
     INTEGRATED_FLOW_TIMEOUT_MS,
+    onWorkerEvent,
   );
 }
 
 export async function processNationalSupportJob(
   payload: NationalSupportJobPayload,
+  options: { onWorkerEvent?: (event: string) => Promise<{ allow: boolean }> } = {},
 ): Promise<NationalSupportProcessResult> {
   const supabase = await createClient();
   const mode = payload.mode || "lookup_only";
@@ -195,7 +221,7 @@ export async function processNationalSupportJob(
     supportStatus: "대상" | "비대상",
     reason: string | null,
     applicationStatus: string,
-  ) => {
+  ): Promise<NationalSupportProcessResult> => {
     const { error: targetError } = await supabase
       .from("measurement_target_business")
       .update({
@@ -243,7 +269,7 @@ export async function processNationalSupportJob(
       payload.commencement || null,
       { updateBusinessInfo: false },
     );
-    return { status: supportStatus };
+    return { resultCode: supportStatus === "대상" ? "SUPPORT" : "NON_SUPPORT" };
   };
 
   const handleLookupResult = async (
@@ -267,10 +293,10 @@ export async function processNationalSupportJob(
       // its application action, closing the enqueue-to-effect race.
       if (await hasMeasurementJournal()) {
         await updateProgress("성공", "측정일지 등록이 확인되어 신청하지 않았습니다.");
-        return { status: "JOURNAL_REGISTERED_SKIP" };
+        return { resultCode: "JOURNAL_REGISTERED_SKIP" };
       }
       const flowResult = resultCode(
-        await runIntegratedFlow(payload),
+        await runIntegratedFlow(payload, options.onWorkerEvent),
         "건강디딤돌 업체 단위 조회·신청",
       );
       console.info("[NationalSupportWorker] 통합 조회·신청 판정 완료", {
@@ -293,32 +319,40 @@ export async function processNationalSupportJob(
             "확인대기",
             "기존 신청 또는 심사 중인 내역이 확인되어 신청하지 않았습니다.",
           );
-          return { status: "확인대기" };
+          return { resultCode: "ALREADY_APPLIED" };
         }
         throw new Error("통합 자동화가 조회 결과 없음 이후 신청 단계를 완료하지 못했습니다.");
       }
 
+      if (flowResult === "JOURNAL_REGISTERED_SKIP") {
+        await updateProgress("성공", "측정일지 등록이 확인되어 신청하지 않았습니다.");
+        return { resultCode: "JOURNAL_REGISTERED_SKIP" };
+      }
       const applicationResult = flowResult as ApplicationResult;
 
-      if (applicationResult === "OVER_50" || applicationResult === "NO_EMPLOYEE_INFO") {
+      if (applicationResult === "OVER_50" || applicationResult === "NO_EMPLOYEE_INFO" || applicationResult === "EMPLOYEE_CHECK_FAILED") {
         await updateProgress(
           "비대상대기",
           applicationResult === "OVER_50"
             ? "신청 시점 50인 이상 - 사용자가 직접 확인해야 합니다."
-            : "공단 근로자 수 정보 없음 - 사용자가 직접 확인해야 합니다.",
+            : applicationResult === "NO_EMPLOYEE_INFO"
+              ? "공단 근로자 수 정보 없음 - 사용자가 직접 확인해야 합니다."
+              : "공단 근로자 수 확인에 실패해 다음날 재확인합니다.",
         );
-        return { status: "50인↑ (신청보류)" };
+        return { resultCode: applicationResult === "OVER_50" ? "OVER_50_RECHECK" : applicationResult === "NO_EMPLOYEE_INFO" ? "NO_EMPLOYEE_INFO_RECHECK" : "EMPLOYEE_CHECK_FAILED_RECHECK" };
       }
+
       if (applicationResult === "ALREADY_APPLIED") {
         await updateProgress("확인대기", "기존 신청 내역이 확인되어 결과 조회를 대기합니다.");
+        return { resultCode: "ALREADY_APPLIED" };
       } else if (applicationResult !== "APPLIED") {
         await updateProgress("수동확인필요", "자동 신청 완료 여부를 명확히 확인하지 못했습니다.");
-        return { status: "수동확인필요" };
+        return { resultCode: "APPLICATION_UNCERTAIN" };
       } else {
         await updateProgress("신청완료대기", "신청 완료가 확인되어 공단 결과 반영을 기다립니다.");
       }
       return {
-        status: "신청완료(결과 대기)",
+        resultCode: "APPLIED_WAITING_RESULT",
         followUp: {
           payload: { ...payload, mode: "final_lookup", attempt_count: 0 },
           availableAt: new Date(Date.now() + FINAL_LOOKUP_DELAY_MS),
@@ -343,7 +377,7 @@ export async function processNationalSupportJob(
       if (shouldRetryFinalLookup(lookupResult, attemptCount)) {
         await updateProgress("신청완료대기", "공단 결과 반영 대기 중이며 후속 조회가 예약되었습니다.");
         return {
-          status: "신청완료(결과 대기)",
+          resultCode: "APPLIED_WAITING_RESULT",
           followUp: {
             payload: {
               ...payload,
@@ -358,14 +392,14 @@ export async function processNationalSupportJob(
         "수동확인필요",
         `공단 결과를 ${FINAL_LOOKUP_MAX_ATTEMPTS}회 후속 조회했으나 확정하지 못했습니다.`,
       );
-      return { status: "수동확인필요" };
+      return { resultCode: "APPLICATION_UNCERTAIN" };
     }
 
     await updateProgress(
       "확인대기",
       lookupResult === "NO_RESULT" ? "공단에 조회된 내역이 없습니다." : "공단 심사 또는 결과 반영 대기 중입니다.",
     );
-    return { status: "확인대기" };
+    return { resultCode: "ALREADY_APPLIED" };
   } catch (error: any) {
     await supabase
       .from("measurement_target_business")

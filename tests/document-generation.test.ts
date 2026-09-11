@@ -219,11 +219,12 @@ test("Worker 완료 API는 취소 결과와 일부 성공을 기록하고 PROCES
   assert.match(route, /\.eq\("worker_lease_id", workerLeaseId\)/);
 });
 
-test("claim과 orphan recovery API는 Worker token 경계와 lease RPC를 유지한다", () => {
+test("claim과 orphan recovery API는 Worker token 경계와 common lease RPC를 유지한다", () => {
   const claim = readFileSync("app/api/document-worker/jobs/claim/route.ts", "utf8");
   const recovery = readFileSync("app/api/document-worker/jobs/recover-cancelled/route.ts", "utf8");
   assert.match(claim, /isAuthorizedDocumentWorker/);
-  assert.match(claim, /p_worker_lease_id: workerLeaseId/);
+  assert.match(claim, /claimNextAutomationJob/);
+  assert.match(claim, /worker_lease_expires_at/);
   assert.match(recovery, /isAuthorizedDocumentWorker/);
   assert.match(recovery, /recover_cancelled_document_generation_jobs/);
 });
@@ -338,21 +339,18 @@ test("Node WorkerDaemon은 background_jobs adaptive backoff와 별도 stale watc
   assert.doesNotMatch(source, /document-worker\/jobs\/claim/);
 });
 
-test("Realtime은 개인정보 없는 pending INSERT 신호만 구독하고 claim API를 유지한다", () => {
+test("Realtime은 개인정보 없는 common signal을 구독하고 common claim API를 유지한다", () => {
   const runtime = readFileSync("document_worker_realtime.py", "utf8");
-  const migration = readFileSync(
-    "supabase/migrations/20260719_add_document_worker_realtime_wakeup.sql",
-    "utf8"
-  );
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
   const claimRoute = readFileSync("app/api/document-worker/jobs/claim/route.ts", "utf8");
   assert.match(runtime, /event="INSERT"/);
   assert.match(runtime, /filter=REALTIME_FILTER/);
-  assert.match(runtime, /document_job_pending_signals/);
+  assert.match(runtime, /automation_job_signals/);
   assert.match(migration, /AFTER INSERT ON public.document_generation_jobs/);
-  assert.match(migration, /CREATE TABLE IF NOT EXISTS public.document_job_pending_signals/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public.automation_job_signals/);
   assert.doesNotMatch(migration, /realtime.send/);
   assert.doesNotMatch(migration, /ADD TABLE public.document_generation_jobs/);
-  assert.match(claimRoute, /claim_next_document_generation_job/);
+  assert.match(claimRoute, /claimNextAutomationJob/);
 });
 
 test("Worker 로그와 Realtime 설정은 비밀값을 출력하지 않는다", () => {
