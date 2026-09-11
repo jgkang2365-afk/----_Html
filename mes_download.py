@@ -728,14 +728,19 @@ def main():
                 upload_res.raise_for_status()
                 
                 res_data = upload_res.json()
-                if res_data.get("success"):
-                    print(f"[OK] 파일 업로드 및 Supabase 동기화 성공: {file_name}")
+                # The upload endpoint separates object-storage acceptance from
+                # database synchronization. A 200/success response is not a
+                # completed MES effect unless syncSuccess is explicitly true.
+                if res_data.get("success") and res_data.get("syncSuccess") is True:
+                    print(f"[OK] 파일 업로드 및 Supabase 동기화 확인: {file_name}")
                     if res_data.get("syncMessage"):
                         print(f"    - 결과 메시지: {res_data.get('syncMessage')}")
                 else:
+                    warning = res_data.get("syncWarning") or res_data.get("syncMessage")
                     error_msg = res_data.get("error", "알 수 없는 API 에러")
-                    print(f"[오류] 파일 동기화 실패 ({file_name}): {error_msg}")
-                    raise ValueError(f"웹 동기화 오류: {error_msg}")
+                    detail = warning or error_msg
+                    print(f"[오류] 파일 DB 동기화 확인 실패 ({file_name}): {detail}")
+                    raise ValueError(f"웹 DB 동기화 확인 실패: {detail}")
                     
         print("[성공] 모든 통합 연동 자동화 프로세스가 완료되었습니다.")
         

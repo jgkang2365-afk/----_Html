@@ -596,7 +596,7 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(clients), 2)
         self.assertEqual(calls, 3)
 
-    async def test_realtime_disabled_keeps_startup_and_recovery_polling(self):
+    async def test_realtime_disabled_performs_only_startup_reconcile(self):
         calls = 0
         factory_calls = 0
 
@@ -619,10 +619,10 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.035)
         runtime.stop()
         await task
-        self.assertGreaterEqual(calls, 2)
+        self.assertEqual(calls, 1)
         self.assertEqual(factory_calls, 0)
 
-    async def test_realtime_failure_does_not_stop_recovery_polling(self):
+    async def test_realtime_failure_does_not_create_database_recovery_polling(self):
         calls = 0
         connection_attempts = 0
 
@@ -647,13 +647,13 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
         )
         task = asyncio.create_task(runtime.run())
         for _ in range(50):
-            if connection_attempts >= 2 and calls >= 2:
+            if connection_attempts >= 2:
                 break
             await asyncio.sleep(0.01)
         runtime.stop()
         await task
         self.assertGreaterEqual(connection_attempts, 2)
-        self.assertGreaterEqual(calls, 2)
+        self.assertEqual(calls, 1)
 
 
 if __name__ == "__main__":

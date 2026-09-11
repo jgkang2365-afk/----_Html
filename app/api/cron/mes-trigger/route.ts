@@ -2,178 +2,73 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/auth/session";
 import { canTriggerMesSync, type UserRole } from "@/lib/permissions";
-
-const MES_QUEUE_ID = 1;
-const STALE_TIMEOUT_MINUTES = 15;
+import { enqueueAutomationJob, mesManualIdempotencyKey } from "@/lib/automation/jobs";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 async function requireMesSyncAccess() {
   const session = await getSession();
   if (!session) throw new Error("Unauthorized");
-
   const supabase = await createClient();
-  const { data: user, error } = await supabase
-    .from("users")
-    .select("role, job")
-    .eq("id", session.userId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[MES 트리거 API] 사용자 권한 조회 실패:", error);
-    throw error;
-  }
-
-  if (!user || !canTriggerMesSync(user.role as UserRole, user.job)) {
-    throw new Error("Forbidden");
-  }
-
+  const { data: user, error } = await supabase.from("users").select("role, job").eq("id", session.userId).maybeSingle();
+  if (error) throw error;
+  if (!user || !canTriggerMesSync(user.role as UserRole, user.job)) throw new Error("Forbidden");
   return { session, supabase };
 }
 
-/**
- * MES 데이터 즉시 동기화 수동 트리거 API
- *
- * 웹 서버는 MES 프로그램을 직접 실행하지 않습니다.
- * 사내 Windows PC의 mes_daemon.py가 감지할 수 있도록 Supabase 큐에 신호만 남깁니다.
- * POST /api/cron/mes-trigger
- */
+/** The web only enqueues. The Windows worker claims and changes RUNNING. */
 export async function POST(request: NextRequest) {
   try {
-    const { session, supabase } = await requireMesSyncAccess();
-
-    const timeoutLimit = new Date(
-      Date.now() - STALE_TIMEOUT_MINUTES * 60 * 1000
-    ).toISOString();
-
-    const { error: resetError } = await supabase
-      .from("mes_sync_queue")
-      .update({
-        status: "idle",
-        error_message: `${STALE_TIMEOUT_MINUTES}분 초과 타임아웃으로 자동 리셋됨`,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", MES_QUEUE_ID)
-      .in("status", ["pending", "running"])
-      .lt("updated_at", timeoutLimit);
-
-    if (resetError) {
-      console.warn("[MES 트리거 API] 타임아웃 상태 리셋 실패:", resetError.message);
+    const { session } = await requireMesSyncAccess();
+    const requestId = request.headers.get("Idempotency-Key")?.trim();
+    if (!requestId || requestId.length > 120) {
+      return NextResponse.json({ success: false, error: "Idempotency-Key가 필요합니다." }, { status: 400 });
     }
-
-    const now = new Date().toISOString();
-    const { data, error } = await supabase
-      .from("mes_sync_queue")
-      .update({
-        status: "pending",
-        error_message: null,
-        requested_by: session.userId,
-        updated_at: now,
-      })
-      .eq("id", MES_QUEUE_ID)
-      .in("status", ["idle", "success", "error", "cancelled"])
-      .select("status, updated_at")
-      .maybeSingle();
-
-    if (error) {
-      console.error("[MES 트리거 API] 큐 업데이트 실패:", error);
-      throw error;
-    }
-
-    if (!data) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "이미 다른 MES 동기화 작업이 대기 중이거나 진행 중입니다. 잠시 후 다시 시도해 주세요.",
-        },
-        { status: 409 }
-      );
-    }
-
-    console.log("[MES 트리거 API] MES 동기화 요청 신호를 큐에 등록했습니다.");
-
-    return NextResponse.json({
-      success: true,
-      status: data.status,
-      updatedAt: data.updated_at,
-      message: "MES 데이터 수동 동기화 요청이 사내 PC 데몬으로 전달되었습니다."
-    }, { status: 202 }); // Accepted
-
+    const job = await enqueueAutomationJob(createAdminClient(), {
+      jobType: "MES_SYNC",
+      idempotencyKey: mesManualIdempotencyKey(requestId),
+      targetKey: "mes:manual",
+      requestPayload: { trigger: "manual", requested_at: new Date().toISOString() },
+      requestedBy: Number(session.userId),
+    });
+    return NextResponse.json({ success: true, job }, { status: 202, headers: { "Cache-Control": "no-store" } });
   } catch (error: any) {
-    console.error("[MES 트리거 API] 수동 동기화 요청 실패:", error);
-    return NextResponse.json({
-      success: false,
-      error: error instanceof Error ? error.message : "동기화 요청 중 내부 오류가 발생했습니다."
-    }, { status: error.message === "Unauthorized" ? 401 : error.message === "Forbidden" ? 403 : 500 });
+    const message = error?.message || "동기화 요청에 실패했습니다.";
+    return NextResponse.json({ success: false, error: message }, { status: message === "Unauthorized" ? 401 : message === "Forbidden" ? 403 : 500 });
   }
 }
 
-/**
- * MES 데이터 즉시 동기화 상태 조회 API
- * GET /api/cron/mes-trigger
- */
+/** One explicit read for focus/reconnect recovery; never used as an interval. */
 export async function GET(request: NextRequest) {
   try {
-    const { supabase } = await requireMesSyncAccess();
-
-    const { data, error } = await supabase
-      .from("mes_sync_queue")
-      .select("status, error_message, updated_at")
-      .eq("id", MES_QUEUE_ID)
-      .maybeSingle();
-
-    if (error) {
-      console.error("[MES 트리거 API] 큐 상태 조회 실패:", error);
-      throw error;
-    }
-
-    return NextResponse.json({
-      success: true,
-      status: data?.status ?? "idle",
-      error: data?.error_message ?? null,
-      updatedAt: data?.updated_at ?? null,
-    });
-
+    await requireMesSyncAccess();
+    const jobId = new URL(request.url).searchParams.get("jobId");
+    if (!jobId) return NextResponse.json({ success: false, error: "jobId가 필요합니다." }, { status: 400 });
+    const supabase = await createClient();
+    const { data, error } = await supabase.from("automation_jobs")
+      .select("id, status, progress_stage, progress_percent, error_code, error_message, result_code, updated_at")
+      .eq("id", jobId).maybeSingle();
+    if (error) throw error;
+    if (!data) return NextResponse.json({ success: false, error: "작업을 찾을 수 없습니다." }, { status: 404 });
+    return NextResponse.json({ success: true, job: data }, { headers: { "Cache-Control": "no-store" } });
   } catch (error: any) {
-    console.error("[MES 트리거 API] 상태 조회 실패:", error);
-    return NextResponse.json({
-      success: false,
-      error: error instanceof Error ? error.message : "상태 조회 중 내부 오류가 발생했습니다."
-    }, { status: error.message === "Unauthorized" ? 401 : error.message === "Forbidden" ? 403 : 500 });
+    return NextResponse.json({ success: false, error: error?.message || "작업 상태 조회 실패" }, { status: 500 });
   }
 }
 
-/**
- * 실행 중인 MES 동기화에 중단 요청을 보냅니다.
- * 실제 MES 프로그램 종료는 사내 PC의 mes_daemon.py가 수행합니다.
- */
 export async function DELETE(request: NextRequest) {
   try {
     const { session, supabase } = await requireMesSyncAccess();
-
-    const { data, error } = await supabase
-      .from("mes_sync_queue")
-      .update({
-        status: "cancel_requested",
-        error_message: "사용자가 중단 요청을 실행했습니다.",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", MES_QUEUE_ID)
-      .eq("requested_by", session.userId)
-      .in("status", ["pending", "running"])
-      .select("status")
-      .maybeSingle();
-
+    const jobId = new URL(request.url).searchParams.get("jobId");
+    if (!jobId) return NextResponse.json({ success: false, error: "jobId가 필요합니다." }, { status: 400 });
+    const now = new Date().toISOString();
+    const { data, error } = await supabase.from("automation_jobs")
+      .update({ status: "CANCEL_REQUESTED", cancel_requested_at: now, updated_at: now })
+      .eq("id", jobId).eq("requested_by", Number(session.userId)).in("status", ["PENDING", "RUNNING"])
+      .select("id, status").maybeSingle();
     if (error) throw error;
-    if (!data) {
-      return NextResponse.json({ success: false, error: "중단할 MES 작업이 없거나, 다른 사용자가 요청한 작업입니다." }, { status: 409 });
-    }
-
-    return NextResponse.json({ success: true, status: data.status });
+    if (!data) return NextResponse.json({ success: false, error: "중단할 작업이 없거나 권한이 없습니다." }, { status: 409 });
+    return NextResponse.json({ success: true, job: data });
   } catch (error: any) {
-    return NextResponse.json({
-      success: false,
-      error: error instanceof Error ? error.message : "중단 요청 중 내부 오류가 발생했습니다.",
-    }, { status: error.message === "Unauthorized" ? 401 : error.message === "Forbidden" ? 403 : 500 });
+    return NextResponse.json({ success: false, error: error?.message || "취소 요청 실패" }, { status: 500 });
   }
 }
-
-

@@ -569,13 +569,23 @@ class DocumentWorkerClient:
         )
         return list(result.get("recovered") or [])
 
-    def complete(self, job_id: str, status: str, results: list[dict[str, Any]], error_message: str | None) -> None:
+    def complete(
+        self,
+        job_id: str,
+        status: str,
+        results: list[dict[str, Any]],
+        error_message: str | None,
+        automation_job_id: str | None = None,
+        effect_uncertain: bool = False,
+    ) -> None:
         self._request(f"/api/document-worker/jobs/{job_id}/complete", "POST", {
             "worker_id": self.worker_id,
             "worker_lease_id": self.worker_lease_id,
             "status": status,
             "result_files": results,
             "error_message": error_message,
+            "automation_job_id": automation_job_id,
+            "effect_uncertain": effect_uncertain,
         })
 
 
@@ -997,8 +1007,20 @@ def process_next_queued_job(client: DocumentWorkerClient, output_root: Path) -> 
             return None
         job_id = str(job["id"])
         with JobLeaseHeartbeat(client, job_id):
-            status, results, error_message = process_job(job, client, output_root)
-            client.complete(job_id, status, results, error_message)
+            try:
+                status, results, error_message = process_job(job, client, output_root)
+                effect_uncertain = False
+            except Exception as error:
+                LOGGER.exception("문서 작업 예외로 terminal ACK 복구 job=%s", job_id)
+                status, results, error_message = "FAILED", [], str(error)
+                # The exception boundary may be after a publish side effect;
+                # never make a retry decision from an incomplete Python stack.
+                effect_uncertain = True
+            client.complete(
+                job_id, status, results, error_message,
+                str(job.get("automation_job_id") or "") or None,
+                effect_uncertain,
+            )
         LOGGER.info("작업 완료 id=%s status=%s", job.get("id"), status)
         return str(job["id"])
     finally:

@@ -32,7 +32,13 @@ export async function POST(_request: NextRequest, { params }: { params: { jobId:
       .select(JOB_FIELDS)
       .maybeSingle();
     if (pendingResult.error) throw pendingResult.error;
-    if (pendingResult.data) return NextResponse.json({ success: true, job: pendingResult.data });
+    if (pendingResult.data) {
+      await admin.from("automation_jobs")
+        .update({ status: "CANCELLED", cancel_requested_at: now, finished_at: now, updated_at: now, progress_stage: "취소됨", progress_percent: 100 })
+        .contains("request_payload", { document_generation_job_id: params.jobId })
+        .eq("status", "PENDING");
+      return NextResponse.json({ success: true, job: pendingResult.data });
+    }
 
     const processingResult = await admin
       .from("document_generation_jobs")
@@ -48,6 +54,10 @@ export async function POST(_request: NextRequest, { params }: { params: { jobId:
       .maybeSingle();
     if (processingResult.error) throw processingResult.error;
     if (processingResult.data) {
+      await admin.from("automation_jobs")
+        .update({ status: "CANCEL_REQUESTED", cancel_requested_at: now, updated_at: now, progress_stage: "취소 요청 전달" })
+        .contains("request_payload", { document_generation_job_id: params.jobId })
+        .eq("status", "RUNNING");
       // 살아 있는 Worker의 lease는 건드리지 않고, 이미 만료된 동일/다른 취소 요청만 종결한다.
       const recoveryResult = await admin.rpc("recover_cancelled_document_generation_jobs");
       if (recoveryResult.error) throw recoveryResult.error;

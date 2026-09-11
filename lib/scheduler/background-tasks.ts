@@ -5,11 +5,8 @@ import { createClient } from '../supabase/server';
 import { getKSTDateString, getKSTISOString } from '../utils/date-utils';
 import { K2B_VERIFY_SCHEDULE } from '../constants/k2b-verification';
 import { buildK2BSyncRange, K2B_SYNC_OVERLAP_DAYS } from '../automation/k2b-original-sync';
+import { enqueueAutomationJob, mesScheduledIdempotencyKey, nationalSupportIdempotencyKey } from '../automation/jobs';
 
-const MES_QUEUE_ID = 1;
-const MES_STALE_TIMEOUT_MINUTES = 15;
-const MES_COMPLETION_TIMEOUT_MS = 12 * 60 * 1000;
-const MES_STATUS_POLL_MS = 10_000;
 const KST_CRON_OPTIONS = { timezone: 'Asia/Seoul' };
 
 /**
@@ -56,6 +53,8 @@ export class BackgroundTasks {
         try {
             const { WorkerDaemon } = require('../automation/worker-daemon');
             WorkerDaemon.getInstance().start();
+            const { LocalAutomationWorker } = require('../automation/local-automation-worker');
+            LocalAutomationWorker.getInstance().start();
         } catch (workerErr) {
             console.error("[BackgroundTasks] WorkerDaemon 가동 중 오류 발생:", workerErr);
         }
@@ -102,6 +101,10 @@ export class BackgroundTasks {
             await BackgroundTasks.getInstance().runMesDownloadScript(true);
         }, KST_CRON_OPTIONS);
 
+        cron.schedule('0 17 * * *', async () => {
+            await this.enqueueDailyNationalSupportChecks();
+        }, KST_CRON_OPTIONS);
+
         // 4. 전일 K2B 실제 결과 검증. 큐 RPC가 업로드와의 활성 작업 충돌 및 날짜 중복을 막는다.
         cron.schedule(K2B_VERIFY_SCHEDULE, async () => {
             await this.enqueueDailyK2BVerification();
@@ -136,81 +139,55 @@ export class BackgroundTasks {
         }
     }
 
+    /** 17:00 KST: enqueue once only; the Windows Realtime worker performs it. */
+    public async enqueueDailyNationalSupportChecks(): Promise<void> {
+        const admin = createAdminClient();
+        const date = getKSTDateString();
+        const { data: targets, error } = await admin.from('measurement_target_business')
+            .select('id, code, year, period, industrial_accident_number, commencement_number, representative_name, manager_name, manager_mobile, national_support_status')
+            .is('national_support_status', null)
+            .not('code', 'is', null)
+            .not('year', 'is', null)
+            .not('period', 'is', null);
+        if (error) throw error;
+        for (const target of targets || []) {
+            if (String(target.period).includes('(수시)')) continue;
+            if (!target.industrial_accident_number || !target.commencement_number || !target.representative_name) continue;
+            const { data: journal, error: journalError } = await admin.from('measurement_journal').select('id')
+                .eq('code', target.code).eq('measurement_year', Number(target.year))
+                .eq('measurement_period', target.period).limit(1);
+            if (journalError) throw journalError;
+            if (journal?.length) continue;
+            await enqueueAutomationJob(admin, {
+                jobType: 'NATIONAL_SUPPORT',
+                idempotencyKey: nationalSupportIdempotencyKey('scheduled_lookup', String(target.code), target.year, target.period, date),
+                targetKey: `national-support:${target.id}`,
+                requestPayload: {
+                    target_id: target.id, code: target.code, year: target.year, period: target.period,
+                    sanjae: target.industrial_accident_number, commencement: target.commencement_number,
+                    representative: target.representative_name, contact_name: target.manager_name || '', contact_phone: target.manager_mobile || '',
+                    mode: 'lookup_only', scheduled_at: date,
+                },
+            });
+        }
+    }
+
     /**
      * MES 다운로드 파이썬 스크립트 실행
      */
     public async runMesDownloadScript(isFinalCheck: boolean = false): Promise<boolean> {
-        this.mesSyncStatus = 'running';
-        this.mesSyncError = null;
-
         try {
-            const supabase = await createClient();
-            const timeoutLimit = new Date(
-                Date.now() - MES_STALE_TIMEOUT_MINUTES * 60 * 1000
-            ).toISOString();
-
-            const { error: resetError } = await supabase
-                .from('mes_sync_queue')
-                .update({
-                    status: 'idle',
-                    error_message: MES_STALE_TIMEOUT_MINUTES + '분 초과 자동 작업을 리셋했습니다.',
-                    requested_by: null,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', MES_QUEUE_ID)
-                .in('status', ['pending', 'running'])
-                .lt('updated_at', timeoutLimit);
-
-            if (resetError) {
-                console.warn('[BackgroundTasks] MES 큐 타임아웃 상태 리셋 실패:', resetError.message);
-            }
-
-            const { data: queued, error: queueError } = await supabase
-                .from('mes_sync_queue')
-                .update({
-                    status: 'pending',
-                    error_message: '자동 스케줄에 의해 요청된 MES 동기화입니다.',
-                    requested_by: null,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', MES_QUEUE_ID)
-                .in('status', ['idle', 'success', 'error', 'cancelled'])
-                .select('status')
-                .maybeSingle();
-
-            if (queueError) throw queueError;
-            if (!queued) {
-                throw new Error('다른 MES 동기화가 대기 중이거나 실행 중이어서 자동 요청을 시작하지 못했습니다.');
-            }
-
-            console.log('[BackgroundTasks] 관리자 권한 MES 데몬에 자동 다운로드 요청을 전달했습니다.');
-            const startedAt = Date.now();
-
-            while (Date.now() - startedAt < MES_COMPLETION_TIMEOUT_MS) {
-                await new Promise(resolve => setTimeout(resolve, MES_STATUS_POLL_MS));
-
-                const { data: queueState, error: statusError } = await supabase
-                    .from('mes_sync_queue')
-                    .select('status, error_message')
-                    .eq('id', MES_QUEUE_ID)
-                    .maybeSingle();
-
-                if (statusError) throw statusError;
-                if (queueState?.status === 'success') {
-                    console.log('[BackgroundTasks] MES 자동 다운로드 및 DB 동기화가 완료되었습니다.');
-                    if (isFinalCheck) {
-                        await this.checkAndNotifyUnregisteredBusinesses();
-                    }
-                    this.mesSyncStatus = 'success';
-                    return true;
-                }
-
-                if (['error', 'cancelled'].includes(queueState?.status || '')) {
-                    throw new Error(queueState?.error_message || 'MES 자동 동기화가 ' + queueState?.status + ' 상태로 종료되었습니다.');
-                }
-            }
-
-            throw new Error('MES 자동 동기화 완료 대기 시간이 12분을 초과했습니다.');
+            const supabase = createAdminClient();
+            const kstDate = getKSTDateString();
+            const slot = isFinalCheck ? '14:00' : new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
+            const job = await enqueueAutomationJob(supabase, {
+                jobType: 'MES_SYNC',
+                idempotencyKey: mesScheduledIdempotencyKey(slot, kstDate),
+                targetKey: `mes:scheduled:${slot}`,
+                requestPayload: { trigger: 'scheduled', slot, final_check: isFinalCheck },
+            });
+            console.log(`[BackgroundTasks] MES 자동 작업 등록 id=${job.id} slot=${slot}`);
+            return true;
         } catch (error: any) {
             const message = error?.message || String(error);
             console.error('[BackgroundTasks] MES 자동 다운로드 요청 실패:', message);

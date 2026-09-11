@@ -6,7 +6,8 @@ import { getUser } from "@/lib/auth/get-user";
 import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
 import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
-import { classifyNationalSupportQueueError } from "@/lib/national-support/queue-error";
+import { enqueueAutomationJob, nationalSupportIdempotencyKey } from "@/lib/automation/jobs";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
  * 건강디딤돌 자동 신청 API
@@ -197,62 +198,23 @@ export async function POST(request: NextRequest) {
       mode: jobMode,
     };
 
-    // 행 잠금, 조회중 상태 변경, 큐 등록을 PostgreSQL 함수 안의 단일 트랜잭션으로 처리합니다.
-    const { data: queuedJobs, error: queueError } = await supabase.rpc(
-      "enqueue_national_support_job",
-      {
-        p_target_id: Number(target_id),
-        p_job_payload: jobPayload,
-        p_available_at: new Date().toISOString(),
-      },
-    );
-    const queuedJob = Array.isArray(queuedJobs) ? queuedJobs[0] : null;
-
-    if (queueError || !queuedJob?.job_id) {
-      const dbError = queueError || {
-        code: "RPC_EMPTY_RESULT",
-        message: "enqueue_national_support_job returned no job",
-        details: null,
-        hint: null,
-      };
-      const errorCode = classifyNationalSupportQueueError(dbError);
-      console.error("[NationalSupportQueue] 원자적 락/큐 등록 실패", {
-        correlationId,
-        errorCode,
-        dbError: {
-          code: dbError.code || null,
-          message: dbError.message || null,
-          details: dbError.details || null,
-          hint: dbError.hint || null,
-        },
-        target_id,
-        mode: jobMode,
-        existing_sync_status: currentPlan.sync_status,
-      });
-
-      const status = errorCode === "NATIONAL_SUPPORT_ALREADY_RUNNING"
-        ? 409
-        : errorCode === "NATIONAL_SUPPORT_TARGET_NOT_FOUND"
-          ? 404
-          : 500;
-      return NextResponse.json(
-        {
-          error: status === 409
-            ? "이미 해당 사업장의 조회 작업이 대기 중이거나 진행 중입니다."
-            : "자동 신청 상태를 변경하는 데 실패했습니다.",
-          errorCode,
-          correlationId,
-        },
-        { status },
-      );
-    }
+    const automationJob = await enqueueAutomationJob(createAdminClient(), {
+      jobType: "NATIONAL_SUPPORT",
+      idempotencyKey: nationalSupportIdempotencyKey(
+        jobMode === "apply_if_missing" ? "apply" : "lookup",
+        String(code), year, period,
+      ),
+      targetKey: `national-support:${target_id}`,
+      requestPayload: jobPayload,
+      requestedBy: Number(user.id),
+    });
 
     return NextResponse.json({
       success: true,
       message: jobMode === "apply_if_missing"
         ? "건강디딤돌 조회 및 자동 신청 작업이 백그라운드 작업자에 전달되었습니다."
         : "건강디딤돌 조회 작업이 백그라운드 작업자에 전달되었습니다. 결과는 잠시 후 반영됩니다.",
-      jobId: queuedJob.job_id,
+      jobId: automationJob.id,
     });
 
   } catch (error: any) {

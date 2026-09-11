@@ -170,17 +170,25 @@ export async function processNationalSupportJob(
     return result.result;
   };
 
-  const updateProgress = async (syncStatus: string, message: string) => {
+  const updateProgress = async (_syncStatus: string, message: string) => {
     const { error } = await supabase
       .from("measurement_target_business")
       .update({
         ...commonTargetFields,
-        sync_status: syncStatus,
         sync_error_message: message,
         updated_at: new Date().toISOString(),
       })
       .eq("id", payload.target_id);
     if (error) throw error;
+  };
+
+  const hasMeasurementJournal = async () => {
+    const { data, error } = await supabase.from("measurement_journal")
+      .select("id").eq("code", payload.code)
+      .eq("measurement_year", Number(payload.year))
+      .eq("measurement_period", payload.period).limit(1);
+    if (error) throw error;
+    return Boolean(data?.length);
   };
 
   const persistFinalStatus = async (
@@ -192,7 +200,6 @@ export async function processNationalSupportJob(
       .from("measurement_target_business")
       .update({
         ...commonTargetFields,
-        sync_status: "성공",
         sync_error_message: reason,
         national_support_status: supportStatus,
         updated_at: new Date().toISOString(),
@@ -256,6 +263,12 @@ export async function processNationalSupportJob(
 
   try {
     if (mode === "apply_if_missing") {
+      // Guard 2: this runs immediately before the integrated flow can reach
+      // its application action, closing the enqueue-to-effect race.
+      if (await hasMeasurementJournal()) {
+        await updateProgress("성공", "측정일지 등록이 확인되어 신청하지 않았습니다.");
+        return { status: "JOURNAL_REGISTERED_SKIP" };
+      }
       const flowResult = resultCode(
         await runIntegratedFlow(payload),
         "건강디딤돌 업체 단위 조회·신청",
@@ -357,7 +370,6 @@ export async function processNationalSupportJob(
     await supabase
       .from("measurement_target_business")
       .update({
-        sync_status: "실패",
         sync_error_message: error?.message || "자동 연동 시스템 오류",
         updated_at: new Date().toISOString(),
       })

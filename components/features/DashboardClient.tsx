@@ -8,6 +8,7 @@ import { InconsistencyAlert } from "@/components/features/InconsistencyAlert";
 import { Select } from "@/components/ui/Select";
 import { canTriggerMesSync } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+import AutomationProgressModal from "@/components/features/AutomationProgressModal";
 
 interface DashboardClientProps {
     user?: {
@@ -26,11 +27,14 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
 
     const [activeTab, setActiveTab] = useState("general");
     const [syncRefreshKey, setSyncRefreshKey] = useState(0);
-    const [mesSyncStatus, setMesSyncStatus] = useState<'idle' | 'running' | 'success' | 'error' | 'cancelled'>('idle');
-    const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
-    const mesPollIntervalRef = useRef<number | null>(null);
-
-    const isSyncing = mesSyncStatus === 'running';
+    const [mesJobId, setMesJobId] = useState<string | null>(null);
+    const mesRequestIdRef = useRef<string | null>(null);
+    const isSyncing = Boolean(mesJobId);
+    // The legacy presentation remains below temporarily only to avoid a broad
+    // unrelated dashboard markup rewrite. It is unreachable; all MES state is
+    // rendered by AutomationProgressModal from the Realtime job signal.
+    const mesSyncStatus = 'idle' as const;
+    const syncErrorMessage: string | null = null;
 
     // 필터 상태 (Dashboard로 전달)
     const [startYear, setStartYear] = useState<string>(getCurrentYear().toString());
@@ -38,9 +42,9 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
     const [selectedPeriod, setSelectedPeriod] = useState<string>("전체");
 
     const handleMesSync = async () => {
-        if (mesSyncStatus === 'running') return;
-        setMesSyncStatus('running');
-        setSyncErrorMessage(null);
+        if (mesJobId) return;
+        const requestId = crypto.randomUUID();
+        mesRequestIdRef.current = requestId;
         
         try {
             console.log("[DashboardClient] MES 수동 동기화 요청 API 전송 시도...");
@@ -48,93 +52,48 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
+                    "Idempotency-Key": requestId,
                 }
             });
             
             const data = await res.json();
             if (res.ok && data.success) {
+                setMesJobId(data.job.id);
             } else {
-                setMesSyncStatus('error');
-                setSyncErrorMessage(data.error || "동기화 요청이 거부되었습니다.");
+                alert(data.error || "동기화 요청이 거부되었습니다.");
             }
         } catch (err: any) {
-            setMesSyncStatus('error');
-            setSyncErrorMessage(err.message || String(err));
+            alert(err.message || String(err));
         }
     };
 
-    useEffect(() => {
-        if (mesSyncStatus !== 'running') return;
-        const clearMesPolling = () => {
-            if (mesPollIntervalRef.current !== null) {
-                window.clearInterval(mesPollIntervalRef.current);
-                mesPollIntervalRef.current = null;
-            }
-        };
-        const pollStatus = async () => {
-            if (document.visibilityState !== 'visible') return;
-            try {
-                const statusRes = await fetch("/api/cron/mes-trigger");
-                const statusData = await statusRes.json();
-                if (!statusRes.ok || !statusData.success) return;
-                if (statusData.status === 'success') {
-                    clearMesPolling();
-                    setMesSyncStatus('success');
-                    setSyncRefreshKey(prev => prev + 1);
-                    window.setTimeout(() => setMesSyncStatus('idle'), 2500);
-                } else if (statusData.status === 'cancelled') {
-                    clearMesPolling();
-                    setMesSyncStatus('cancelled');
-                    setSyncErrorMessage(statusData.error || '사용자 요청으로 동기화를 중단했습니다.');
-                } else if (statusData.status === 'error') {
-                    clearMesPolling();
-                    setMesSyncStatus('error');
-                    setSyncErrorMessage(statusData.error || "동기화 처리 중 서버 오류가 발생했습니다.");
-                }
-            } catch (pollErr) {
-                console.error("[DashboardClient] 동기화 상태 폴링 중 실패:", pollErr);
-            }
-        };
-        void pollStatus();
-        mesPollIntervalRef.current = window.setInterval(() => void pollStatus(), 30000);
-        window.addEventListener('focus', pollStatus);
-        document.addEventListener('visibilitychange', pollStatus);
-        return () => {
-            clearMesPolling();
-            window.removeEventListener('focus', pollStatus);
-            document.removeEventListener('visibilitychange', pollStatus);
-        };
-    }, [mesSyncStatus]);
-
     const handleCancelMesSync = useCallback(async () => {
-        if (mesSyncStatus !== 'running') return;
+        if (!mesJobId) return;
         if (!confirm('진행 중인 MES 동기화를 중단하시겠습니까?\n현재 실행 중인 MES/Excel 작업이 종료됩니다.')) return;
 
         try {
-            const res = await fetch('/api/cron/mes-trigger', { method: 'DELETE' });
+            const res = await fetch(`/api/automation-jobs/${mesJobId}`, { method: 'DELETE' });
             const data = await res.json();
-            if (!res.ok || !data.success) {
-                setMesSyncStatus('error');
-                setSyncErrorMessage(data.error || '중단 요청을 전달하지 못했습니다.');
+            if (!res.ok || !data.job) {
+                alert(data.error || '중단 요청을 전달하지 못했습니다.');
             } else {
-                setSyncErrorMessage('중단 요청을 사내 PC에 전달했습니다. 실행 중인 단계가 정리되는 대로 종료됩니다.');
+                alert('중단 요청을 사내 PC에 전달했습니다. 실행 중인 단계가 정리되는 대로 종료됩니다.');
             }
         } catch (error: any) {
-            setMesSyncStatus('error');
-            setSyncErrorMessage(error.message || '중단 요청 중 오류가 발생했습니다.');
+            alert(error.message || '중단 요청 중 오류가 발생했습니다.');
         }
-    }, [mesSyncStatus]);
+    }, [mesJobId]);
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape' && mesSyncStatus === 'running') {
+            if (event.key === 'Escape' && mesJobId) {
                 event.preventDefault();
                 handleCancelMesSync();
             }
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [mesSyncStatus]);
+    }, [mesJobId, handleCancelMesSync]);
     // 년도 옵션 생성
     const currentYear = getCurrentYear();
     const yearOptions = Array.from({ length: 6 }, (_, i) => {
@@ -318,7 +277,7 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                                     </div>
                                     <h3 className="text-lg font-bold text-slate-800 mb-1">동기화 중단됨</h3>
                                     <p className="text-sm text-amber-700 mb-4">{syncErrorMessage || '사용자 요청으로 동기화를 중단했습니다.'}</p>
-                                    <button onClick={() => setMesSyncStatus('idle')} className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-md">닫기</button>
+                                    <button onClick={() => setMesJobId(null)} className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-md">닫기</button>
                                 </>
                             )}
                             {mesSyncStatus === 'error' && (
@@ -333,7 +292,7 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                                         {syncErrorMessage || "알 수 없는 에러가 발생했습니다."}
                                     </p>
                                     <button
-                                        onClick={() => setMesSyncStatus('idle')}
+                                        onClick={() => setMesJobId(null)}
                                         className="w-full py-2 bg-slate-800 hover:bg-slate-900 active:bg-black text-white text-xs font-semibold rounded-md shadow transition-colors"
                                     >
                                         닫기
@@ -343,6 +302,17 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                         </div>
                     </div>
                 </div>
+            )}
+            {mesJobId && (
+                <AutomationProgressModal
+                    jobId={mesJobId}
+                    title="MES 동기화"
+                    stages={["요청 전달", "MES 자료 추출", "엑셀 가공", "DB 반영 확인", "완료"]}
+                    onClose={() => {
+                        setMesJobId(null);
+                        setSyncRefreshKey((value) => value + 1);
+                    }}
+                />
             )}
         </div>
     );

@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 LOGGER = logging.getLogger("document-worker")
-DOCUMENT_JOB_TYPE = "GENERATE_NEW_BUSINESS_DOCUMENTS"
+DOCUMENT_JOB_TYPE = "DOCUMENT_GENERATION"
 REALTIME_TOPIC = "document-worker-jobs"
 REALTIME_SCHEMA = "public"
-REALTIME_TABLE = "document_job_pending_signals"
-REALTIME_FILTER = "status=eq.PENDING"
+REALTIME_TABLE = "automation_job_signals"
+REALTIME_FILTER = "job_type=eq.DOCUMENT_GENERATION"
 DEFAULT_RECOVERY_POLL_SECONDS = 6 * 60 * 60
 REALTIME_DEBOUNCE_SECONDS = 0.75
 REALTIME_EMPTY_RETRY_DELAYS = (2, 3)
@@ -196,7 +196,9 @@ class DocumentWorkerRuntime:
         LOGGER.info("startup claim 시작")
         await self.coordinator.wake("startup")
         LOGGER.info("startup claim 완료")
-        tasks = [asyncio.create_task(self._recovery_loop(), name="document-worker-recovery")]
+        # Startup and every Realtime reconnect perform one reconcile. There is
+        # no idle periodic database polling in the common execution path.
+        tasks: list[asyncio.Task[Any]] = []
         if self.settings.enabled:
             tasks.append(asyncio.create_task(self._realtime_loop(), name="document-worker-realtime"))
         else:
