@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { claimNextAutomationJob, updateAutomationJob } from "@/lib/automation/jobs";
+import { claimNextAutomationJob, updateAutomationJobOwned } from "@/lib/automation/jobs";
 import { processNationalSupportJob, type NationalSupportJobPayload } from "@/lib/automation/national-support-worker";
 import { hasMeasurementJournalForTarget, nationalSupportCompatibilityProjection, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
 
@@ -118,10 +118,10 @@ export class LocalAutomationWorker {
         let effectStarted = false;
         try {
           await this.projectRunning(payload);
-          await updateAutomationJob(supabase, job.id, { progress_stage: "신청조건 확인", progress_percent: 20 });
+          await updateAutomationJobOwned(supabase, job.id, workerId, { progress_stage: "신청조건 확인", progress_percent: 20 });
           // Guard 1: a journal makes both lookup scheduling and application ineligible.
           if (await hasMeasurementJournalForTarget(supabase, payload)) {
-            await updateAutomationJob(supabase, job.id, {
+            await updateAutomationJobOwned(supabase, job.id, workerId, {
               status: "COMPLETED", progress_stage: "측정일지 등록으로 제외", progress_percent: 100,
               result_code: "JOURNAL_REGISTERED_SKIP",
             });
@@ -135,7 +135,7 @@ export class LocalAutomationWorker {
               }
               if (event === "effect_started") {
                 effectStarted = true;
-                await updateAutomationJob(supabase, job.id, {
+                await updateAutomationJobOwned(supabase, job.id, workerId, {
                   effect_started_at: new Date().toISOString(),
                   progress_stage: "신청 요청 전송", progress_percent: 70,
                 });
@@ -160,7 +160,7 @@ export class LocalAutomationWorker {
             if (error) throw error;
             continue;
           }
-          await updateAutomationJob(supabase, job.id, {
+          await updateAutomationJobOwned(supabase, job.id, workerId, {
             status: code === "APPLICATION_UNCERTAIN" ? "CONFIRM_REQUIRED" : "COMPLETED",
             progress_stage: code === "APPLICATION_UNCERTAIN" ? "신청 결과 확인 필요" : "결과 확인",
             progress_percent: 100, result_code: code,
@@ -172,7 +172,7 @@ export class LocalAutomationWorker {
           await this.projectCompatibility(payload, code);
         } catch (error: any) {
           const uncertain = effectStarted;
-          await updateAutomationJob(supabase, job.id, {
+          await updateAutomationJobOwned(supabase, job.id, workerId, {
             status: uncertain ? "CONFIRM_REQUIRED" : "FAILED", progress_stage: uncertain ? "외부 효과 확인 필요" : "조회 실패",
             progress_percent: 100, result_code: uncertain ? "APPLICATION_UNCERTAIN" : undefined,
             error_code: "NATIONAL_SUPPORT_WORKER_ERROR", error_message: error?.message || String(error),

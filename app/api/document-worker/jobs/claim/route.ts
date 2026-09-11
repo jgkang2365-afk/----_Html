@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAuthorizedDocumentWorker } from "@/lib/document-generation/worker-auth";
-import { claimNextAutomationJob, updateAutomationJob } from "@/lib/automation/jobs";
+import { claimNextAutomationJob, updateAutomationJobOwned } from "@/lib/automation/jobs";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     if (!automationJob) return NextResponse.json({ job: null });
     const legacyId = String(automationJob.request_payload?.document_generation_job_id || "");
     if (!legacyId) {
-      await updateAutomationJob(admin, automationJob.id, {
+      await updateAutomationJobOwned(admin, automationJob.id, workerId, {
         status: "FAILED", error_code: "DOCUMENT_LEGACY_JOB_MISSING", error_message: "문서 작업 원본 ID가 없습니다.", progress_percent: 100,
       });
       return NextResponse.json({ job: null });
@@ -41,13 +41,13 @@ export async function POST(request: NextRequest) {
       .eq("id", legacyId).eq("status", "PENDING")
       .select("*").maybeSingle();
     if (error || !legacy) {
-      await updateAutomationJob(admin, automationJob.id, {
-        status: "CONFIRM_REQUIRED", error_code: "DOCUMENT_LEGACY_CLAIM_UNCERTAIN",
-        error_message: "문서 원본 작업을 안전하게 선점하지 못했습니다.", progress_percent: 100,
+      await updateAutomationJobOwned(admin, automationJob.id, workerId, {
+        status: "FAILED", error_code: "DOCUMENT_LEGACY_CLAIM_FAILED",
+        error_message: "문서 원본 작업을 선점하지 못했습니다. 외부 파일 효과는 시작되지 않았습니다.", progress_percent: 100,
       });
       return NextResponse.json({ job: null });
     }
-    await updateAutomationJob(admin, automationJob.id, { progress_stage: "문서 생성", progress_percent: 25 });
+    await updateAutomationJobOwned(admin, automationJob.id, workerId, { progress_stage: "문서 생성", progress_percent: 25 });
     return NextResponse.json({ job: { ...legacy, automation_job_id: automationJob.id } });
   } catch (error) {
     console.error("[DocumentWorker] 공통 작업 선점 실패", error);

@@ -112,6 +112,20 @@ export async function updateAutomationJob(
   return data as AutomationJob;
 }
 
+/** Worker-only terminal/progress write. Database checks the active claim owner. */
+export async function updateAutomationJobOwned(
+  supabase: SupabaseClient, jobId: string, workerId: string, update: AutomationJobUpdate,
+) {
+  const now = new Date().toISOString();
+  const fields: Record<string, unknown> = { ...update };
+  if (terminalAutomationStatus(update.status ?? "PENDING")) fields.finished_at = now;
+  const { data, error } = await supabase.rpc("update_automation_job_owned", {
+    p_job_id: jobId, p_worker_id: workerId, p_fields: fields,
+  });
+  if (error) throw error;
+  return data as AutomationJob;
+}
+
 export function mesManualIdempotencyKey(requestId: string) {
   return `mes:manual:${requestId}`;
 }

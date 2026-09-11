@@ -30,6 +30,11 @@ export async function POST(request: NextRequest) {
       requestPayload: { trigger: "manual", requested_at: new Date().toISOString() },
       requestedBy: Number(session.userId),
     });
+    // The MES lane is deliberately global.  Do not expose a scheduled or
+    // another user's active job as if it belonged to this request.
+    if (job.requested_by !== Number(session.userId)) {
+      return NextResponse.json({ success: false, error: "다른 MES 동기화 작업이 진행 중입니다." }, { status: 409 });
+    }
     return NextResponse.json({ success: true, job }, { status: 202, headers: { "Cache-Control": "no-store" } });
   } catch (error: any) {
     const message = error?.message || "동기화 요청에 실패했습니다.";
