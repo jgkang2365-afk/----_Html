@@ -78,8 +78,13 @@ class MesWorker:
         ).execute()
 
     def update(self, job_id: str, **fields: Any) -> None:
-        fields["updated_at"] = now()
-        self.supabase.table("automation_jobs").update(fields).eq("id", job_id).execute()
+        # Every worker-originated state write is ownership-checked in the
+        # database.  A stale daemon must not overwrite a job reclaimed after
+        # pre-effect recovery merely because it still knows the UUID.
+        self.supabase.rpc(
+            "update_automation_job_owned",
+            {"p_job_id": job_id, "p_worker_id": self.worker_id, "p_fields": fields},
+        ).execute()
 
     def on_signal(self, record: dict[str, Any]) -> None:
         if record.get("job_type") != MES_JOB_TYPE:

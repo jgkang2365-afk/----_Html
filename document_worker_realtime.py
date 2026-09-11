@@ -206,6 +206,9 @@ class DocumentWorkerRuntime:
                 "Realtime 비활성: %s초 안전 확인 전용 모드",
                 self.settings.recovery_poll_seconds,
             )
+            # This is an explicit degraded-mode safety reconcile only.  The
+            # normal Realtime-enabled path never starts an interval poll.
+            tasks.append(asyncio.create_task(self._recovery_loop(), name="document-worker-recovery"))
         try:
             await self.stop_event.wait()
         finally:

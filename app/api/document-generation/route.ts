@@ -343,6 +343,14 @@ export async function POST(request: NextRequest) {
           { error: "이미 문서 생성 작업이 진행 중입니다." },
           { status: 409 }
         );
+      if (String(error.message).includes("DOCUMENT_AUTOMATION_ACTIVE_OR_CONFIRM_REQUIRED"))
+        return NextResponse.json(
+          {
+            error: "기존 문서 생성의 파일 게시 효과를 확인해야 새 작업을 시작할 수 있습니다.",
+            errorCode: "DOCUMENT_EFFECT_CONFIRM_REQUIRED",
+          },
+          { status: 409 }
+        );
       if (String(error.message).includes("DOCUMENT_GENERATION_JOURNAL_EXISTS"))
         return NextResponse.json({ error: DOCUMENT_GENERATION_JOURNAL_ERROR }, { status: 409 });
       if (String(error.message).includes("DOCUMENT_GENERATION_NOT_ELIGIBLE"))

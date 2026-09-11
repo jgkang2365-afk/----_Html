@@ -250,6 +250,18 @@ BEGIN
     IF FOUND THEN RETURN queued; END IF;
   END IF;
 
+  -- MES is a single interactive Windows application.  A manual request and a
+  -- scheduled request must therefore share one atomic execution lane even
+  -- though their idempotency keys intentionally differ.
+  IF p_job_type = 'MES_SYNC' THEN
+    PERFORM pg_advisory_xact_lock(hashtext('automation:mes-sync'));
+    SELECT * INTO queued FROM public.automation_jobs
+      WHERE job_type = 'MES_SYNC'
+        AND status IN ('PENDING','RUNNING','CANCEL_REQUESTED','CONFIRM_REQUIRED')
+      ORDER BY created_at DESC LIMIT 1;
+    IF FOUND THEN RETURN queued; END IF;
+  END IF;
+
   INSERT INTO public.automation_jobs (
     job_type, idempotency_key, target_key, request_payload, requested_by, available_at
   ) VALUES (
@@ -301,6 +313,48 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.complete_automation_job_with_followup(UUID,TEXT,TEXT,JSONB,TEXT,JSONB,TIMESTAMPTZ,BIGINT,TEXT,TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.complete_automation_job_with_followup(UUID,TEXT,TEXT,JSONB,TEXT,JSONB,TIMESTAMPTZ,BIGINT,TEXT,TEXT) TO service_role;
+
+-- MES reports progress, effect boundaries, and terminal state through this
+-- ownership-checked RPC.  A worker that lost its lease (or was superseded by
+-- stale recovery) cannot write a late terminal result over the new owner.
+CREATE OR REPLACE FUNCTION public.update_automation_job_owned(
+  p_job_id UUID,
+  p_worker_id TEXT,
+  p_fields JSONB
+) RETURNS public.automation_jobs
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE updated public.automation_jobs;
+DECLARE requested_status TEXT := nullif(p_fields->>'status', '');
+BEGIN
+  IF p_fields IS NULL OR jsonb_typeof(p_fields) <> 'object' THEN
+    RAISE EXCEPTION 'AUTOMATION_UPDATE_ARGUMENT_INVALID';
+  END IF;
+  IF requested_status IS NOT NULL AND requested_status NOT IN
+    ('RUNNING','COMPLETED','FAILED','CANCELLED','CONFIRM_REQUIRED') THEN
+    RAISE EXCEPTION 'AUTOMATION_UPDATE_STATUS_INVALID';
+  END IF;
+  UPDATE public.automation_jobs job
+  SET status = coalesce(requested_status, job.status),
+      progress_stage = CASE WHEN p_fields ? 'progress_stage' THEN p_fields->>'progress_stage' ELSE job.progress_stage END,
+      progress_percent = CASE WHEN p_fields ? 'progress_percent' THEN (p_fields->>'progress_percent')::SMALLINT ELSE job.progress_percent END,
+      result_code = CASE WHEN p_fields ? 'result_code' THEN p_fields->>'result_code' ELSE job.result_code END,
+      result_payload = CASE WHEN p_fields ? 'result_payload' THEN p_fields->'result_payload' ELSE job.result_payload END,
+      error_code = CASE WHEN p_fields ? 'error_code' THEN p_fields->>'error_code' ELSE job.error_code END,
+      error_message = CASE WHEN p_fields ? 'error_message' THEN p_fields->>'error_message' ELSE job.error_message END,
+      effect_started_at = CASE WHEN p_fields ? 'effect_started_at' THEN coalesce(job.effect_started_at, (p_fields->>'effect_started_at')::TIMESTAMPTZ) ELSE job.effect_started_at END,
+      effect_confirmed_at = CASE WHEN p_fields ? 'effect_confirmed_at' THEN coalesce(job.effect_confirmed_at, (p_fields->>'effect_confirmed_at')::TIMESTAMPTZ) ELSE job.effect_confirmed_at END,
+      finished_at = CASE WHEN p_fields ? 'finished_at' THEN (p_fields->>'finished_at')::TIMESTAMPTZ ELSE job.finished_at END,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE job.id = p_job_id
+    AND job.worker_id = p_worker_id
+    AND job.status IN ('RUNNING','CANCEL_REQUESTED')
+  RETURNING job.* INTO updated;
+  IF NOT FOUND THEN RAISE EXCEPTION 'AUTOMATION_UPDATE_NOT_OWNED'; END IF;
+  RETURN updated;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.update_automation_job_owned(UUID,TEXT,JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.update_automation_job_owned(UUID,TEXT,JSONB) TO service_role;
 
 -- Document execution has two records for compatibility, but one ownership
 -- boundary.  Reconciliation is deliberately separate from the generic job
@@ -575,11 +629,42 @@ BEGIN
 END;
 $$;
 
+-- A terminal legacy row alone is not permission to replay a document.  When
+-- the common record is CONFIRM_REQUIRED a prior publish may already exist;
+-- reject a new legacy request at the database boundary before its AFTER
+-- trigger can create another common job.
+CREATE OR REPLACE FUNCTION public.guard_document_automation_enqueue()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.status = 'PENDING' THEN
+    PERFORM pg_advisory_xact_lock(hashtext('document:' || NEW.business_id::text));
+    IF EXISTS (
+      SELECT 1 FROM public.automation_jobs common
+      WHERE common.job_type = 'DOCUMENT_GENERATION'
+        AND common.target_key = 'document:' || NEW.business_id::text
+        AND common.status IN ('PENDING','RUNNING','CANCEL_REQUESTED','CONFIRM_REQUIRED')
+    ) THEN
+      RAISE EXCEPTION 'DOCUMENT_AUTOMATION_ACTIVE_OR_CONFIRM_REQUIRED';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
 DROP TRIGGER IF EXISTS trg_document_generation_automation_job ON public.document_generation_jobs;
+DROP TRIGGER IF EXISTS trg_document_generation_automation_guard ON public.document_generation_jobs;
+CREATE TRIGGER trg_document_generation_automation_guard
+BEFORE INSERT ON public.document_generation_jobs
+FOR EACH ROW EXECUTE FUNCTION public.guard_document_automation_enqueue();
 CREATE TRIGGER trg_document_generation_automation_job
 AFTER INSERT ON public.document_generation_jobs
 FOR EACH ROW EXECUTE FUNCTION public.enqueue_document_automation_job();
 REVOKE ALL ON FUNCTION public.enqueue_document_automation_job() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.guard_document_automation_enqueue() FROM PUBLIC;
 
 -- Forward-compatible cutover: only legacy PENDING rows receive a common
 -- ownership record.  Processing/terminal history is never replayed.
@@ -609,6 +694,39 @@ BEGIN
   RETURN;
 END;
 $$;
+
+-- Protect the reverse direction too: old code may still insert pre-existing
+-- legacy national-support work while it drains.  It shares the same advisory
+-- key as the new enqueue RPC, so a legacy INSERT cannot race a new common
+-- NATIONAL_SUPPORT job for one target.
+CREATE OR REPLACE FUNCTION public.guard_legacy_national_support_enqueue()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE target_id TEXT;
+BEGIN
+  IF NEW.job_type <> 'national_support' THEN RETURN NEW; END IF;
+  target_id := nullif(NEW.payload->>'target_id', '');
+  IF target_id IS NULL THEN RETURN NEW; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('national-support:' || target_id));
+  IF EXISTS (
+    SELECT 1 FROM public.automation_jobs common
+    WHERE common.job_type = 'NATIONAL_SUPPORT'
+      AND common.target_key = 'national-support:' || target_id
+      AND common.status IN ('PENDING','RUNNING','CANCEL_REQUESTED','CONFIRM_REQUIRED')
+  ) THEN
+    RAISE EXCEPTION 'NATIONAL_SUPPORT_AUTOMATION_JOB_ACTIVE';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_background_jobs_national_support_cutover ON public.background_jobs;
+CREATE TRIGGER trg_background_jobs_national_support_cutover
+BEFORE INSERT ON public.background_jobs
+FOR EACH ROW EXECUTE FUNCTION public.guard_legacy_national_support_enqueue();
+REVOKE ALL ON FUNCTION public.guard_legacy_national_support_enqueue() FROM PUBLIC;
 
 DO $$
 BEGIN

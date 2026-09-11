@@ -104,6 +104,8 @@ test("national-support enqueue serializes active common and legacy work for the 
   assert.match(migration, /NATIONAL_SUPPORT_LEGACY_JOB_ACTIVE/);
   assert.match(migration, /legacy\.job_type = 'national_support'/);
   assert.match(migration, /status IN \('PENDING','RUNNING','CANCEL_REQUESTED','CONFIRM_REQUIRED'\)/);
+  assert.match(migration, /guard_legacy_national_support_enqueue/);
+  assert.match(migration, /NATIONAL_SUPPORT_AUTOMATION_JOB_ACTIVE/);
 });
 
 test("document common and legacy terminal paths share an ownership-bound transaction", () => {
@@ -129,9 +131,29 @@ test("document common and legacy terminal paths share an ownership-bound transac
 test("MES effect event is streamed before upload confirmation and classifies failures by the boundary", () => {
   const daemon = fs.readFileSync(path.join(process.cwd(), "mes_daemon.py"), "utf8");
   const download = fs.readFileSync(path.join(process.cwd(), "mes_download.py"), "utf8");
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
   assert.match(download, /AUTOMATION_EVENT:effect_started/);
   assert.match(daemon, /stderr=subprocess\.STDOUT/);
   assert.match(daemon, /output_reader/);
   assert.match(daemon, /CANCEL_REQUESTED_BEFORE_EFFECT/);
   assert.match(daemon, /MES_EFFECT_UNCERTAIN/);
+  assert.match(daemon, /update_automation_job_owned/);
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.update_automation_job_owned/);
+  assert.match(migration, /job\.worker_id = p_worker_id/);
+});
+
+test("common document confirmation blocks a legacy replay at the database boundary", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  const route = fs.readFileSync(path.join(process.cwd(), "app/api/document-generation/route.ts"), "utf8");
+  assert.match(migration, /guard_document_automation_enqueue/);
+  assert.match(migration, /DOCUMENT_AUTOMATION_ACTIVE_OR_CONFIRM_REQUIRED/);
+  assert.match(migration, /BEFORE INSERT ON public\.document_generation_jobs/);
+  assert.match(route, /DOCUMENT_EFFECT_CONFIRM_REQUIRED/);
+});
+
+test("MES manual and scheduled requests use one active execution lane", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  assert.match(migration, /p_job_type = 'MES_SYNC'/);
+  assert.match(migration, /pg_advisory_xact_lock\(hashtext\('automation:mes-sync'\)\)/);
+  assert.match(migration, /WHERE job_type = 'MES_SYNC'/);
 });
