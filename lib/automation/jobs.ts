@@ -26,6 +26,7 @@ export type AutomationJob = {
   error_code: string | null;
   error_message: string | null;
   worker_id: string | null;
+  requested_by: number | null;
   created_at: string;
   claimed_at: string | null;
   started_at: string | null;
