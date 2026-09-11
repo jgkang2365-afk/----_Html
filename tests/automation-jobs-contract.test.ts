@@ -153,7 +153,10 @@ test("common document confirmation blocks a legacy replay at the database bounda
 
 test("MES manual and scheduled requests use one active execution lane", () => {
   const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  const dashboard = fs.readFileSync(path.join(process.cwd(), "components/features/DashboardClient.tsx"), "utf8");
   assert.match(migration, /p_job_type = 'MES_SYNC'/);
   assert.match(migration, /pg_advisory_xact_lock\(hashtext\('automation:mes-sync'\)\)/);
   assert.match(migration, /WHERE job_type = 'MES_SYNC'/);
+  assert.match(dashboard, /mesRequestIdRef\.current \?\? crypto\.randomUUID\(\)/);
+  assert.match(dashboard, /mesRequestIdRef\.current = null/);
 });

@@ -43,7 +43,9 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
 
     const handleMesSync = async () => {
         if (mesJobId) return;
-        const requestId = crypto.randomUUID();
+        // Keep one idempotency key across a transport retry for this user
+        // action.  It is released only after the terminal modal is closed.
+        const requestId = mesRequestIdRef.current ?? crypto.randomUUID();
         mesRequestIdRef.current = requestId;
         
         try {
@@ -310,6 +312,7 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                     stages={["요청 전달", "MES 자료 추출", "엑셀 가공", "DB 반영 확인", "완료"]}
                     onClose={() => {
                         setMesJobId(null);
+                        mesRequestIdRef.current = null;
                         setSyncRefreshKey((value) => value + 1);
                     }}
                 />
