@@ -199,24 +199,30 @@ test("사용자 취소 API는 PENDING과 PROCESSING을 조건부 갱신하고 �
   assert.doesNotMatch(route, /error_message:\s*.*cancel/i);
 });
 
-test("Worker heartbeat는 기존 token과 Job별 lease 소유권을 검증한다", () => {
+test("Worker heartbeat는 common/legacy lease를 하나의 ownership RPC로 갱신한다", () => {
   const route = readFileSync("app/api/document-worker/jobs/[id]/cancel-status/route.ts", "utf8");
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
   assert.match(route, /isAuthorizedDocumentWorker/);
-  assert.match(route, /renew_document_generation_job_lease/);
+  assert.match(route, /renew_document_automation_job_lease/);
+  assert.match(route, /p_automation_job_id: automationJobId/);
   assert.match(route, /p_worker_lease_id: workerLeaseId/);
   assert.match(route, /p_result_files: Array\.isArray\(body\.result_files\)/);
-  assert.match(route, /\.eq\("worker_id", workerId\)/);
-  assert.match(route, /\.eq\("worker_lease_id", workerLeaseId\)/);
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.renew_document_automation_job_lease/);
+  assert.match(migration, /job\.worker_id = p_worker_id/);
+  assert.match(migration, /job\.worker_lease_id = p_worker_lease_id/);
+  assert.match(migration, /job\.status IN \('RUNNING', 'CANCEL_REQUESTED'\)/);
 });
 
-test("Worker 완료 API는 취소 결과와 일부 성공을 기록하고 PROCESSING 소유권 race를 보호한다", () => {
+test("Worker 완료 API는 common/legacy terminal을 원자적으로 기록하고 stale overwrite를 막는다", () => {
   const route = readFileSync("app/api/document-worker/jobs/[id]/complete/route.ts", "utf8");
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
   assert.match(route, /"CANCELLED"/);
-  assert.match(route, /resultFiles\.some/);
-  assert.match(route, /cancelled_at: cancellationHandled \? completedAt : null/);
-  assert.match(route, /\.eq\("status", "PROCESSING"\)/);
-  assert.match(route, /\.eq\("worker_id"/);
-  assert.match(route, /\.eq\("worker_lease_id", workerLeaseId\)/);
+  assert.match(route, /complete_document_automation_job/);
+  assert.match(route, /p_effect_uncertain: effectUncertain/);
+  assert.match(migration, /DOCUMENT_LEGACY_TERMINAL_NOT_OWNED/);
+  assert.match(migration, /DOCUMENT_AUTOMATION_TERMINAL_NOT_OWNED/);
+  assert.match(migration, /worker_id = p_worker_id AND worker_lease_id = p_worker_lease_id/);
+  assert.match(migration, /status IN \('RUNNING', 'CANCEL_REQUESTED'\)/);
 });
 
 test("claim과 orphan recovery API는 Worker token 경계와 common lease RPC를 유지한다", () => {
