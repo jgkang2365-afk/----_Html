@@ -396,10 +396,10 @@ export async function processNationalSupportJob(
     }
 
     await updateProgress(
-      "확인대기",
+      lookupResult === "NO_RESULT" ? "조회대기" : "확인대기",
       lookupResult === "NO_RESULT" ? "공단에 조회된 내역이 없습니다." : "공단 심사 또는 결과 반영 대기 중입니다.",
     );
-    return { resultCode: "ALREADY_APPLIED" };
+    return { resultCode: lookupResult === "NO_RESULT" ? "LOOKUP_NO_RESULT" : "ALREADY_APPLIED" };
   } catch (error: any) {
     await supabase
       .from("measurement_target_business")

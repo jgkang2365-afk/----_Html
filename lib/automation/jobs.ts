@@ -34,6 +34,7 @@ export type AutomationJob = {
   cancel_requested_at: string | null;
   effect_started_at: string | null;
   effect_confirmed_at: string | null;
+  available_at: string;
 };
 
 export type AutomationJobUpdate = Pick<
@@ -61,6 +62,7 @@ export async function enqueueAutomationJob(
     targetKey?: string | null;
     requestPayload?: Record<string, unknown>;
     requestedBy?: number | null;
+    availableAt?: string | null;
   },
 ) {
   const { data, error } = await supabase.rpc("enqueue_automation_job", {
@@ -69,6 +71,7 @@ export async function enqueueAutomationJob(
     p_target_key: input.targetKey ?? null,
     p_request_payload: input.requestPayload ?? {},
     p_requested_by: input.requestedBy ?? null,
+    p_available_at: input.availableAt ?? new Date().toISOString(),
   });
   if (error) throw error;
   return data as AutomationJob;

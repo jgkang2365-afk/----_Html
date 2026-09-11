@@ -14,6 +14,8 @@ export class LocalAutomationWorker {
   private static instance: LocalAutomationWorker | null = null;
   private started = false;
   private draining = false;
+  private delayedWakeTimer: ReturnType<typeof setTimeout> | null = null;
+  private delayedWakeAt: number | null = null;
 
   static getInstance() {
     return (this.instance ??= new LocalAutomationWorker());
@@ -26,12 +28,61 @@ export class LocalAutomationWorker {
     const wake = () => void this.drain();
     supabase.channel("local-automation-worker")
       .on("postgres_changes", {
-        event: "*", schema: "public", table: "automation_job_signals",
-      }, wake)
+        event: "*", schema: "public", table: "automation_job_signals", filter: "job_type=eq.NATIONAL_SUPPORT",
+      }, (payload) => {
+        const signal = payload.new as { status?: string; available_at?: string } | null;
+        if (signal?.status === "PENDING" && signal.available_at) {
+          this.scheduleDelayedWake(supabase, new Date(signal.available_at));
+          if (new Date(signal.available_at).getTime() <= Date.now()) wake();
+          return;
+        }
+        wake();
+      })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") wake();
       });
     wake(); // allowed one-time startup reconciliation
+  }
+
+  /**
+   * Future jobs are durable in Postgres.  The timer merely turns their
+   * available_at boundary into a one-time drain; it is never an idle poller.
+   */
+  private async scheduleEarliestFuture(supabase: ReturnType<typeof createAdminClient>) {
+    const { data, error } = await supabase.from("automation_jobs")
+      .select("available_at")
+      .eq("job_type", NATIONAL_SUPPORT).eq("status", "PENDING")
+      .gt("available_at", new Date().toISOString())
+      .order("available_at", { ascending: true }).limit(1);
+    if (error) throw error;
+    const availableAt = data?.[0]?.available_at;
+    if (!availableAt) {
+      this.clearDelayedWake();
+      return;
+    }
+    this.scheduleDelayedWake(supabase, new Date(availableAt));
+  }
+
+  private clearDelayedWake() {
+    if (this.delayedWakeTimer) clearTimeout(this.delayedWakeTimer);
+    this.delayedWakeTimer = null;
+    this.delayedWakeAt = null;
+  }
+
+  private scheduleDelayedWake(supabase: ReturnType<typeof createAdminClient>, availableAt: Date) {
+    const at = availableAt.getTime();
+    if (!Number.isFinite(at)) return;
+    // A later signal cannot displace an earlier pending job.  An earlier
+    // signal replaces the old one-shot timer exactly once.
+    if (this.delayedWakeAt !== null && this.delayedWakeAt <= at) return;
+    this.clearDelayedWake();
+    const delay = Math.max(0, Math.min(at - Date.now(), 2_147_483_647));
+    this.delayedWakeAt = at;
+    this.delayedWakeTimer = setTimeout(() => {
+      this.delayedWakeTimer = null;
+      this.delayedWakeAt = null;
+      void this.drain().catch(() => undefined);
+    }, delay);
   }
 
   private async projectCompatibility(payload: NationalSupportJobPayload, code: NationalSupportResultCode) {
@@ -64,6 +115,7 @@ export class LocalAutomationWorker {
         const job = await claimNextAutomationJob(supabase, workerId, [NATIONAL_SUPPORT]);
         if (!job) return;
         const payload = job.request_payload as NationalSupportJobPayload;
+        let effectStarted = false;
         try {
           await this.projectRunning(payload);
           await updateAutomationJob(supabase, job.id, { progress_stage: "신청조건 확인", progress_percent: 20 });
@@ -76,7 +128,6 @@ export class LocalAutomationWorker {
             await this.projectCompatibility(payload, "JOURNAL_REGISTERED_SKIP");
             continue;
           }
-          let effectStarted = false;
           const result = await processNationalSupportJob(payload, {
             onWorkerEvent: async (event) => {
               if (event === "journal_guard_before_apply") {
@@ -94,18 +145,33 @@ export class LocalAutomationWorker {
             },
           });
           const code = result.resultCode;
+          if (result.followUp) {
+            const attempt = Number(result.followUp.payload.attempt_count || 0);
+            const followupKey = `national-support:final:${payload.code}:${payload.year}:${payload.period}:${job.id}:${attempt}`;
+            const { error } = await supabase.rpc("complete_automation_job_with_followup", {
+              p_job_id: job.id, p_worker_id: workerId, p_result_code: code,
+              p_result_payload: { result_code: code }, p_followup_key: followupKey,
+              p_followup_payload: result.followUp.payload,
+              p_available_at: result.followUp.availableAt.toISOString(),
+              p_target_id: Number(payload.target_id),
+              p_sync_status: nationalSupportCompatibilityProjection(code).sync_status,
+              p_sync_error_message: null,
+            });
+            if (error) throw error;
+            continue;
+          }
           await updateAutomationJob(supabase, job.id, {
             status: code === "APPLICATION_UNCERTAIN" ? "CONFIRM_REQUIRED" : "COMPLETED",
             progress_stage: code === "APPLICATION_UNCERTAIN" ? "신청 결과 확인 필요" : "결과 확인",
             progress_percent: 100, result_code: code,
             result_payload: { result_code: code },
-            ...(effectStarted && code !== "APPLICATION_UNCERTAIN"
+            ...(effectStarted && code === "APPLIED_WAITING_RESULT"
               ? { effect_confirmed_at: new Date().toISOString() }
               : {}),
           });
           await this.projectCompatibility(payload, code);
         } catch (error: any) {
-          const uncertain = payload.mode === "apply_if_missing";
+          const uncertain = effectStarted;
           await updateAutomationJob(supabase, job.id, {
             status: uncertain ? "CONFIRM_REQUIRED" : "FAILED", progress_stage: uncertain ? "외부 효과 확인 필요" : "조회 실패",
             progress_percent: 100, result_code: uncertain ? "APPLICATION_UNCERTAIN" : undefined,
@@ -117,6 +183,13 @@ export class LocalAutomationWorker {
       }
     } finally {
       this.draining = false;
+      // Startup, reconnect, and every completed drain perform this one read
+      // to recover the earliest durable future job.  There is no interval.
+      try {
+        await this.scheduleEarliestFuture(supabase);
+      } catch (error) {
+        console.error("[LocalAutomationWorker] future job 예약 조회 실패", error);
+      }
     }
   }
 }

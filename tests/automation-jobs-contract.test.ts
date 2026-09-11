@@ -83,3 +83,55 @@ test("MES upload requires explicit database synchronization acknowledgement", ()
   assert.match(source, /res_data\.get\("syncSuccess"\) is True/);
   assert.match(source, /웹 DB 동기화 확인 실패/);
 });
+
+test("durable delayed follow-up uses available_at and one-shot wake, never an idle interval", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/local-automation-worker.ts"), "utf8");
+  assert.match(migration, /available_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP/);
+  assert.match(migration, /status = 'PENDING' AND available_at <= CURRENT_TIMESTAMP/);
+  assert.match(migration, /complete_automation_job_with_followup/);
+  assert.match(migration, /ON CONFLICT\(idempotency_key\) DO NOTHING/);
+  assert.match(worker, /scheduleEarliestFuture/);
+  assert.match(worker, /scheduleDelayedWake/);
+  assert.match(worker, /setTimeout/);
+  assert.doesNotMatch(worker, /setInterval/);
+  assert.match(worker, /filter: "job_type=eq\.NATIONAL_SUPPORT"/);
+});
+
+test("national-support enqueue serializes active common and legacy work for the target", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  assert.match(migration, /pg_advisory_xact_lock\(hashtext\(p_target_key\)\)/);
+  assert.match(migration, /NATIONAL_SUPPORT_LEGACY_JOB_ACTIVE/);
+  assert.match(migration, /legacy\.job_type = 'national_support'/);
+  assert.match(migration, /status IN \('PENDING','RUNNING','CANCEL_REQUESTED','CONFIRM_REQUIRED'\)/);
+});
+
+test("document common and legacy terminal paths share an ownership-bound transaction", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  const claim = fs.readFileSync(path.join(process.cwd(), "app/api/document-worker/jobs/claim/route.ts"), "utf8");
+  const complete = fs.readFileSync(path.join(process.cwd(), "app/api/document-worker/jobs/[id]/complete/route.ts"), "utf8");
+  const effect = fs.readFileSync(path.join(process.cwd(), "app/api/document-worker/jobs/[id]/effect-started/route.ts"), "utf8");
+  const heartbeat = fs.readFileSync(path.join(process.cwd(), "app/api/document-worker/jobs/[id]/cancel-status/route.ts"), "utf8");
+  assert.match(migration, /reconcile_stale_document_automation_jobs/);
+  assert.match(migration, /complete_document_automation_job/);
+  assert.match(migration, /mark_document_automation_effect_started/);
+  assert.match(migration, /DOCUMENT_AUTOMATION_TERMINAL_NOT_OWNED/);
+  assert.match(migration, /effect_started_at IS NULL/);
+  assert.match(migration, /effect_started_at IS NOT NULL[\s\S]*effect_confirmed_at IS NULL/);
+  assert.match(claim, /reconcile_stale_document_automation_jobs/);
+  assert.match(complete, /complete_document_automation_job/);
+  assert.match(effect, /mark_document_automation_effect_started/);
+  assert.match(migration, /renew_document_automation_job_lease/);
+  assert.match(migration, /recover_cancelled_document_generation_jobs/);
+  assert.match(heartbeat, /renew_document_automation_job_lease/);
+});
+
+test("MES effect event is streamed before upload confirmation and classifies failures by the boundary", () => {
+  const daemon = fs.readFileSync(path.join(process.cwd(), "mes_daemon.py"), "utf8");
+  const download = fs.readFileSync(path.join(process.cwd(), "mes_download.py"), "utf8");
+  assert.match(download, /AUTOMATION_EVENT:effect_started/);
+  assert.match(daemon, /stderr=subprocess\.STDOUT/);
+  assert.match(daemon, /output_reader/);
+  assert.match(daemon, /CANCEL_REQUESTED_BEFORE_EFFECT/);
+  assert.match(daemon, /MES_EFFECT_UNCERTAIN/);
+});

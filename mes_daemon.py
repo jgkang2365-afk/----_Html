@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import threading
+import queue
 import time
 import traceback
 from datetime import datetime, timezone
@@ -58,6 +59,7 @@ class MesWorker:
         self.supabase = get_supabase()
         self.worker_id = os.getenv("MES_WORKER_ID") or f"{socket.gethostname()}-mes-{os.getpid()}"
         self.current_job_id: str | None = None
+        self.current_job_effect_started = False
         self.cancel_requested = threading.Event()
 
     def claim(self) -> dict[str, Any] | None:
@@ -90,20 +92,40 @@ class MesWorker:
         for image_name in ("excel.exe", "hwsmes.exe"):
             subprocess.run(["taskkill", "/f", "/im", image_name], capture_output=True, text=True, check=False)
 
-    def run_macro(self) -> dict[str, Any]:
+    def run_macro(self) -> tuple[dict[str, Any], bool]:
         if DRY_RUN:
-            return {"dry_run": True}
+            return {"dry_run": True}, False
         script_path = ROOT_DIR / "mes_download.py"
         if not script_path.exists():
             raise FileNotFoundError("mes_download.py 파일을 찾을 수 없습니다.")
         self.cleanup_zombie_processes()
         process = subprocess.Popen(
             [sys.executable, str(script_path)], cwd=str(ROOT_DIR), stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+            # A single streamed pipe prevents an unread stderr buffer from
+            # deadlocking a noisy child while preserving every line as UTF-8.
+            stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
         )
+        output: list[str] = []
+        output_queue: queue.Queue[str | None] = queue.Queue()
+        def read_output() -> None:
+            assert process.stdout is not None
+            for line in process.stdout:
+                output_queue.put(line)
+            output_queue.put(None)
+        output_reader = threading.Thread(target=read_output, daemon=True)
+        output_reader.start()
+        effect_started = False
         started = time.monotonic()
         last_lease_renewal = started
         while process.poll() is None:
+            while not output_queue.empty():
+                line = output_queue.get_nowait()
+                if line is None: continue
+                output.append(line)
+                if line.strip() == "AUTOMATION_EVENT:effect_started" and not effect_started:
+                    effect_started = True
+                    self.current_job_effect_started = True
+                    self.update(str(self.current_job_id), effect_started_at=now(), progress_stage="DB 업로드 전송", progress_percent=70)
             if time.monotonic() - last_lease_renewal >= LEASE_HEARTBEAT_SECONDS:
                 self.supabase.rpc("renew_automation_job_lease", {
                     "p_job_id": self.current_job_id, "p_worker_id": self.worker_id,
@@ -116,17 +138,33 @@ class MesWorker:
                 except subprocess.TimeoutExpired:
                     process.kill()
                 self.cleanup_zombie_processes()
-                raise RuntimeError("CANCEL_REQUESTED_AFTER_EFFECT_START")
+                raise RuntimeError(
+                    "CANCEL_REQUESTED_AFTER_EFFECT_START"
+                    if effect_started else "CANCEL_REQUESTED_BEFORE_EFFECT"
+                )
             if time.monotonic() - started > MACRO_TIMEOUT_SECONDS:
                 process.terminate()
                 raise RuntimeError("MES_MACRO_TIMEOUT")
             time.sleep(0.5)
-        stdout, stderr = process.communicate()
+        # The reader owns stdout.  Do not call communicate() after streaming
+        # it; wait for EOF and drain queued lines so no event/log is lost.
+        output_reader.join(timeout=2)
+        while True:
+            try:
+                line = output_queue.get_nowait()
+            except queue.Empty:
+                break
+            if line is not None:
+                output.append(line)
+                if line.strip() == "AUTOMATION_EVENT:effect_started" and not effect_started:
+                    effect_started = True
+                    self.current_job_effect_started = True
+                    self.update(str(self.current_job_id), effect_started_at=now(), progress_stage="DB 업로드 전송", progress_percent=70)
         if process.returncode:
-            raise RuntimeError((stderr or stdout or f"exit code {process.returncode}")[-3000:])
+            raise RuntimeError(("".join(output) or f"exit code {process.returncode}")[-3000:])
         # mes_download.py only exits successfully after both upload API calls have
         # returned success, which is this worker's DB-effect acknowledgement.
-        return {"stdout_tail": stdout[-2000:] if stdout else "", "stderr_tail": stderr[-1000:] if stderr else ""}
+        return {"stdout_tail": "".join(output)[-2000:], "stderr_tail": "", "syncSuccess": True}, effect_started
 
     def process_next(self) -> bool:
         job = self.claim()
@@ -134,6 +172,7 @@ class MesWorker:
             return False
         job_id = str(job["id"])
         self.current_job_id = job_id
+        self.current_job_effect_started = False
         self.cancel_requested.clear()
         effect_started = False
         try:
@@ -141,9 +180,8 @@ class MesWorker:
                 self.update(job_id, status="CANCELLED", progress_stage="취소됨", progress_percent=100)
                 return True
             self.update(job_id, progress_stage="MES 자료 추출", progress_percent=20)
-            effect_started = True
-            self.update(job_id, effect_started_at=now(), progress_stage="MES/Excel 실행", progress_percent=35)
-            result = self.run_macro()
+            self.update(job_id, progress_stage="MES/Excel 실행", progress_percent=35)
+            result, effect_started = self.run_macro()
             self.update(
                 job_id, status="COMPLETED", progress_stage="DB 반영 확인", progress_percent=100,
                 result_code="MES_SYNC_CONFIRMED", result_payload=result, error_code=None,
@@ -151,7 +189,7 @@ class MesWorker:
             )
         except Exception as error:
             code = str(error)
-            if code == "CANCEL_REQUESTED_AFTER_EFFECT_START" or effect_started:
+            if code == "CANCEL_REQUESTED_AFTER_EFFECT_START" or effect_started or self.current_job_effect_started:
                 self.update(
                     job_id, status="CONFIRM_REQUIRED", progress_stage="효과 확인 필요", progress_percent=100,
                     result_code="MES_EFFECT_UNCERTAIN", error_code=code[:100], error_message=traceback.format_exc()[-3000:],
@@ -164,6 +202,7 @@ class MesWorker:
                 )
         finally:
             self.current_job_id = None
+            self.current_job_effect_started = False
             self.cancel_requested.clear()
         return True
 

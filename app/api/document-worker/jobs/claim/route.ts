@@ -18,9 +18,7 @@ export async function POST(request: NextRequest) {
   try {
     // Restart/reconnect recovery only marks uncertain interrupted work. It
     // never replays a document generation whose file effect is unknown.
-    const { error: reconcileError } = await admin.rpc("reconcile_stale_automation_jobs", {
-      p_job_types: ["DOCUMENT_GENERATION"],
-    });
+    const { error: reconcileError } = await admin.rpc("reconcile_stale_document_automation_jobs");
     if (reconcileError) throw reconcileError;
     const automationJob = await claimNextAutomationJob(admin, workerId, ["DOCUMENT_GENERATION"]);
     if (!automationJob) return NextResponse.json({ job: null });

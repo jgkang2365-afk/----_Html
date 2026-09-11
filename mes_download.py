@@ -724,6 +724,7 @@ def main():
                 }
                 
                 print(f"[-] API 전송 및 DB 동기화 대기 중... (타입: {file_type})")
+                print("AUTOMATION_EVENT:effect_started", flush=True)
                 upload_res = session.post(upload_url, files=files, data=data, timeout=180)
                 upload_res.raise_for_status()
                 

@@ -3,12 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const NATIONAL_SUPPORT_RESULT_CODES = [
   "SUPPORT", "NON_SUPPORT", "OVER_50_RECHECK", "NO_EMPLOYEE_INFO_RECHECK",
   "EMPLOYEE_CHECK_FAILED_RECHECK", "JOURNAL_REGISTERED_SKIP",
-  "APPLIED_WAITING_RESULT", "ALREADY_APPLIED", "APPLICATION_UNCERTAIN",
+  "APPLIED_WAITING_RESULT", "ALREADY_APPLIED", "LOOKUP_NO_RESULT", "APPLICATION_UNCERTAIN",
 ] as const;
 
 export type NationalSupportResultCode = (typeof NATIONAL_SUPPORT_RESULT_CODES)[number];
 export type NationalSupportCompatibilityStatus =
-  | "성공" | "비대상대기" | "확인대기" | "신청완료대기" | "수동확인필요" | "실패";
+  | "성공" | "조회대기" | "비대상대기" | "확인대기" | "신청완료대기" | "수동확인필요" | "실패";
 
 export function nationalSupportCompatibilityStatus(code: NationalSupportResultCode): NationalSupportCompatibilityStatus {
   switch (code) {
@@ -20,6 +20,7 @@ export function nationalSupportCompatibilityStatus(code: NationalSupportResultCo
     case "EMPLOYEE_CHECK_FAILED_RECHECK": return "비대상대기";
     case "APPLIED_WAITING_RESULT": return "신청완료대기";
     case "ALREADY_APPLIED": return "확인대기";
+    case "LOOKUP_NO_RESULT": return "조회대기";
     case "APPLICATION_UNCERTAIN": return "수동확인필요";
   }
 }

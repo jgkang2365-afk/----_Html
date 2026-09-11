@@ -8,7 +8,7 @@ import { syncToMasterTables } from "@/lib/sync/master-tables";
 import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
 import { enqueueAutomationJob, nationalSupportIdempotencyKey } from "@/lib/automation/jobs";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { hasMeasurementJournalForTarget } from "@/lib/national-support/automation-contract";
+import { hasMeasurementJournalForTarget, nationalSupportCompatibilityProjection } from "@/lib/national-support/automation-contract";
 
 /**
  * 건강디딤돌 자동 신청 API
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    const requestId = request.headers.get("Idempotency-Key")?.trim() || String(body.request_id || "").trim() || randomUUID();
     const {
       target_id,
       sanjae,
@@ -149,8 +150,7 @@ export async function POST(request: NextRequest) {
       const { error: errTarget } = await supabase
         .from("measurement_target_business")
         .update({
-          sync_status: "성공",
-          sync_error_message: null,
+          ...nationalSupportCompatibilityProjection(dbStatus === "대상" ? "SUPPORT" : "NON_SUPPORT"),
           national_support_status: dbStatus,
           industrial_accident_number: normalizedSanjae,
           commencement_number: normalizedCommencement,
@@ -215,7 +215,7 @@ export async function POST(request: NextRequest) {
       jobType: "NATIONAL_SUPPORT",
       idempotencyKey: nationalSupportIdempotencyKey(
         jobMode === "apply_if_missing" ? "apply" : "lookup",
-        String(code), year, period,
+        String(code), year, period, requestId,
       ),
       targetKey: `national-support:${target_id}`,
       requestPayload: jobPayload,

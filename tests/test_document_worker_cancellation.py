@@ -215,6 +215,28 @@ class DocumentWorkerCancellationTest(unittest.TestCase):
             self.assertEqual(results[0]["status"], "COMPLETED")
             self.assertEqual(client.checkpoints[0][0]["status"], "COMPLETED")
 
+    def test_publish_failure_after_effect_boundary_is_marked_uncertain(self):
+        class EffectClient(CancellationClient):
+            def __init__(self, sources):
+                super().__init__(sources, cancel_at_check=999)
+                self.effect_started_job_ids = set()
+
+            def mark_effect_started(self, job_id):
+                self.effect_started_job_ids.add(str(job_id))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            job, sources = self._job(root, ["GENERAL_PRELIMINARY_SURVEY"])
+            client = EffectClient(sources)
+            with patch("document_worker.publish_file", side_effect=RuntimeError("publish transport failed")):
+                status, results, error = process_job(
+                    job, client, root / "output", AutomationSpy(), AutomationSpy()
+                )
+
+            self.assertEqual(status, "FAILED")
+            self.assertIn("publish transport failed", error or "")
+            self.assertTrue(results[0]["effect_uncertain"])
+
     def _job(self, root, document_types):
         templates = {}
         sources = {}

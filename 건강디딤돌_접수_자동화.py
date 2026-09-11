@@ -955,6 +955,16 @@ class HealthProgramAutomation:
         final_apply_button = WebDriverWait(self.driver, 10).until(
             EC.element_to_be_clickable((By.XPATH, final_apply_button_xpath))
         )
+        # Optional local-worker callbacks keep the legacy standalone GUI flow
+        # unchanged while placing both guards at the real irreversible edge.
+        before_final_apply = getattr(self, "before_final_apply", None)
+        if callable(before_final_apply) and not before_final_apply():
+            self.update_progress("  -> 측정일지 등록이 확인되어 최종 신청을 중단합니다.")
+            return "JOURNAL_REGISTERED_SKIP"
+        mark_effect_started = getattr(self, "mark_effect_started", None)
+        if callable(mark_effect_started) and not mark_effect_started():
+            self.update_progress("  -> 신청 effect 경계를 확인하지 못해 최종 신청을 중단합니다.")
+            return "APPLY_RESULT_UNKNOWN"
         final_apply_button.click()
         time.sleep(1.5)
         

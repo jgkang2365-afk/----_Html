@@ -502,6 +502,7 @@ class DocumentWorkerClient:
         self.worker_id = worker_id
         self.worker_lease_id = worker_lease_id or str(uuid.uuid4())
         self.automation_job_ids: dict[str, str] = {}
+        self.effect_started_job_ids: set[str] = set()
 
     def _request(self, path: str, method: str = "GET", body: dict[str, Any] | None = None) -> bytes:
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -579,6 +580,7 @@ class DocumentWorkerClient:
             "worker_lease_id": self.worker_lease_id,
             "automation_job_id": automation_job_id,
         })
+        self.effect_started_job_ids.add(str(job_id))
 
     def recover_cancelled_jobs(self) -> list[dict[str, Any]]:
         result = json.loads(
@@ -719,6 +721,10 @@ def mark_final_publish_effect(client: Any, job_id: str) -> None:
         marker(job_id)
 
 
+def effect_started_for_job(client: Any, job_id: str) -> bool:
+    return str(job_id) in set(getattr(client, "effect_started_job_ids", set()))
+
+
 def cancelled_document_result(
     document_type: str, dynamic_documents: dict[str, dict[str, Any]]
 ) -> dict[str, Any]:
@@ -800,6 +806,7 @@ def process_job(
         temporary_root = Path(temporary)
         for document_index, document_type in enumerate(selected):
             result: dict[str, Any] = {"document_type": document_type, "status": "FAILED"}
+            publish_effect_started = False
             dynamic_document = dynamic_documents.get(document_type)
             if dynamic_document:
                 result.update(
@@ -895,11 +902,14 @@ def process_job(
                         raise RuntimeError("저장 검증에 실패했습니다.")
                     raise_if_job_cancellation_requested(client, job_id)
                     mark_final_publish_effect(client, job_id)
+                    publish_effect_started = True
                     destination = publish_file(
                         working_file,
                         final_folder / working_file.name,
                         overwrite=document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES,
                     )
+                    if not destination.exists() or destination.stat().st_size <= 0 or destination.name != working_file.name:
+                        raise RuntimeError("최종 게시 파일 검증에 실패했습니다.")
                     result.update(
                         {
                             "input_fields": [
@@ -908,6 +918,7 @@ def process_job(
                             "status": "COMPLETED",
                             "filename": destination.name,
                             "path": str(destination),
+                            "size_bytes": destination.stat().st_size,
                         }
                     )
                     results.append(result)
@@ -956,12 +967,15 @@ def process_job(
                     raise RuntimeError("저장 검증에 실패했습니다.")
                 raise_if_job_cancellation_requested(client, job_id)
                 mark_final_publish_effect(client, job_id)
+                publish_effect_started = True
                 destination = publish_file(
                     working_file,
                     final_folder / working_file.name,
                     overwrite=document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES,
                 )
-                result.update({"status": "COMPLETED", "filename": destination.name, "path": str(destination)})
+                if not destination.exists() or destination.stat().st_size <= 0 or destination.name != working_file.name:
+                    raise RuntimeError("최종 게시 파일 검증에 실패했습니다.")
+                result.update({"status": "COMPLETED", "filename": destination.name, "path": str(destination), "size_bytes": destination.stat().st_size})
             except DocumentGenerationCancelled:
                 result.update(
                     {
@@ -977,6 +991,11 @@ def process_job(
                 break
             except Exception as error:
                 result["error"] = str(error)
+                if publish_effect_started or effect_started_for_job(client, job_id):
+                    # A final destination publish may have happened before the
+                    # exception.  The terminal RPC will normalise this to
+                    # CONFIRM_REQUIRED rather than blindly retrying it.
+                    result["effect_uncertain"] = True
                 LOGGER.exception("문서 생성 실패 job=%s type=%s", job.get("id"), document_type)
             results.append(result)
             checkpoint_supported, cancellation_requested = (
@@ -1035,13 +1054,14 @@ def process_next_queued_job(client: DocumentWorkerClient, output_root: Path) -> 
         with JobLeaseHeartbeat(client, job_id):
             try:
                 status, results, error_message = process_job(job, client, output_root)
-                effect_uncertain = False
+                effect_uncertain = any(bool(result.get("effect_uncertain")) for result in results)
             except Exception as error:
                 LOGGER.exception("문서 작업 예외로 terminal ACK 복구 job=%s", job_id)
                 status, results, error_message = "FAILED", [], str(error)
-                # The exception boundary may be after a publish side effect;
-                # never make a retry decision from an incomplete Python stack.
-                effect_uncertain = True
+                # Only a confirmed final-publish boundary can make an
+                # interrupted document uncertain.  Pre-effect failures retry
+                # as FAILED instead of being mislabeled CONFIRM_REQUIRED.
+                effect_uncertain = effect_started_for_job(client, job_id)
             client.complete(
                 job_id, status, results, error_message,
                 str(job.get("automation_job_id") or "") or None,
@@ -1159,16 +1179,12 @@ def run_worker(once: bool = False) -> int:
     )
     LOGGER.info("PENDING queue 안전 확인 주기: 6시간 (%s초)", recovery_poll_seconds)
 
-    recovery_monitor = CancelledJobRecoveryMonitor(client)
-    recovery_monitor.start()
     coordinator = ClaimCoordinator(process_next)
     runtime = DocumentWorkerRuntime(coordinator, settings)
     try:
         asyncio.run(runtime.run())
     except KeyboardInterrupt:
         LOGGER.info("종료 신호 수신. Realtime과 현재 작업을 정리합니다.")
-    finally:
-        recovery_monitor.stop()
     return 0
 
 def main() -> int:

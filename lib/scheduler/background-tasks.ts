@@ -7,6 +7,7 @@ import { K2B_VERIFY_SCHEDULE } from '../constants/k2b-verification';
 import { buildK2BSyncRange, K2B_SYNC_OVERLAP_DAYS } from '../automation/k2b-original-sync';
 import { enqueueAutomationJob, mesScheduledIdempotencyKey, nationalSupportIdempotencyKey } from '../automation/jobs';
 import { hasMeasurementJournalForTarget } from '../national-support/automation-contract';
+import { hasNationalSupportApplicationInformation } from '../national-support/eligibility';
 
 const KST_CRON_OPTIONS = { timezone: 'Asia/Seoul' };
 
@@ -163,7 +164,13 @@ export class BackgroundTasks {
                     target_id: target.id, code: target.code, year: target.year, period: target.period,
                     sanjae: target.industrial_accident_number, commencement: target.commencement_number,
                     representative: target.representative_name, contact_name: target.manager_name || '', contact_phone: target.manager_mobile || '',
-                    mode: 'lookup_only', scheduled_at: date,
+                    mode: hasNationalSupportApplicationInformation({
+                      industrial_accident_number: target.industrial_accident_number,
+                      commencement_number: target.commencement_number,
+                      representative_name: target.representative_name,
+                      manager_name: target.manager_name,
+                      manager_mobile: target.manager_mobile,
+                    }) ? 'apply_if_missing' : 'lookup_only', scheduled_at: date,
                 },
             });
         }
