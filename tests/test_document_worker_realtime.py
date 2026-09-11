@@ -596,7 +596,7 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(clients), 2)
         self.assertEqual(calls, 3)
 
-    async def test_realtime_disabled_uses_explicit_degraded_safety_reconcile(self):
+    async def test_realtime_disabled_performs_only_startup_reconcile(self):
         calls = 0
         factory_calls = 0
 
@@ -619,10 +619,7 @@ class DocumentWorkerRealtimeTest(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.035)
         runtime.stop()
         await task
-        # The normal Realtime path has no interval polling.  With Realtime
-        # explicitly disabled, the configured long safety reconcile is the
-        # only liveness path and must actually be scheduled.
-        self.assertGreaterEqual(calls, 2)
+        self.assertEqual(calls, 1)
         self.assertEqual(factory_calls, 0)
 
     async def test_realtime_failure_does_not_create_database_recovery_polling(self):
