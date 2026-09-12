@@ -27,6 +27,8 @@ export type NationalSupportJobPayload = {
   mode?: "lookup_only" | "apply_if_missing" | "final_lookup";
   requested_by?: number | string;
   attempt_count?: number;
+  /** Durable lineage: true once the parent application effect was approved. */
+  effect_started?: boolean;
 };
 
 type AutomationResult = {
@@ -289,7 +291,7 @@ export async function processNationalSupportJob(
       return {
         resultCode: "APPLIED_WAITING_RESULT",
         followUp: {
-          payload: { ...payload, mode: "final_lookup", attempt_count: 0 },
+          payload: { ...payload, mode: "final_lookup", attempt_count: 0, effect_started: true },
           availableAt: new Date(Date.now() + FINAL_LOOKUP_DELAY_MS),
         },
       };

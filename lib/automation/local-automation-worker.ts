@@ -154,7 +154,10 @@ export class LocalAutomationWorker {
         const job = await claimNextAutomationJob(supabase, workerId, [NATIONAL_SUPPORT]);
         if (!job) return;
         const payload = job.request_payload as NationalSupportJobPayload;
-        let effectStarted = false;
+        // Follow-up jobs are separate durable rows.  Carry the parent effect
+        // lineage in their payload so an uncertain final lookup cannot be
+        // downgraded to a retryable FAILED state after a worker restart.
+        let effectStarted = payload.effect_started === true;
         try {
           await this.projectRunning(payload);
           await updateAutomationJobOwned(supabase, job.id, workerId, { progress_stage: "신청조건 확인", progress_percent: 20 });

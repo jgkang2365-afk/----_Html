@@ -397,3 +397,14 @@ test("건강디딤돌 종료와 호환 표시값은 소유권 경계에서 원�
   assert.match(worker, /rpc\("complete_automation_job_with_followup"/);
   assert.doesNotMatch(worker, /projectCompatibility|projectFailure/);
 });
+
+test("건강디딤돌 final_lookup은 parent effect lineage를 보존한다", () => {
+  const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/local-automation-worker.ts"), "utf8");
+  const nationalSupport = fs.readFileSync(path.join(process.cwd(), "lib/automation/national-support-worker.ts"), "utf8");
+  assert.match(worker, /payload\.effect_started === true/);
+  assert.match(nationalSupport, /mode: "final_lookup", attempt_count: 0, effect_started: true/);
+  assert.deepEqual(
+    terminalForNationalSupportResult("APPLICATION_UNCERTAIN", true),
+    { status: "CONFIRM_REQUIRED", resultCode: "APPLICATION_UNCERTAIN", uncertain: true },
+  );
+});
