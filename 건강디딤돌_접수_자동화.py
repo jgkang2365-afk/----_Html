@@ -23,11 +23,16 @@ def classify_journal_guard_result(result):
     """Classify Guard2 with a fail-closed, unambiguous protocol."""
     if isinstance(result, dict):
         # The only normal approval shape is exactly {"allow": True}.
-        if result == {"allow": True}:
+        if set(result) == {"allow"} and type(result["allow"]) is bool and result["allow"] is True:
             return "ALLOW"
         # A journal skip must be explicitly identified and carry no
         # contradictory/error fields.
-        if result == {"allow": False, "reason": "JOURNAL_REGISTERED"}:
+        if (
+            set(result) == {"allow", "reason"}
+            and type(result["allow"]) is bool
+            and result["allow"] is False
+            and result["reason"] == "JOURNAL_REGISTERED"
+        ):
             return "JOURNAL_REGISTERED"
     return "GUARD_ERROR"
 

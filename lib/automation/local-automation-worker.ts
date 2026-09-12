@@ -7,6 +7,18 @@ import { syncToMasterTables } from "@/lib/sync/master-tables";
 const NATIONAL_SUPPORT = "NATIONAL_SUPPORT";
 const workerId = `local-automation-${process.pid}`;
 
+export function terminalForNationalSupportResult(
+  code: NationalSupportResultCode | "APPLICATION_UNCERTAIN" | null,
+  effectStarted: boolean,
+) {
+  const uncertain = code === "APPLICATION_UNCERTAIN" && effectStarted;
+  return {
+    status: uncertain ? "CONFIRM_REQUIRED" as const : code === "APPLICATION_UNCERTAIN" ? "FAILED" as const : "COMPLETED" as const,
+    resultCode: uncertain ? "APPLICATION_UNCERTAIN" as const : code === "APPLICATION_UNCERTAIN" ? null : code,
+    uncertain,
+  };
+}
+
 /**
  * Windows-local worker for jobs that must not be processed by the web UI.
  * It is event-driven: startup/reconnect drains once, then Realtime wakes it.
@@ -194,9 +206,9 @@ export class LocalAutomationWorker {
             if (error) throw error;
             continue;
           }
-          await this.completeTerminal(job.id, payload,
-            code === "APPLICATION_UNCERTAIN" ? "CONFIRM_REQUIRED" : "COMPLETED",
-            code, null, effectStarted && code === "APPLIED_WAITING_RESULT");
+          const terminal = terminalForNationalSupportResult(code, effectStarted);
+          await this.completeTerminal(job.id, payload, terminal.status,
+            terminal.resultCode, null, effectStarted && code === "APPLIED_WAITING_RESULT");
           if (code === "SUPPORT" || code === "NON_SUPPORT") {
             await this.projectFinalMaster(payload);
           }

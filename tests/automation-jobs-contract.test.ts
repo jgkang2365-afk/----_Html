@@ -20,7 +20,7 @@ import {
 } from "../lib/national-support/automation-contract";
 import { forEachAscendingIdPage } from "../lib/scheduler/id-pages";
 import { getNationalSupportDisplayStatus } from "../lib/national-support/eligibility";
-import { LocalAutomationWorker } from "../lib/automation/local-automation-worker";
+import { LocalAutomationWorker, terminalForNationalSupportResult } from "../lib/automation/local-automation-worker";
 
 test("automation job status contract has only the approved states", () => {
   assert.deepEqual(AUTOMATION_JOB_STATUSES, [
@@ -195,8 +195,9 @@ test("Guard2 distinguishes a registered journal from a database/protocol error",
   assert.match(worker, /reason: "GUARD_ERROR"/);
   assert.match(flow, /guard_reason == "JOURNAL_REGISTERED"/);
   assert.match(flow, /classify_journal_guard_result/);
-  assert.match(flow, /result == \{"allow": True\}/);
-  assert.match(flow, /result == \{"allow": False, "reason": "JOURNAL_REGISTERED"\}/);
+  assert.match(flow, /set\(result\) == \{"allow"\}/);
+  assert.match(flow, /set\(result\) == \{"allow", "reason"\}/);
+  assert.match(flow, /type\(result\["allow"\]\) is bool/);
   assert.match(flow, /return "GUARD_ERROR"/);
   assert.match(flow, /result\.get\("allow"\) is True/);
   assert.match(flow, /effect_result\.get\("allow"\) is True/);
@@ -213,6 +214,23 @@ test("Health effect marker becomes uncertain only after durable marker success",
   assert.ok(marker >= 0);
   assert.ok(assignment > marker);
   assert.match(worker, /uncertain \? "CONFIRM_REQUIRED" : "FAILED"/);
+});
+
+test("Health marker failure is a pre-effect FAILED terminal", () => {
+  assert.deepEqual(
+    terminalForNationalSupportResult("APPLICATION_UNCERTAIN", false),
+    { status: "FAILED", resultCode: null, uncertain: false },
+  );
+  assert.deepEqual(
+    terminalForNationalSupportResult("APPLICATION_UNCERTAIN", true),
+    { status: "CONFIRM_REQUIRED", resultCode: "APPLICATION_UNCERTAIN", uncertain: true },
+  );
+});
+
+test("National-support journal guard has one fail-closed canonical lookup", () => {
+  const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/national-support-worker.ts"), "utf8");
+  assert.match(worker, /hasMeasurementJournalForTarget/);
+  assert.doesNotMatch(worker, /Boolean\(data\?\.length\)/);
 });
 
 test("Document pre-effect result files remain FAILED unless effect is uncertain", () => {

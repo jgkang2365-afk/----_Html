@@ -12,7 +12,7 @@ import {
   isValidNationalSupportContactName,
   isValidNationalSupportMobile,
 } from "@/lib/national-support/eligibility";
-import type { NationalSupportResultCode } from "@/lib/national-support/automation-contract";
+import { hasMeasurementJournalForTarget, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
 
 export type NationalSupportJobPayload = {
   target_id: number | string;
@@ -209,15 +209,6 @@ export async function processNationalSupportJob(
     if (error) throw error;
   };
 
-  const hasMeasurementJournal = async () => {
-    const { data, error } = await supabase.from("measurement_journal")
-      .select("id").eq("code", payload.code)
-      .eq("measurement_year", Number(payload.year))
-      .eq("measurement_period", payload.period).limit(1);
-    if (error) throw error;
-    return Boolean(data?.length);
-  };
-
   const handleLookupResult = async (
     lookupResult: PortalLookupResult,
   ): Promise<NationalSupportProcessResult | null> => {
@@ -232,7 +223,7 @@ export async function processNationalSupportJob(
     if (mode === "apply_if_missing") {
       // Guard 2: this runs immediately before the integrated flow can reach
       // its application action, closing the enqueue-to-effect race.
-      if (await hasMeasurementJournal()) {
+      if (await hasMeasurementJournalForTarget(supabase, payload)) {
         await updateProgress("성공", "측정일지 등록이 확인되어 신청하지 않았습니다.");
         return { resultCode: "JOURNAL_REGISTERED_SKIP" };
       }

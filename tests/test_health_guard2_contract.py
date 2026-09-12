@@ -38,6 +38,15 @@ class HealthGuard2ContractTests(unittest.TestCase):
             with self.subTest(response=response):
                 self.assertEqual(classify_journal_guard_result(response), "GUARD_ERROR")
 
+    def test_allow_must_be_a_real_boolean(self):
+        for response in (
+            {"allow": 1},
+            {"allow": 0, "reason": "JOURNAL_REGISTERED"},
+            {"allow": "true"},
+        ):
+            with self.subTest(response=response):
+                self.assertEqual(classify_journal_guard_result(response), "GUARD_ERROR")
+
 
 if __name__ == "__main__":
     unittest.main()
