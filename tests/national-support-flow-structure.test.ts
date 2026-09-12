@@ -52,7 +52,8 @@ test("신청은 통합 CLI를 사용하고 개별·일괄·후속 결과 조회�
   assert.match(lookupSource, /health-support\/step-stone\/cont\/sub1/);
   assert.match(lookupSource, /classify_lookup_candidates/);
   assert.match(targetManagementSource, /\? "apply_if_missing" : "lookup_only"/);
-  assert.match(applyApiSource, /mode === "apply_if_missing" \|\| mode === "final_lookup"/);
+  assert.match(applyApiSource, /NATIONAL_SUPPORT_FINAL_LOOKUP_INTERNAL_ONLY/);
+  assert.doesNotMatch(applyApiSource, /const jobMode = mode === "apply_if_missing" \|\| mode === "final_lookup"/);
 });
 
 test("DB는 건강디딤돌 processing 작업을 한 건으로 제한한다", () => {

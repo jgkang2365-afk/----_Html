@@ -44,7 +44,14 @@ export async function POST(request: NextRequest) {
       mode = "lookup_only",
     } = body;
 
-    const jobMode = mode === "apply_if_missing" || mode === "final_lookup"
+    if (mode === "final_lookup") {
+      return NextResponse.json({
+        error: "최종 결과 조회는 내부 후속 작업으로만 실행할 수 있습니다.",
+        errorCode: "NATIONAL_SUPPORT_FINAL_LOOKUP_INTERNAL_ONLY",
+      }, { status: 400 });
+    }
+
+    const jobMode = mode === "apply_if_missing"
       ? mode
       : "lookup_only";
 

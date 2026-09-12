@@ -20,7 +20,7 @@ import {
 } from "../lib/national-support/automation-contract";
 import { forEachAscendingIdPage } from "../lib/scheduler/id-pages";
 import { getNationalSupportDisplayStatus } from "../lib/national-support/eligibility";
-import { LocalAutomationWorker, terminalForNationalSupportResult } from "../lib/automation/local-automation-worker";
+import { LocalAutomationWorker, shouldRunNationalSupportJournalGuard, terminalForNationalSupportResult } from "../lib/automation/local-automation-worker";
 
 test("automation job status contract has only the approved states", () => {
   assert.deepEqual(AUTOMATION_JOB_STATUSES, [
@@ -407,4 +407,17 @@ test("건강디딤돌 final_lookup은 parent effect lineage를 보존한다", ()
     terminalForNationalSupportResult("APPLICATION_UNCERTAIN", true),
     { status: "CONFIRM_REQUIRED", resultCode: "APPLICATION_UNCERTAIN", uncertain: true },
   );
+});
+
+test("건강디딤돌 phase는 post-effect final_lookup에서 journal skip을 금지한다", () => {
+  assert.equal(shouldRunNationalSupportJournalGuard({ mode: "apply_if_missing" } as any), true);
+  assert.equal(shouldRunNationalSupportJournalGuard({ mode: "lookup_only" } as any), true);
+  assert.equal(shouldRunNationalSupportJournalGuard({ mode: "final_lookup", effect_started: true } as any), false);
+  assert.equal(shouldRunNationalSupportJournalGuard({ mode: "final_lookup" } as any), false);
+});
+
+test("외부 API는 내부 전용 final_lookup mode를 직접 생성하지 않는다", () => {
+  const route = fs.readFileSync(path.join(process.cwd(), "app/api/businesses/national-support/apply/route.ts"), "utf8");
+  assert.match(route, /mode === "final_lookup"[\s\S]*NATIONAL_SUPPORT_FINAL_LOOKUP_INTERNAL_ONLY/);
+  assert.doesNotMatch(route, /const jobMode = mode === "apply_if_missing" \|\| mode === "final_lookup"/);
 });

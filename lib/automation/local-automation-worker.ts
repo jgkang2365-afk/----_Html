@@ -7,6 +7,10 @@ import { syncToMasterTables } from "@/lib/sync/master-tables";
 const NATIONAL_SUPPORT = "NATIONAL_SUPPORT";
 const workerId = `local-automation-${process.pid}`;
 
+export function shouldRunNationalSupportJournalGuard(payload: Pick<NationalSupportJobPayload, "mode">) {
+  return payload.mode !== "final_lookup";
+}
+
 export function terminalForNationalSupportResult(
   code: NationalSupportResultCode | "APPLICATION_UNCERTAIN" | null,
   effectStarted: boolean,
@@ -159,10 +163,15 @@ export class LocalAutomationWorker {
         // downgraded to a retryable FAILED state after a worker restart.
         let effectStarted = payload.effect_started === true;
         try {
+          if (payload.mode === "final_lookup" && !effectStarted) {
+            await this.completeTerminal(job.id, payload, "FAILED", null,
+              "NATIONAL_SUPPORT_FINAL_LOOKUP_LINEAGE_MISSING");
+            continue;
+          }
           await this.projectRunning(payload);
           await updateAutomationJobOwned(supabase, job.id, workerId, { progress_stage: "신청조건 확인", progress_percent: 20 });
           // Guard 1: a journal makes both lookup scheduling and application ineligible.
-          if (await hasMeasurementJournalForTarget(supabase, payload)) {
+          if (shouldRunNationalSupportJournalGuard(payload) && await hasMeasurementJournalForTarget(supabase, payload)) {
             await this.completeTerminal(job.id, payload, "COMPLETED", "JOURNAL_REGISTERED_SKIP");
             continue;
           }
