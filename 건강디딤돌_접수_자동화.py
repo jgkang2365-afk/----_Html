@@ -24,10 +24,10 @@ def classify_journal_guard_result(result):
     if isinstance(result, dict):
         if result.get("allow") is True:
             return "ALLOW"
-        if result.get("reason") == "JOURNAL_REGISTERED":
+        if result.get("allow") is False and result.get("reason") == "JOURNAL_REGISTERED":
             return "JOURNAL_REGISTERED"
         return "GUARD_ERROR"
-    return "ALLOW" if result is True else "GUARD_ERROR"
+    return "GUARD_ERROR"
 
 
 def normalize_contact_phone_suffix(value):

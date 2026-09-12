@@ -23,6 +23,8 @@ class HealthGuard2ContractTests(unittest.TestCase):
             {"allow": None},
             {"allow": False},
             {"allow": False, "reason": "GUARD_ERROR"},
+            {"allow": None, "reason": "JOURNAL_REGISTERED"},
+            True,
         ):
             with self.subTest(response=response):
                 self.assertEqual(classify_journal_guard_result(response), "GUARD_ERROR")

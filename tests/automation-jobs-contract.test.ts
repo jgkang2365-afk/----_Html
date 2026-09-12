@@ -175,6 +175,7 @@ test("Guard2 distinguishes a registered journal from a database/protocol error",
   assert.match(worker, /reason: "GUARD_ERROR"/);
   assert.match(flow, /guard_reason == "JOURNAL_REGISTERED"/);
   assert.match(flow, /classify_journal_guard_result/);
+  assert.match(flow, /result\.get\("allow"\) is False and result\.get\("reason"\) == "JOURNAL_REGISTERED"/);
   assert.match(flow, /return "GUARD_ERROR"/);
   assert.match(flow, /result\.get\("allow"\) is True/);
   assert.match(flow, /effect_result\.get\("allow"\) is True/);
