@@ -662,6 +662,7 @@ AS $$
 DECLARE completed public.document_generation_jobs;
 DECLARE common_status TEXT;
 DECLARE safe_complete BOOLEAN;
+DECLARE confirmed_effect BOOLEAN;
 BEGIN
   safe_complete := p_legacy_status = 'COMPLETED'
     AND jsonb_array_length(coalesce(p_result_files, '[]'::jsonb)) > 0
@@ -669,9 +670,14 @@ BEGIN
       SELECT 1 FROM jsonb_array_elements(coalesce(p_result_files, '[]'::jsonb)) file
       WHERE coalesce(file->>'status','') <> 'COMPLETED'
     );
+  confirmed_effect := EXISTS (
+    SELECT 1 FROM jsonb_array_elements(coalesce(p_result_files, '[]'::jsonb)) file
+    WHERE file->>'status' = 'COMPLETED'
+  );
   common_status := CASE
     WHEN p_effect_uncertain THEN 'CONFIRM_REQUIRED'
     WHEN safe_complete THEN 'COMPLETED'
+    WHEN confirmed_effect THEN 'CONFIRM_REQUIRED'
     WHEN p_legacy_status = 'CANCELLED' THEN 'CANCELLED'
     ELSE 'FAILED'
   END;

@@ -224,6 +224,17 @@ test("Worker 완료 API는 common/legacy terminal을 원자적으로 기록하�
   assert.match(migration, /status IN \('RUNNING', 'CANCEL_REQUESTED'\)/);
 });
 
+test("부분 publish는 legacy PARTIAL_SUCCESS와 common CONFIRM_REQUIRED를 분리한다", () => {
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
+  const fnStart = migration.indexOf("CREATE OR REPLACE FUNCTION public.complete_document_automation_job");
+  const fnEnd = migration.indexOf("CREATE OR REPLACE FUNCTION public.mark_document_automation_effect_started", fnStart);
+  const fn = migration.slice(fnStart, fnEnd);
+  assert.match(fn, /confirmed_effect BOOLEAN/);
+  assert.match(fn, /file->>'status' = 'COMPLETED'/);
+  assert.match(fn, /WHEN p_effect_uncertain THEN 'CONFIRM_REQUIRED'[\s\S]*WHEN safe_complete THEN 'COMPLETED'[\s\S]*WHEN confirmed_effect THEN 'CONFIRM_REQUIRED'[\s\S]*WHEN p_legacy_status = 'CANCELLED' THEN 'CANCELLED'/);
+  assert.match(fn, /result_code = CASE WHEN safe_complete THEN 'DOCUMENT_FILES_CONFIRMED'[\s\S]*WHEN common_status = 'CONFIRM_REQUIRED' THEN 'DOCUMENT_EFFECT_UNCERTAIN'/);
+});
+
 test("claim과 orphan recovery API는 Worker token 경계와 atomic Document claim RPC를 유지한다", () => {
   const claim = readFileSync("app/api/document-worker/jobs/claim/route.ts", "utf8");
   const recovery = readFileSync("app/api/document-worker/jobs/recover-cancelled/route.ts", "utf8");
