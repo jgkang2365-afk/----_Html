@@ -8,13 +8,13 @@ export const NATIONAL_SUPPORT_RESULT_CODES = [
 
 export type NationalSupportResultCode = (typeof NATIONAL_SUPPORT_RESULT_CODES)[number];
 export type NationalSupportCompatibilityStatus =
-  | "성공" | "조회대기" | "비대상대기" | "확인대기" | "신청완료대기" | "수동확인필요" | "실패";
+  | "성공" | "일지 등록 · 제외" | "조회대기" | "비대상대기" | "확인대기" | "신청완료대기" | "수동확인필요" | "실패";
 
 export function nationalSupportCompatibilityStatus(code: NationalSupportResultCode): NationalSupportCompatibilityStatus {
   switch (code) {
     case "SUPPORT":
-    case "NON_SUPPORT":
-    case "JOURNAL_REGISTERED_SKIP": return "성공";
+    case "NON_SUPPORT": return "성공";
+    case "JOURNAL_REGISTERED_SKIP": return "일지 등록 · 제외";
     case "OVER_50_RECHECK":
     case "NO_EMPLOYEE_INFO_RECHECK":
     case "EMPLOYEE_CHECK_FAILED_RECHECK": return "비대상대기";

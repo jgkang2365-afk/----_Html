@@ -62,6 +62,9 @@ class MesWorker:
         self.current_job_id: str | None = None
         self.current_job_effect_started = False
         self.cancel_requested = threading.Event()
+        self.post_sync_timer: threading.Timer | None = None
+        self.post_sync_deadline: float | None = None
+        self.post_sync_lock = threading.RLock()
 
     def claim(self) -> dict[str, Any] | None:
         response = self.supabase.rpc(
@@ -86,6 +89,50 @@ class MesWorker:
             "update_automation_job_owned",
             {"p_job_id": job_id, "p_worker_id": self.worker_id, "p_fields": fields},
         ).execute()
+        self.drain_post_sync()
+
+    def drain_post_sync(self) -> None:
+        # A completed parent already created its durable child in Postgres.
+        # This service-role RPC performs one DB-only drain and arms the next
+        # persisted available_at retry; an idle daemon never polls the DB.
+        with self.post_sync_lock:
+            try:
+                self.supabase.rpc("process_mes_post_sync_checks", {"p_limit": 100}).execute()
+                response = (self.supabase.table("automation_jobs")
+                    .select("available_at").eq("job_type", "MES_POST_SYNC_CHECK")
+                    .eq("status", "PENDING").order("available_at").limit(1).execute())
+                row = (response.data or [None])[0]
+                if not row:
+                    if self.post_sync_timer:
+                        self.post_sync_timer.cancel()
+                    self.post_sync_timer = None
+                    self.post_sync_deadline = None
+                    return
+                available = datetime.fromisoformat(row["available_at"].replace("Z", "+00:00"))
+                deadline = available.timestamp()
+            except Exception as error:
+                print(f"[MES Worker] DB 후속 점검 재시도 예약: {error}")
+                deadline = time.time() + 30
+            if self.post_sync_deadline is not None and self.post_sync_deadline <= deadline:
+                return
+            if self.post_sync_timer:
+                self.post_sync_timer.cancel()
+            self.post_sync_deadline = deadline
+            def retry() -> None:
+                with self.post_sync_lock:
+                    self.post_sync_timer = None
+                    self.post_sync_deadline = None
+                self.drain_post_sync()
+            self.post_sync_timer = threading.Timer(max(0.1, deadline - time.time()), retry)
+            self.post_sync_timer.daemon = True
+            self.post_sync_timer.start()
+
+    def allow_effect_start(self, job_id: str) -> bool:
+        response = self.supabase.rpc(
+            "mark_mes_automation_effect_started",
+            {"p_job_id": job_id, "p_worker_id": self.worker_id},
+        ).execute()
+        return response.data is True
 
     def on_signal(self, record: dict[str, Any]) -> None:
         if record.get("job_type") != MES_JOB_TYPE:
@@ -127,8 +174,7 @@ class MesWorker:
             allowed = False
             try:
                 if not self.cancel_requested.is_set():
-                    self.update(str(self.current_job_id), effect_started_at=now(), progress_stage="DB 업로드 전송", progress_percent=70)
-                    allowed = True
+                    allowed = self.allow_effect_start(str(self.current_job_id))
             finally:
                 if process.stdin is not None:
                     process.stdin.write(json.dumps({"allow": allowed}) + "\n")
@@ -205,9 +251,13 @@ class MesWorker:
                 result_code="MES_SYNC_CONFIRMED", result_payload=result, error_code=None,
                 error_message=None, effect_confirmed_at=now(), finished_at=now(),
             )
+            self.drain_post_sync()
         except Exception as error:
             code = str(error)
-            if code == "CANCEL_REQUESTED_AFTER_EFFECT_START" or effect_started or self.current_job_effect_started:
+            if code in {"CANCEL_REQUESTED_BEFORE_EFFECT", "MES_EFFECT_PERMISSION_DENIED"} and not self.current_job_effect_started:
+                self.update(job_id, status="CANCELLED", progress_stage="사용자 취소", progress_percent=100,
+                            result_code="USER_CANCELLED", finished_at=now())
+            elif code == "CANCEL_REQUESTED_AFTER_EFFECT_START" or effect_started or self.current_job_effect_started:
                 self.update(
                     job_id, status="CONFIRM_REQUIRED", progress_stage="효과 확인 필요", progress_percent=100,
                     result_code="MES_EFFECT_UNCERTAIN", error_code=code[:100], error_message=traceback.format_exc()[-3000:],
@@ -256,7 +306,13 @@ async def run_worker() -> None:
         wake.set()  # reconnect one-time reconciliation
         try:
             while client.is_connected:
-                await wake.wait()
+                wake_task = asyncio.create_task(wake.wait())
+                background = {task for task in (client._listen_task, client._heartbeat_task) if task is not None}
+                done, _ = await asyncio.wait(background | {wake_task}, return_when=asyncio.FIRST_COMPLETED)
+                if wake_task not in done:
+                    wake_task.cancel()
+                if any(task in done for task in background) or not client.is_connected:
+                    raise ConnectionError("MES Realtime 연결이 종료되었습니다.")
                 wake.clear()
                 await asyncio.to_thread(drain)
                 # The worker is drained by the event. No timed DB polling occurs.

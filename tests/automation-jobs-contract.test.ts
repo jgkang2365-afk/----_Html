@@ -19,6 +19,8 @@ import {
   nationalSupportCompatibilityStatus,
 } from "../lib/national-support/automation-contract";
 import { forEachAscendingIdPage } from "../lib/scheduler/id-pages";
+import { getNationalSupportDisplayStatus } from "../lib/national-support/eligibility";
+import { LocalAutomationWorker } from "../lib/automation/local-automation-worker";
 
 test("automation job status contract has only the approved states", () => {
   assert.deepEqual(AUTOMATION_JOB_STATUSES, [
@@ -70,6 +72,16 @@ test("Production canonical journal key and compatibility projection are fixed", 
   assert.equal(nationalSupportCompatibilityStatus("APPLIED_WAITING_RESULT"), "신청완료대기");
   assert.equal(nationalSupportCompatibilityStatus("ALREADY_APPLIED"), "확인대기");
   assert.equal(nationalSupportCompatibilityStatus("APPLICATION_UNCERTAIN"), "수동확인필요");
+  assert.equal(nationalSupportCompatibilityStatus("JOURNAL_REGISTERED_SKIP"), "일지 등록 · 제외");
+  assert.equal(getNationalSupportDisplayStatus({ period: "하반기", sync_status: "일지 등록 · 제외", national_support_status: null, industrial_accident_number: "1", commencement_number: "2", representative_name: "대표" } as any), "일지 등록 · 제외");
+});
+
+test("Health drain 중 도착한 wake는 다음 reconcile 요청으로 보존한다", async () => {
+  const worker: any = Object.create(LocalAutomationWorker.prototype);
+  worker.draining = true;
+  worker.wakeRequested = false;
+  await worker.drain();
+  assert.equal(worker.wakeRequested, true);
 });
 
 test("document and national-support boundaries are explicit rather than inferred from display strings", () => {
@@ -140,13 +152,14 @@ test("MES effect event is streamed before upload confirmation and classifies fai
   assert.match(download, /AUTOMATION_EVENT:effect_start_request/);
   assert.match(download, /permission\.get\("allow"\) is not True/);
   assert.match(daemon, /stderr=subprocess\.STDOUT/);
-  assert.match(daemon, /effect_started_at=now\(\)[\s\S]*allowed = True/);
+  assert.match(daemon, /allowed = self\.allow_effect_start\(str\(self\.current_job_id\)\)/);
   assert.match(daemon, /process\.stdin\.write\(json\.dumps\(\{"allow": allowed\}\)/);
   assert.match(daemon, /output_reader/);
   assert.match(daemon, /CANCEL_REQUESTED_BEFORE_EFFECT/);
   assert.match(daemon, /MES_EFFECT_UNCERTAIN/);
   assert.match(daemon, /update_automation_job_owned/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.update_automation_job_owned/);
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.mark_mes_automation_effect_started/);
   assert.match(migration, /job\.worker_id = p_worker_id/);
 });
 
@@ -178,6 +191,7 @@ test("14:00 MES post-sync action is enqueued once by the verified terminal trans
   assert.match(migration, /NEW\.result_payload @> '\{"syncSuccess":true\}'/);
   assert.match(migration, /ON CONFLICT \(idempotency_key\) DO NOTHING/);
   assert.match(migration, /process_mes_post_sync_checks/);
+  assert.match(migration, /request_payload->>'scheduled_date_kst'/);
   assert.match(migration, /INSERT INTO public\.notifications/);
 });
 
@@ -235,6 +249,18 @@ test("17시 Health scheduler는 id ASC keyset으로 모든 페이지를 처리�
     assert.match(source, new RegExp(`runMesDownloadScript\\('${slot}'\\)`));
   }
   assert.doesNotMatch(source, /toLocaleTimeString\('en-GB'/);
+});
+
+test("17시 페이지 안의 한 대상 enqueue 실패는 다음 대상과 다음 페이지를 막지 않는다", async () => {
+  const visited: number[] = [];
+  const failed: number[] = [];
+  await forEachAscendingIdPage(2,
+    async after => [{ id: 1 }, { id: 2 }, { id: 3 }].filter(row => row.id > after).slice(0, 2),
+    async row => { visited.push(row.id); if (row.id === 2) throw new Error("enqueue"); },
+    row => { failed.push(row.id); },
+  );
+  assert.deepEqual(visited, [1, 2, 3]);
+  assert.deepEqual(failed, [2]);
 });
 
 test("문서 heartbeat는 두 lease 중 하나라도 소유하지 못하면 트랜잭션을 롤백한다", () => {

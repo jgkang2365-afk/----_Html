@@ -15,6 +15,7 @@ export class LocalAutomationWorker {
   private static instance: LocalAutomationWorker | null = null;
   private started = false;
   private draining = false;
+  private wakeRequested = false;
   private delayedWakeTimer: ReturnType<typeof setTimeout> | null = null;
   private delayedWakeAt: number | null = null;
 
@@ -129,7 +130,10 @@ export class LocalAutomationWorker {
   }
 
   private async drain() {
-    if (this.draining) return;
+    if (this.draining) {
+      this.wakeRequested = true;
+      return;
+    }
     this.draining = true;
     const supabase = createAdminClient();
     try {
@@ -199,6 +203,10 @@ export class LocalAutomationWorker {
         await this.scheduleEarliestFuture(supabase);
       } catch (error) {
         console.error("[LocalAutomationWorker] future job 예약 조회 실패", error);
+      }
+      if (this.wakeRequested) {
+        this.wakeRequested = false;
+        void this.drain().catch(error => console.error("[LocalAutomationWorker] 재수신 작업 처리 실패", error));
       }
     }
   }

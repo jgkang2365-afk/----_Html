@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 type Business = {
+  measurementDate?: string;
   code: string | null;
   businessName: string | null;
   year: number;
@@ -17,6 +18,7 @@ type Job = {
   syncSuccess: boolean;
   trigger?: string;
   slot?: string;
+  scheduledDateKst?: string;
 };
 
 const normalizeBusinessName = (value: string | null) =>
@@ -82,6 +84,7 @@ class MesFinalCheckHarness {
       return;
     }
     const missing = surveys.filter((survey) =>
+      (!parent.scheduledDateKst || survey.measurementDate === parent.scheduledDateKst) &&
       survey.year > 0 && survey.period.trim() !== "" && !mesRows.some((mes) => matchesMesBusiness(survey, mes))
     );
     action.status = "COMPLETED";
@@ -217,23 +220,27 @@ test("동시 drain은 한 action만 선점하고 알림을 한 번만 만든다"
   assert.equal(parent.status, "COMPLETED");
 });
 
-test("제한된 서버 schedule은 5분·10분 재시도의 당일 실행 기회를 제공한다", () => {
+test("후속 점검은 idle cron 대신 작업 신호와 1회성 재시도를 사용한다", () => {
   const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), "vercel.json"), "utf8"));
   const postSchedules = config.crons.filter((entry: { path: string }) => entry.path.startsWith("/api/cron/mes-post-sync/"));
-  const minutes = postSchedules.map((entry: { schedule: string }) => {
-    const [minute, hour, day, month, weekday] = entry.schedule.split(" ");
-    assert.deepEqual([day, month, weekday], ["*", "*", "*"]);
-    assert.ok(!minute.includes(",") && !minute.includes("/") && !hour.includes(",") && !hour.includes("/"));
-    return Number(hour) * 60 + Number(minute);
-  }).sort((a: number, b: number) => a - b);
-  assert.ok(minutes.includes(5 * 60 + 5));
-  assert.ok(minutes.includes(5 * 60 + 10));
-  assert.ok(minutes.includes(5 * 60 + 20));
-  assert.ok(minutes.includes(6 * 60 + 10));
-  assert.ok(minutes.every((minute: number) => minute >= 5 * 60 + 5 && minute <= 7 * 60));
+  assert.equal(postSchedules.length, 0);
   const scheduler = fs.readFileSync(path.join(process.cwd(), "lib/scheduler/background-tasks.ts"), "utf8");
-  assert.match(scheduler, /'5,10,20,30,40,50 14 \* \* \*'/);
-  assert.doesNotMatch(scheduler, /'\*\/5 \* \* \* \*'/);
+  assert.match(scheduler, /MES_POST_SYNC_CHECK/);
+  assert.match(scheduler, /scheduleMesPostSyncWake/);
+  assert.doesNotMatch(scheduler, /cron\.schedule\([^\n]*drainMesPostSyncChecks/);
+});
+
+test("16시 이후 완료해도 14시 예약의 KST 논리 날짜만 조회한다", async () => {
+  const harness = new MesFinalCheckHarness();
+  const parent: Job = { status: "RUNNING", jobType: "MES_SYNC", trigger: "scheduled", slot: "14:00", finalCheck: true, syncSuccess: true, scheduledDateKst: "2026-09-12" };
+  harness.transition(parent, "COMPLETED", [], [], []);
+  await harness.drain(parent, [
+    business({ businessName: "예약일 대상", measurementDate: "2026-09-12" }),
+    business({ businessName: "완료일 대상", measurementDate: "2026-09-13" }),
+  ], [], [{ id: 1, isJournalManager: true }], false, Date.parse("2026-09-13T07:00:00Z"));
+  assert.equal(harness.notifications.length, 1);
+  assert.match(harness.notifications[0].message, /예약일 대상/);
+  assert.doesNotMatch(harness.notifications[0].message, /완료일 대상/);
 });
 
 test("운영 SQL은 행동 모델과 같은 동등·양방향 포함 및 terminal gate를 사용한다", () => {

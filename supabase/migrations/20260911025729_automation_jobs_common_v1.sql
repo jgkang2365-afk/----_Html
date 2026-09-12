@@ -2,6 +2,39 @@
 -- request_payload/result_payload are intentionally kept out of Realtime; clients
 -- subscribe to automation_job_signals and obtain authorised details through APIs.
 
+-- Cutover preflight: processing work without an explicit pre-effect marker is
+-- quarantined by aborting this migration. It must be reviewed before cutover.
+DO $$
+DECLARE health_uncertain INTEGER;
+DECLARE document_uncertain INTEGER;
+DECLARE active_legacy INTEGER;
+BEGIN
+  SELECT (SELECT count(*) FROM public.background_jobs WHERE job_type='national_support'
+    AND status IN ('pending','processing','cancel_requested'))
+    + (SELECT count(*) FROM public.document_generation_jobs WHERE status IN ('PENDING','PROCESSING'))
+    INTO active_legacy;
+  IF active_legacy > 0 AND current_setting('app.automation_legacy_workers_stopped', true) IS DISTINCT FROM 'on' THEN
+    RAISE EXCEPTION 'AUTOMATION_CUTOVER_REQUIRES_STOPPED_LEGACY_WORKERS: active=%', active_legacy;
+  END IF;
+  SELECT count(*) INTO health_uncertain FROM public.background_jobs
+  WHERE job_type = 'national_support' AND status IN ('processing','cancel_requested')
+    AND execution_result->>'effect_started' IS DISTINCT FROM 'false';
+  SELECT count(*) INTO document_uncertain FROM public.document_generation_jobs
+  WHERE status = 'PROCESSING';
+  IF health_uncertain > 0 OR document_uncertain > 0 THEN
+    RAISE EXCEPTION 'AUTOMATION_CUTOVER_UNCERTAIN: health=%, document=%', health_uncertain, document_uncertain;
+  END IF;
+  UPDATE public.background_jobs SET status='cancelled', finished_at=CURRENT_TIMESTAMP,
+    error_message='공통 자동화 전환: 효과 전 안전 취소', updated_at=CURRENT_TIMESTAMP
+  WHERE job_type='national_support' AND
+    (status='pending' OR (status IN ('processing','cancel_requested')
+      AND execution_result->>'effect_started'='false'));
+  UPDATE public.document_generation_jobs SET status='CANCELLED',
+    cancelled_at=CURRENT_TIMESTAMP, completed_at=CURRENT_TIMESTAMP,
+    error_message='공통 자동화 전환: 대기 작업 안전 취소', updated_at=CURRENT_TIMESTAMP
+  WHERE status='PENDING';
+END $$;
+
 CREATE TABLE IF NOT EXISTS public.automation_jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   job_type TEXT NOT NULL,
@@ -350,7 +383,7 @@ DECLARE final_support_status TEXT;
 DECLARE final_application_status TEXT;
 BEGIN
   IF p_status IS NULL OR p_status NOT IN ('COMPLETED','FAILED','CONFIRM_REQUIRED') OR
-     p_sync_status IS NULL OR p_sync_status NOT IN ('성공','조회대기','비대상대기','확인대기','신청완료대기','수동확인필요','실패') THEN
+     p_sync_status IS NULL OR p_sync_status NOT IN ('성공','일지 등록 · 제외','조회대기','비대상대기','확인대기','신청완료대기','수동확인필요','실패') THEN
     RAISE EXCEPTION 'NATIONAL_SUPPORT_TERMINAL_ARGUMENT_INVALID';
   END IF;
   final_support_status := CASE p_result_code WHEN 'SUPPORT' THEN '대상'
@@ -446,6 +479,22 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.update_automation_job_owned(UUID,TEXT,JSONB) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.update_automation_job_owned(UUID,TEXT,JSONB) TO service_role;
+
+-- The upload permission and its durable marker are one row-locked decision.
+CREATE OR REPLACE FUNCTION public.mark_mes_automation_effect_started(p_job_id UUID, p_worker_id TEXT)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  UPDATE public.automation_jobs job
+  SET effect_started_at = coalesce(job.effect_started_at, CURRENT_TIMESTAMP),
+      progress_stage = 'DB 업로드 전송', progress_percent = 70, updated_at = CURRENT_TIMESTAMP
+  WHERE job.id = p_job_id AND job.job_type = 'MES_SYNC'
+    AND job.worker_id = p_worker_id AND job.status = 'RUNNING'
+    AND job.effect_started_at IS NULL;
+  RETURN FOUND;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.mark_mes_automation_effect_started(UUID,TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.mark_mes_automation_effect_started(UUID,TEXT) TO service_role;
 
 -- Document execution has two records for compatibility, but one ownership
 -- boundary.  Reconciliation is deliberately separate from the generic job
@@ -696,6 +745,48 @@ REVOKE ALL ON FUNCTION public.recover_cancelled_document_generation_jobs() FROM 
 GRANT EXECUTE ON FUNCTION public.renew_document_automation_job_lease(UUID,UUID,TEXT,UUID,JSONB) TO service_role;
 GRANT EXECUTE ON FUNCTION public.recover_cancelled_document_generation_jobs() TO service_role;
 
+-- Cancel crosses the common/legacy boundary in one transaction. Missing or
+-- mismatched ownership rolls back rather than leaving two different states.
+CREATE OR REPLACE FUNCTION public.cancel_document_automation_job(
+  p_legacy_job_id UUID, p_requested_by BIGINT
+) RETURNS public.document_generation_jobs
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE common public.automation_jobs;
+DECLARE legacy public.document_generation_jobs;
+BEGIN
+  SELECT * INTO common FROM public.automation_jobs
+  WHERE job_type = 'DOCUMENT_GENERATION'
+    AND request_payload->>'document_generation_job_id' = p_legacy_job_id::text
+  FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'DOCUMENT_AUTOMATION_CANCEL_COMMON_MISSING'; END IF;
+  SELECT * INTO legacy FROM public.document_generation_jobs WHERE id = p_legacy_job_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'DOCUMENT_AUTOMATION_CANCEL_LEGACY_MISSING'; END IF;
+  IF common.status = 'PENDING' AND legacy.status = 'PENDING' THEN
+    UPDATE public.automation_jobs SET status='CANCELLED', cancel_requested_at=CURRENT_TIMESTAMP,
+      progress_stage='취소됨', progress_percent=100, finished_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+    WHERE id=common.id;
+    UPDATE public.document_generation_jobs SET status='CANCELLED',
+      cancel_requested_at=CURRENT_TIMESTAMP, cancel_requested_by=p_requested_by,
+      cancelled_at=CURRENT_TIMESTAMP, completed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+    WHERE id=p_legacy_job_id RETURNING * INTO legacy;
+  ELSIF common.status = 'RUNNING' AND legacy.status = 'PROCESSING' THEN
+    UPDATE public.automation_jobs SET status='CANCEL_REQUESTED', cancel_requested_at=CURRENT_TIMESTAMP,
+      progress_stage='취소 요청 전달', updated_at=CURRENT_TIMESTAMP WHERE id=common.id;
+    UPDATE public.document_generation_jobs SET cancel_requested_at=CURRENT_TIMESTAMP,
+      cancel_requested_by=p_requested_by, updated_at=CURRENT_TIMESTAMP
+    WHERE id=p_legacy_job_id RETURNING * INTO legacy;
+  ELSIF common.status IN ('CANCEL_REQUESTED','CANCELLED','COMPLETED','FAILED','CONFIRM_REQUIRED')
+    AND legacy.status <> 'PENDING' THEN
+    RETURN legacy;
+  ELSE
+    RAISE EXCEPTION 'DOCUMENT_AUTOMATION_CANCEL_STATE_MISMATCH';
+  END IF;
+  RETURN legacy;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.cancel_document_automation_job(UUID,BIGINT) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.cancel_document_automation_job(UUID,BIGINT) TO service_role;
+
 -- The legacy document row remains the authoritative document payload, but its
 -- common execution record is created in the same transaction. This prevents a
 -- wake-up from observing a legacy job without its automation contract.
@@ -758,16 +849,8 @@ FOR EACH ROW EXECUTE FUNCTION public.enqueue_document_automation_job();
 REVOKE ALL ON FUNCTION public.enqueue_document_automation_job() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.guard_document_automation_enqueue() FROM PUBLIC;
 
--- Forward-compatible cutover: only legacy PENDING rows receive a common
--- ownership record.  Processing/terminal history is never replayed.
-INSERT INTO public.automation_jobs (job_type, idempotency_key, target_key, request_payload, requested_by)
-SELECT 'DOCUMENT_GENERATION', 'document:legacy:' || legacy.id::text,
-       'document:' || legacy.business_id::text,
-       jsonb_build_object('document_generation_job_id', legacy.id, 'business_id', legacy.business_id),
-       legacy.requested_by
-FROM public.document_generation_jobs legacy
-WHERE legacy.status = 'PENDING'
-ON CONFLICT (idempotency_key) DO NOTHING;
+-- Pre-cutover legacy pending rows were safely cancelled above. New requests
+-- after this trigger is installed receive a common record atomically.
 
 -- The legacy claim RPC is intentionally disabled after the common trigger is
 -- installed.  DOCUMENT_GENERATION ownership must pass through
@@ -852,11 +935,12 @@ BEGIN
   SELECT * INTO parent FROM public.automation_jobs WHERE id = p_job_id
     AND job_type = 'MES_SYNC' AND status = 'COMPLETED'
     AND request_payload @> '{"trigger":"scheduled","slot":"14:00","final_check":true}'::jsonb
-    AND result_payload @> '{"syncSuccess":true}'::jsonb;
+    AND result_payload @> '{"syncSuccess":true}'::jsonb
+    AND request_payload->>'scheduled_date_kst' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$';
   IF NOT FOUND THEN RAISE EXCEPTION 'MES_POST_SYNC_PARENT_INVALID'; END IF;
   SELECT array_agg(s.business_name ORDER BY s.business_name) INTO names
   FROM public.preliminary_survey s
-  WHERE s.measurement_date = (parent.finished_at AT TIME ZONE 'Asia/Seoul')::date
+  WHERE s.measurement_date = (parent.request_payload->>'scheduled_date_kst')::date
     AND s.year IS NOT NULL AND s.year > 0 AND trim(coalesce(s.period,'')) <> ''
     AND NOT EXISTS (
       SELECT 1 FROM public.measurement_business m
@@ -941,3 +1025,14 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.process_mes_post_sync_checks(INTEGER) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.process_mes_post_sync_checks(INTEGER) TO service_role;
+
+-- A legacy claimer racing the initial preflight must not survive commit.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.background_jobs
+    WHERE job_type='national_support' AND status IN ('pending','processing','cancel_requested'))
+    OR EXISTS (SELECT 1 FROM public.document_generation_jobs
+      WHERE status IN ('PENDING','PROCESSING')) THEN
+    RAISE EXCEPTION 'AUTOMATION_CUTOVER_LEGACY_ACTIVE_QUARANTINE';
+  END IF;
+END $$;

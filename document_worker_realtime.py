@@ -188,6 +188,8 @@ class DocumentWorkerRuntime:
         return SupabaseRealtimePostgresClient(supabase_url, key)
 
     async def run(self) -> None:
+        if not self.settings.enabled:
+            raise RuntimeError("DOCUMENT_REALTIME_REQUIRED: 일반 Document Worker는 Realtime 연결이 필요합니다.")
         LOGGER.info(
             "Document Worker runtime 시작 realtime=%s recovery=%ss",
             self.settings.enabled,
@@ -199,13 +201,7 @@ class DocumentWorkerRuntime:
         # Startup and every Realtime reconnect perform one reconcile. There is
         # no idle periodic database polling in the common execution path.
         tasks: list[asyncio.Task[Any]] = []
-        if self.settings.enabled:
-            tasks.append(asyncio.create_task(self._realtime_loop(), name="document-worker-realtime"))
-        else:
-            LOGGER.warning(
-                "Realtime 비활성: %s초 안전 확인 전용 모드",
-                self.settings.recovery_poll_seconds,
-            )
+        tasks.append(asyncio.create_task(self._realtime_loop(), name="document-worker-realtime"))
         try:
             await self.stop_event.wait()
         finally:

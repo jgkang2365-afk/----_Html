@@ -187,16 +187,15 @@ test("orphan recovery는 게시 완료 checkpoint가 있으면 PARTIAL_SUCCESS�
   assert.match(migration, /THEN 'PARTIAL_SUCCESS'\s+ELSE 'CANCELLED'/);
 });
 
-test("사용자 취소 API는 PENDING과 PROCESSING을 조건부 갱신하고 종료 결과는 보존한다", () => {
+test("사용자 취소 API는 공통·레거시 원자 RPC만 호출한다", () => {
   const route = readFileSync("app/api/document-generation/jobs/[jobId]/cancel/route.ts", "utf8");
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
   assert.match(route, /checkPermission\("journal:write"\)/);
-  assert.match(route, /status: "CANCELLED"/);
-  assert.match(route, /\.eq\("status", "PENDING"\)/);
-  assert.match(route, /\.eq\("status", "PROCESSING"\)/);
-  assert.match(route, /\.is\("cancel_requested_at", null\)/);
+  assert.match(route, /rpc\("cancel_document_automation_job"/);
   assert.match(route, /recover_cancelled_document_generation_jobs/);
-  assert.match(route, /already_terminal/);
-  assert.doesNotMatch(route, /error_message:\s*.*cancel/i);
+  assert.doesNotMatch(route, /\.update\(/);
+  assert.match(migration, /DOCUMENT_AUTOMATION_CANCEL_STATE_MISMATCH/);
+  assert.match(migration, /REVOKE ALL ON FUNCTION public\.cancel_document_automation_job\(UUID,BIGINT\)/);
 });
 
 test("Worker heartbeat는 common/legacy lease를 하나의 ownership RPC로 갱신한다", () => {

@@ -19,6 +19,8 @@ export class BackgroundTasks {
     private initialized: boolean = false;
     private mesSyncStatus: 'idle' | 'running' | 'success' | 'error' = 'idle';
     private mesSyncError: string | null = null;
+    private postSyncTimer: ReturnType<typeof setTimeout> | null = null;
+    private postSyncWakeAt: number | null = null;
 
     private constructor() {}
 
@@ -57,6 +59,7 @@ export class BackgroundTasks {
             WorkerDaemon.getInstance().start();
             const { LocalAutomationWorker } = require('../automation/local-automation-worker');
             LocalAutomationWorker.getInstance().start();
+            this.startMesPostSyncWake();
         } catch (workerErr) {
             console.error("[BackgroundTasks] WorkerDaemon 가동 중 오류 발생:", workerErr);
         }
@@ -103,11 +106,7 @@ export class BackgroundTasks {
             await BackgroundTasks.getInstance().runMesDownloadScript('14:00');
         }, KST_CRON_OPTIONS);
 
-        // The local server drains DB-only post actions independently of the
-        // Windows MES worker.  Pending retries remain durable in Postgres.
-        for (const schedule of ['5,10,20,30,40,50 14 * * *', '0,10,30 15 * * *', '0 16 * * *']) {
-            cron.schedule(schedule, () => this.drainMesPostSyncChecks(), KST_CRON_OPTIONS);
-        }
+        // Post-sync actions wake on their own durable signal/available_at.
 
         cron.schedule('0 17 * * *', async () => {
             await this.enqueueDailyNationalSupportChecks();
@@ -147,10 +146,40 @@ export class BackgroundTasks {
         }
     }
 
+    private startMesPostSyncWake(): void {
+        const admin = createAdminClient();
+        admin.channel('local-mes-post-sync-checks')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'automation_job_signals', filter: 'job_type=eq.MES_POST_SYNC_CHECK' }, payload => {
+                const signal = payload.new as { status?: string; available_at?: string } | null;
+                if (signal?.status === 'PENDING' && signal.available_at) {
+                    this.scheduleMesPostSyncWake(new Date(signal.available_at));
+                }
+            })
+            .subscribe(status => { if (status === 'SUBSCRIBED') void this.drainMesPostSyncChecks(); });
+    }
+
+    private scheduleMesPostSyncWake(at: Date): void {
+        const time = at.getTime();
+        if (!Number.isFinite(time)) return;
+        if (this.postSyncWakeAt !== null && this.postSyncWakeAt <= time) return;
+        if (this.postSyncTimer) clearTimeout(this.postSyncTimer);
+        this.postSyncWakeAt = time;
+        this.postSyncTimer = setTimeout(() => {
+            this.postSyncTimer = null;
+            this.postSyncWakeAt = null;
+            void this.drainMesPostSyncChecks();
+        }, Math.max(0, Math.min(time - Date.now(), 2_147_483_647)));
+    }
+
     private async drainMesPostSyncChecks(): Promise<void> {
         try {
             const { error } = await createAdminClient().rpc('process_mes_post_sync_checks', { p_limit: 100 });
             if (error) throw error;
+            const { data, error: pendingError } = await createAdminClient().from('automation_jobs')
+                .select('available_at').eq('job_type', 'MES_POST_SYNC_CHECK').eq('status', 'PENDING')
+                .order('available_at', { ascending: true }).limit(1);
+            if (pendingError) throw pendingError;
+            if (data?.[0]?.available_at) this.scheduleMesPostSyncWake(new Date(data[0].available_at));
         } catch (error) {
             console.error('[BackgroundTasks] MES 후속 점검 처리 실패:', error);
         }
@@ -161,6 +190,8 @@ export class BackgroundTasks {
         const admin = createAdminClient();
         const date = getKSTDateString();
         const pageSize = 500;
+        let enqueued = 0;
+        let failed = 0;
         await forEachAscendingIdPage(pageSize, async (lastId, limit) => {
           const { data, error } = await admin.from('measurement_target_business')
               .select('id, code, year, period, industrial_accident_number, commencement_number, representative_name, manager_name, manager_mobile, national_support_status')
@@ -192,7 +223,12 @@ export class BackgroundTasks {
                     }) ? 'apply_if_missing' : 'lookup_only', scheduled_at: date,
                 },
             });
+            enqueued += 1;
+        }, (target, error) => {
+            failed += 1;
+            console.error(`[BackgroundTasks] 건강디딤돌 예약 실패 target=${target.id}`, error);
         });
+        console.log(`[BackgroundTasks] 건강디딤돌 예약 완료 enqueued=${enqueued} failed=${failed}`);
     }
 
     /**
@@ -207,7 +243,7 @@ export class BackgroundTasks {
                 jobType: 'MES_SYNC',
                 idempotencyKey: mesScheduledIdempotencyKey(slot, kstDate),
                 targetKey: `mes:scheduled:${slot}`,
-                requestPayload: { trigger: 'scheduled', slot, final_check: isFinalCheck },
+                requestPayload: { trigger: 'scheduled', slot, final_check: isFinalCheck, scheduled_date_kst: kstDate },
             });
             console.log(`[BackgroundTasks] MES 자동 작업 등록 id=${job.id} slot=${slot}`);
             return true;

@@ -1153,13 +1153,16 @@ def run_worker(once: bool = False) -> int:
         os.environ.get("SUPABASE_REALTIME_KEY")
         or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
     )
-    if realtime_enabled and (not supabase_url or not realtime_key):
+    if not realtime_enabled:
+        LOGGER.error("DOCUMENT_WORKER_REALTIME_ENABLED=0은 일반 실행에서 지원하지 않습니다. --once 디버그 모드만 사용하세요.")
+        return 2
+    if not supabase_url or not realtime_key:
         LOGGER.error(
-            "Realtime 환경변수가 부족하여 6시간 PENDING queue 안전 확인 전용으로 실행합니다. "
+            "Realtime 환경변수가 부족하여 Document Worker를 시작할 수 없습니다. "
             "SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL 및 "
             "SUPABASE_REALTIME_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY를 확인하세요."
         )
-        realtime_enabled = False
+        return 2
 
     settings = RealtimeSettings(
         enabled=realtime_enabled,
