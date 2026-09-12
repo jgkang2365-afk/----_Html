@@ -961,10 +961,10 @@ class HealthProgramAutomation:
         if callable(before_final_apply):
             guard_result = before_final_apply()
             if isinstance(guard_result, dict):
-                guard_allowed = bool(guard_result.get("allow"))
+                guard_allowed = guard_result.get("allow") is True
                 guard_reason = str(guard_result.get("reason") or "GUARD_ERROR")
             else:
-                guard_allowed = bool(guard_result)
+                guard_allowed = guard_result is True
                 guard_reason = "JOURNAL_REGISTERED" if not guard_allowed else ""
             if not guard_allowed:
                 if guard_reason == "JOURNAL_REGISTERED":
@@ -973,9 +973,16 @@ class HealthProgramAutomation:
                 self.update_progress("  -> 측정일지 Guard2 조회 오류로 최종 신청을 중단합니다.")
                 return "GUARD_ERROR"
         mark_effect_started = getattr(self, "mark_effect_started", None)
-        if callable(mark_effect_started) and not mark_effect_started():
-            self.update_progress("  -> 신청 effect 경계를 확인하지 못해 최종 신청을 중단합니다.")
-            return "APPLY_RESULT_UNKNOWN"
+        if callable(mark_effect_started):
+            effect_result = mark_effect_started()
+            effect_allowed = (
+                effect_result.get("allow") is True
+                if isinstance(effect_result, dict)
+                else effect_result is True
+            )
+            if not effect_allowed:
+                self.update_progress("  -> 신청 effect 경계를 확인하지 못해 최종 신청을 중단합니다.")
+                return "APPLY_RESULT_UNKNOWN"
         final_apply_button.click()
         time.sleep(1.5)
         
