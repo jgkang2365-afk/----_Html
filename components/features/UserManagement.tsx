@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
+import { nationalSupportApplyOutcome } from "@/lib/national-support/apply-boundaries";
 import {
   Table,
   TableHeader,
@@ -167,7 +168,9 @@ export const UserManagement: React.FC = () => {
 
           const resJson = await res.json();
           if (res.ok) {
-            if (resJson.instantSync) {
+            if (nationalSupportApplyOutcome(resJson) === "excluded") {
+              setBulkLogs(prev => [`[제외] ${item.business_name}: 측정일지가 등록되어 건강디딤돌 조회·신청 대상에서 제외`, ...prev]);
+            } else if (nationalSupportApplyOutcome(resJson) === "instant") {
               setBulkSuccessCount(prev => prev + 1);
               setBulkLogs(prev => [`[즉시반영] ${item.business_name}: 기존 결과 매핑 완료`, ...prev]);
             } else {

@@ -4,7 +4,6 @@ import { FilePlus2, FileSpreadsheet, FileText, Loader2, RotateCcw } from "lucide
 import { Button, Modal } from "@/components/ui";
 import {
   DOCUMENT_GENERATION_STATUS_LABELS,
-  documentGenerationPollDelay,
   isDocumentGenerationRunning,
   shouldApplyDocumentGenerationResponse,
 } from "@/lib/document-generation/polling";
@@ -12,6 +11,8 @@ import {
   documentDefinitionDisplayName,
   isNewBusinessDocumentGenerationEligible,
 } from "@/lib/document-generation/business-eligibility";
+import { subscribeAutomationJob } from "@/lib/automation/job-client";
+import AutomationProgressModal from "@/components/features/AutomationProgressModal";
 type Document = {
   definition?: {
     id: string;
@@ -67,6 +68,7 @@ type Context = {
     cancel_requested_by?: number | null;
     cancelled_at?: string | null;
   };
+  automationJob?: { id: string } | null;
   snapshot?: Record<string, unknown>;
 };
 const documentId = (document: Document) =>
@@ -101,6 +103,7 @@ export function NewBusinessDocumentGeneration({
     [cancelling, setCancelling] = useState(false),
     [cancellationMessage, setCancellationMessage] = useState(""),
     [cancellationFailed, setCancellationFailed] = useState(false),
+    [showProgress, setShowProgress] = useState(false),
     [currentTime, setCurrentTime] = useState(() => Date.now()),
     [error, setError] = useState("");
   const requestSequence = useRef(0);
@@ -166,62 +169,22 @@ export function NewBusinessDocumentGeneration({
   const isRunning = isDocumentGenerationRunning(status);
   const isCancellationRequested = isRunning && Boolean(context?.job?.cancel_requested_at);
   useEffect(() => {
-    if (isCancellationRequested) return;
-    const delay = documentGenerationPollDelay(status);
-    if (delay === null) return;
-    let cancelled = false;
-    let timer: number | undefined;
-    let pollingInFlight = false;
-    const clearTimer = () => {
-      if (timer !== undefined) {
-        window.clearTimeout(timer);
-        timer = undefined;
-      }
-    };
-    const isPageVisible = () => document.visibilityState === "visible";
-    const scheduleNextPoll = () => {
-      if (!cancelled && isPageVisible()) {
-        timer = window.setTimeout(() => void poll(), delay);
-      }
-    };
-    const poll = async () => {
-      if (cancelled || !isPageVisible() || pollingInFlight) return;
-      pollingInFlight = true;
-      try {
-        await load(true);
-      } finally {
-        pollingInFlight = false;
-        scheduleNextPoll();
-      }
-    };
-    const refreshWhenVisible = () => {
-      if (cancelled || !isPageVisible()) return;
-      clearTimer();
-      void poll();
-    };
-    const handleVisibilityChange = () => {
-      if (!isPageVisible()) {
-        clearTimer();
-        return;
-      }
-      refreshWhenVisible();
-    };
-    if (isPageVisible()) scheduleNextPoll();
-    window.addEventListener("focus", refreshWhenVisible);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      cancelled = true;
-      clearTimer();
-      window.removeEventListener("focus", refreshWhenVisible);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [status, isCancellationRequested, load]);
+    const automationJobId = context?.automationJob?.id;
+    if (!automationJobId) return;
+    return subscribeAutomationJob(automationJobId, () => void load(true));
+  }, [context?.automationJob?.id, load]);
   useEffect(() => {
-    if (!isRunning || isCancellationRequested) return;
+    const refreshOnFocus = () => {
+      if (document.visibilityState === "visible") void load(true);
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    return () => {
+      window.removeEventListener("focus", refreshOnFocus);
+    };
+  }, [load]);
+  useEffect(() => {
     setCurrentTime(Date.now());
-    const timer = window.setInterval(() => setCurrentTime(Date.now()), 30000);
-    return () => window.clearInterval(timer);
-  }, [isRunning, isCancellationRequested, context?.job?.requested_at]);
+  }, [context?.job?.updated_at]);
   const documents = useMemo(
     () => (Array.isArray(context?.documents) ? context!.documents : []),
     [context]
@@ -300,6 +263,7 @@ export function NewBusinessDocumentGeneration({
       setCancellationFailed(false);
       await load(true);
       setIsOpen(false);
+      setShowProgress(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "문서 생성 요청 실패");
     } finally {
@@ -361,7 +325,15 @@ export function NewBusinessDocumentGeneration({
   )
     return null;
   return (
-    <>
+      <>
+        {showProgress && context?.automationJob?.id && (
+          <AutomationProgressModal
+            jobId={context.automationJob.id}
+            title="문서 생성 진행"
+            stages={["요청 전달", "문서 생성", "파일 확인", "완료"]}
+            onClose={() => setShowProgress(false)}
+          />
+        )}
       <div className="flex items-center gap-2">
         {isRunning && (
           <span

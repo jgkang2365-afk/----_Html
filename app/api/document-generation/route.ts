@@ -59,12 +59,19 @@ async function getContext(businessId: number) {
     .limit(1);
   if (error) throw error;
   const job = jobRows?.[0] || null;
+  const { data: automationJob } = job
+    ? await admin.from("automation_jobs").select("id, status, progress_stage, progress_percent, result_code, error_message")
+      .eq("job_type", "DOCUMENT_GENERATION")
+      .contains("request_payload", { document_generation_job_id: job.id })
+      .maybeSingle()
+    : { data: null };
 
   if (!eligible || actualJournal) {
     return {
       eligible,
       hasActualMeasurementJournal: Boolean(actualJournal),
       job,
+      automationJob,
       templates: [],
       documents: [],
       outputPath: null,
@@ -134,6 +141,7 @@ async function getContext(businessId: number) {
     eligible,
     hasActualMeasurementJournal: false,
     job,
+    automationJob,
     templates,
     documents,
     snapshot,
@@ -335,6 +343,14 @@ export async function POST(request: NextRequest) {
           { error: "이미 문서 생성 작업이 진행 중입니다." },
           { status: 409 }
         );
+      if (String(error.message).includes("DOCUMENT_AUTOMATION_ACTIVE_OR_CONFIRM_REQUIRED"))
+        return NextResponse.json(
+          {
+            error: "기존 문서 생성의 파일 게시 효과를 확인해야 새 작업을 시작할 수 있습니다.",
+            errorCode: "DOCUMENT_EFFECT_CONFIRM_REQUIRED",
+          },
+          { status: 409 }
+        );
       if (String(error.message).includes("DOCUMENT_GENERATION_JOURNAL_EXISTS"))
         return NextResponse.json({ error: DOCUMENT_GENERATION_JOURNAL_ERROR }, { status: 409 });
       if (String(error.message).includes("DOCUMENT_GENERATION_NOT_ELIGIBLE"))
@@ -362,7 +378,11 @@ export async function POST(request: NextRequest) {
         );
       throw error;
     }
-    return NextResponse.json({ success: true, job: queued, outputPath: context.outputPath });
+    const legacyJob = Array.isArray(queued) ? queued[0] : queued;
+    if (!legacyJob?.id) throw new Error("DOCUMENT_JOB_QUEUE_EMPTY");
+    // The database trigger creates automation_jobs in this same transaction as
+    // the legacy payload row. Do not enqueue a second path in application code.
+    return NextResponse.json({ success: true, job: legacyJob, outputPath: context.outputPath });
   } catch (error: any) {
     console.error("[DocumentGeneration] 작업 등록 실패:", error?.message || error);
     return NextResponse.json(

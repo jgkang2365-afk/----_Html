@@ -19,6 +19,24 @@ import sys
 from datetime import datetime
 
 
+def classify_journal_guard_result(result):
+    """Classify Guard2 with a fail-closed, unambiguous protocol."""
+    if isinstance(result, dict):
+        # The only normal approval shape is exactly {"allow": True}.
+        if set(result) == {"allow"} and type(result["allow"]) is bool and result["allow"] is True:
+            return "ALLOW"
+        # A journal skip must be explicitly identified and carry no
+        # contradictory/error fields.
+        if (
+            set(result) == {"allow", "reason"}
+            and type(result["allow"]) is bool
+            and result["allow"] is False
+            and result["reason"] == "JOURNAL_REGISTERED"
+        ):
+            return "JOURNAL_REGISTERED"
+    return "GUARD_ERROR"
+
+
 def normalize_contact_phone_suffix(value):
     """공단 화면의 고정 010 선택 상자 뒤에 입력할 가입자 번호만 반환합니다."""
     digits = re.sub(r"\D", "", str(value or ""))
@@ -955,6 +973,30 @@ class HealthProgramAutomation:
         final_apply_button = WebDriverWait(self.driver, 10).until(
             EC.element_to_be_clickable((By.XPATH, final_apply_button_xpath))
         )
+        # Optional local-worker callbacks keep the legacy standalone GUI flow
+        # unchanged while placing both guards at the real irreversible edge.
+        before_final_apply = getattr(self, "before_final_apply", None)
+        if callable(before_final_apply):
+            guard_result = before_final_apply()
+            guard_reason = classify_journal_guard_result(guard_result)
+            guard_allowed = guard_reason == "ALLOW"
+            if not guard_allowed:
+                if guard_reason == "JOURNAL_REGISTERED":
+                    self.update_progress("  -> 측정일지 등록이 확인되어 최종 신청을 중단합니다.")
+                    return "JOURNAL_REGISTERED_SKIP"
+                self.update_progress("  -> 측정일지 Guard2 조회 오류로 최종 신청을 중단합니다.")
+                return "GUARD_ERROR"
+        mark_effect_started = getattr(self, "mark_effect_started", None)
+        if callable(mark_effect_started):
+            effect_result = mark_effect_started()
+            effect_allowed = (
+                effect_result.get("allow") is True
+                if isinstance(effect_result, dict)
+                else effect_result is True
+            )
+            if not effect_allowed:
+                self.update_progress("  -> 신청 effect 경계를 확인하지 못해 최종 신청을 중단합니다.")
+                return "APPLY_RESULT_UNKNOWN"
         final_apply_button.click()
         time.sleep(1.5)
         

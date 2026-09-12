@@ -501,6 +501,8 @@ class DocumentWorkerClient:
         self.token = token
         self.worker_id = worker_id
         self.worker_lease_id = worker_lease_id or str(uuid.uuid4())
+        self.automation_job_ids: dict[str, str] = {}
+        self.effect_started_job_ids: set[str] = set()
 
     def _request(self, path: str, method: str = "GET", body: dict[str, Any] | None = None) -> bytes:
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -528,7 +530,10 @@ class DocumentWorkerClient:
                 },
             )
         )
-        return result.get("job")
+        job = result.get("job")
+        if isinstance(job, dict) and job.get("id") and job.get("automation_job_id"):
+            self.automation_job_ids[str(job["id"])] = str(job["automation_job_id"])
+        return job
 
     def download_template(self, job_id: str, template_id: str, destination: Path) -> None:
         try:
@@ -546,6 +551,9 @@ class DocumentWorkerClient:
             "worker_id": self.worker_id,
             "worker_lease_id": self.worker_lease_id,
         }
+        automation_job_id = self.automation_job_ids.get(str(job_id))
+        if automation_job_id:
+            body["automation_job_id"] = automation_job_id
         if result_files is not None:
             body["result_files"] = result_files
         result = json.loads(
@@ -563,19 +571,40 @@ class DocumentWorkerClient:
     ) -> bool:
         return self.heartbeat(job_id, result_files)
 
+    def mark_effect_started(self, job_id: str) -> None:
+        automation_job_id = self.automation_job_ids.get(str(job_id))
+        if not automation_job_id:
+            raise RuntimeError("문서 공통 automation 작업 ID가 없습니다.")
+        self._request(f"/api/document-worker/jobs/{job_id}/effect-started", "POST", {
+            "worker_id": self.worker_id,
+            "worker_lease_id": self.worker_lease_id,
+            "automation_job_id": automation_job_id,
+        })
+        self.effect_started_job_ids.add(str(job_id))
+
     def recover_cancelled_jobs(self) -> list[dict[str, Any]]:
         result = json.loads(
             self._request("/api/document-worker/jobs/recover-cancelled", "POST", {})
         )
         return list(result.get("recovered") or [])
 
-    def complete(self, job_id: str, status: str, results: list[dict[str, Any]], error_message: str | None) -> None:
+    def complete(
+        self,
+        job_id: str,
+        status: str,
+        results: list[dict[str, Any]],
+        error_message: str | None,
+        automation_job_id: str | None = None,
+        effect_uncertain: bool = False,
+    ) -> None:
         self._request(f"/api/document-worker/jobs/{job_id}/complete", "POST", {
             "worker_id": self.worker_id,
             "worker_lease_id": self.worker_lease_id,
             "status": status,
             "result_files": results,
             "error_message": error_message,
+            "automation_job_id": automation_job_id,
+            "effect_uncertain": effect_uncertain,
         })
 
 
@@ -685,6 +714,17 @@ def checkpoint_job_progress(
         return True, False
 
 
+def mark_final_publish_effect(client: Any, job_id: str) -> None:
+    """Cross the common-job effect boundary immediately before final publish."""
+    marker = getattr(client, "mark_effect_started", None)
+    if callable(marker):
+        marker(job_id)
+
+
+def effect_started_for_job(client: Any, job_id: str) -> bool:
+    return str(job_id) in set(getattr(client, "effect_started_job_ids", set()))
+
+
 def cancelled_document_result(
     document_type: str, dynamic_documents: dict[str, dict[str, Any]]
 ) -> dict[str, Any]:
@@ -766,6 +806,7 @@ def process_job(
         temporary_root = Path(temporary)
         for document_index, document_type in enumerate(selected):
             result: dict[str, Any] = {"document_type": document_type, "status": "FAILED"}
+            publish_effect_started = False
             dynamic_document = dynamic_documents.get(document_type)
             if dynamic_document:
                 result.update(
@@ -860,11 +901,15 @@ def process_job(
                     if not working_file.exists() or working_file.stat().st_size <= 0:
                         raise RuntimeError("저장 검증에 실패했습니다.")
                     raise_if_job_cancellation_requested(client, job_id)
+                    mark_final_publish_effect(client, job_id)
+                    publish_effect_started = True
                     destination = publish_file(
                         working_file,
                         final_folder / working_file.name,
                         overwrite=document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES,
                     )
+                    if not destination.exists() or destination.stat().st_size <= 0 or destination.name != working_file.name:
+                        raise RuntimeError("최종 게시 파일 검증에 실패했습니다.")
                     result.update(
                         {
                             "input_fields": [
@@ -873,6 +918,7 @@ def process_job(
                             "status": "COMPLETED",
                             "filename": destination.name,
                             "path": str(destination),
+                            "size_bytes": destination.stat().st_size,
                         }
                     )
                     results.append(result)
@@ -920,12 +966,16 @@ def process_job(
                 if not working_file.exists() or working_file.stat().st_size <= 0:
                     raise RuntimeError("저장 검증에 실패했습니다.")
                 raise_if_job_cancellation_requested(client, job_id)
+                mark_final_publish_effect(client, job_id)
+                publish_effect_started = True
                 destination = publish_file(
                     working_file,
                     final_folder / working_file.name,
                     overwrite=document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES,
                 )
-                result.update({"status": "COMPLETED", "filename": destination.name, "path": str(destination)})
+                if not destination.exists() or destination.stat().st_size <= 0 or destination.name != working_file.name:
+                    raise RuntimeError("최종 게시 파일 검증에 실패했습니다.")
+                result.update({"status": "COMPLETED", "filename": destination.name, "path": str(destination), "size_bytes": destination.stat().st_size})
             except DocumentGenerationCancelled:
                 result.update(
                     {
@@ -941,6 +991,11 @@ def process_job(
                 break
             except Exception as error:
                 result["error"] = str(error)
+                if publish_effect_started or effect_started_for_job(client, job_id):
+                    # A final destination publish may have happened before the
+                    # exception.  The terminal RPC will normalise this to
+                    # CONFIRM_REQUIRED rather than blindly retrying it.
+                    result["effect_uncertain"] = True
                 LOGGER.exception("문서 생성 실패 job=%s type=%s", job.get("id"), document_type)
             results.append(result)
             checkpoint_supported, cancellation_requested = (
@@ -997,8 +1052,21 @@ def process_next_queued_job(client: DocumentWorkerClient, output_root: Path) -> 
             return None
         job_id = str(job["id"])
         with JobLeaseHeartbeat(client, job_id):
-            status, results, error_message = process_job(job, client, output_root)
-            client.complete(job_id, status, results, error_message)
+            try:
+                status, results, error_message = process_job(job, client, output_root)
+                effect_uncertain = any(bool(result.get("effect_uncertain")) for result in results)
+            except Exception as error:
+                LOGGER.exception("문서 작업 예외로 terminal ACK 복구 job=%s", job_id)
+                status, results, error_message = "FAILED", [], str(error)
+                # Only a confirmed final-publish boundary can make an
+                # interrupted document uncertain.  Pre-effect failures retry
+                # as FAILED instead of being mislabeled CONFIRM_REQUIRED.
+                effect_uncertain = effect_started_for_job(client, job_id)
+            client.complete(
+                job_id, status, results, error_message,
+                str(job.get("automation_job_id") or "") or None,
+                effect_uncertain,
+            )
         LOGGER.info("작업 완료 id=%s status=%s", job.get("id"), status)
         return str(job["id"])
     finally:
@@ -1085,13 +1153,16 @@ def run_worker(once: bool = False) -> int:
         os.environ.get("SUPABASE_REALTIME_KEY")
         or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
     )
-    if realtime_enabled and (not supabase_url or not realtime_key):
+    if not realtime_enabled:
+        LOGGER.error("DOCUMENT_WORKER_REALTIME_ENABLED=0은 일반 실행에서 지원하지 않습니다. --once 디버그 모드만 사용하세요.")
+        return 2
+    if not supabase_url or not realtime_key:
         LOGGER.error(
-            "Realtime 환경변수가 부족하여 6시간 PENDING queue 안전 확인 전용으로 실행합니다. "
+            "Realtime 환경변수가 부족하여 Document Worker를 시작할 수 없습니다. "
             "SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL 및 "
             "SUPABASE_REALTIME_KEY/NEXT_PUBLIC_SUPABASE_ANON_KEY를 확인하세요."
         )
-        realtime_enabled = False
+        return 2
 
     settings = RealtimeSettings(
         enabled=realtime_enabled,
@@ -1111,16 +1182,12 @@ def run_worker(once: bool = False) -> int:
     )
     LOGGER.info("PENDING queue 안전 확인 주기: 6시간 (%s초)", recovery_poll_seconds)
 
-    recovery_monitor = CancelledJobRecoveryMonitor(client)
-    recovery_monitor.start()
     coordinator = ClaimCoordinator(process_next)
     runtime = DocumentWorkerRuntime(coordinator, settings)
     try:
         asyncio.run(runtime.run())
     except KeyboardInterrupt:
         LOGGER.info("종료 신호 수신. Realtime과 현재 작업을 정리합니다.")
-    finally:
-        recovery_monitor.stop()
     return 0
 
 def main() -> int:

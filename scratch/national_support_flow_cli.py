@@ -43,6 +43,16 @@ def print_log(message):
     sys.stderr.flush()
 
 
+def worker_boundary(event):
+    """Synchronously ask the local Node worker before a sensitive GUI boundary."""
+    print(json.dumps({"event": event}, ensure_ascii=False), flush=True)
+    try:
+        response = json.loads(sys.stdin.readline() or "{}")
+    except json.JSONDecodeError:
+        response = {}
+    return response
+
+
 def normalize_representative(value):
     representative = str(value or "").strip().split(",", 1)[0].strip()
     return re.sub(r"외\s*\d*\s*(인|명|)", "", representative).strip()
@@ -209,6 +219,8 @@ def apply_with_driver(
     automation.driver = driver
     automation.update_progress = print_log
     driver.get(APPLICATION_URL)
+    automation.before_final_apply = lambda: worker_boundary("journal_guard_before_apply")
+    automation.mark_effect_started = lambda: worker_boundary("effect_started")
     legacy_result = automation._process_application(
         0,
         re.sub(r"\D", "", str(sanjae or "")),
@@ -228,6 +240,8 @@ def apply_with_driver(
         "EMPLOYEE_CHECK_FAILED": "EMPLOYEE_CHECK_FAILED",
         "YEAR_CHECK_REQUIRED": "YEAR_CHECK_REQUIRED",
         "APPLY_RESULT_UNKNOWN": "APPLY_RESULT_UNKNOWN",
+        "JOURNAL_REGISTERED_SKIP": "JOURNAL_REGISTERED_SKIP",
+        "GUARD_ERROR": "GUARD_ERROR",
         "ALREADY_APPLIED": "ALREADY_APPLIED",
     }.get(legacy_result, "FAIL")
 

@@ -187,43 +187,60 @@ test("orphan recovery는 게시 완료 checkpoint가 있으면 PARTIAL_SUCCESS�
   assert.match(migration, /THEN 'PARTIAL_SUCCESS'\s+ELSE 'CANCELLED'/);
 });
 
-test("사용자 취소 API는 PENDING과 PROCESSING을 조건부 갱신하고 종료 결과는 보존한다", () => {
+test("사용자 취소 API는 공통·레거시 원자 RPC만 호출한다", () => {
   const route = readFileSync("app/api/document-generation/jobs/[jobId]/cancel/route.ts", "utf8");
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
   assert.match(route, /checkPermission\("journal:write"\)/);
-  assert.match(route, /status: "CANCELLED"/);
-  assert.match(route, /\.eq\("status", "PENDING"\)/);
-  assert.match(route, /\.eq\("status", "PROCESSING"\)/);
-  assert.match(route, /\.is\("cancel_requested_at", null\)/);
+  assert.match(route, /rpc\("cancel_document_automation_job"/);
   assert.match(route, /recover_cancelled_document_generation_jobs/);
-  assert.match(route, /already_terminal/);
-  assert.doesNotMatch(route, /error_message:\s*.*cancel/i);
+  assert.doesNotMatch(route, /\.update\(/);
+  assert.match(migration, /DOCUMENT_AUTOMATION_CANCEL_STATE_MISMATCH/);
+  assert.match(migration, /REVOKE ALL ON FUNCTION public\.cancel_document_automation_job\(UUID,BIGINT\)/);
 });
 
-test("Worker heartbeat는 기존 token과 Job별 lease 소유권을 검증한다", () => {
+test("Worker heartbeat는 common/legacy lease를 하나의 ownership RPC로 갱신한다", () => {
   const route = readFileSync("app/api/document-worker/jobs/[id]/cancel-status/route.ts", "utf8");
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
   assert.match(route, /isAuthorizedDocumentWorker/);
-  assert.match(route, /renew_document_generation_job_lease/);
+  assert.match(route, /renew_document_automation_job_lease/);
+  assert.match(route, /p_automation_job_id: automationJobId/);
   assert.match(route, /p_worker_lease_id: workerLeaseId/);
   assert.match(route, /p_result_files: Array\.isArray\(body\.result_files\)/);
-  assert.match(route, /\.eq\("worker_id", workerId\)/);
-  assert.match(route, /\.eq\("worker_lease_id", workerLeaseId\)/);
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.renew_document_automation_job_lease/);
+  assert.match(migration, /job\.worker_id = p_worker_id/);
+  assert.match(migration, /job\.worker_lease_id = p_worker_lease_id/);
+  assert.match(migration, /job\.status IN \('RUNNING', 'CANCEL_REQUESTED'\)/);
 });
 
-test("Worker 완료 API는 취소 결과와 일부 성공을 기록하고 PROCESSING 소유권 race를 보호한다", () => {
+test("Worker 완료 API는 common/legacy terminal을 원자적으로 기록하고 stale overwrite를 막는다", () => {
   const route = readFileSync("app/api/document-worker/jobs/[id]/complete/route.ts", "utf8");
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
   assert.match(route, /"CANCELLED"/);
-  assert.match(route, /resultFiles\.some/);
-  assert.match(route, /cancelled_at: cancellationHandled \? completedAt : null/);
-  assert.match(route, /\.eq\("status", "PROCESSING"\)/);
-  assert.match(route, /\.eq\("worker_id"/);
-  assert.match(route, /\.eq\("worker_lease_id", workerLeaseId\)/);
+  assert.match(route, /complete_document_automation_job/);
+  assert.match(route, /p_effect_uncertain: effectUncertain/);
+  assert.match(migration, /DOCUMENT_LEGACY_TERMINAL_NOT_OWNED/);
+  assert.match(migration, /DOCUMENT_AUTOMATION_TERMINAL_NOT_OWNED/);
+  assert.match(migration, /worker_id = p_worker_id AND worker_lease_id = p_worker_lease_id/);
+  assert.match(migration, /status IN \('RUNNING', 'CANCEL_REQUESTED'\)/);
 });
 
-test("claim과 orphan recovery API는 Worker token 경계와 lease RPC를 유지한다", () => {
+test("부분 publish는 legacy PARTIAL_SUCCESS와 common CONFIRM_REQUIRED를 분리한다", () => {
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
+  const fnStart = migration.indexOf("CREATE OR REPLACE FUNCTION public.complete_document_automation_job");
+  const fnEnd = migration.indexOf("CREATE OR REPLACE FUNCTION public.mark_document_automation_effect_started", fnStart);
+  const fn = migration.slice(fnStart, fnEnd);
+  assert.match(fn, /confirmed_effect BOOLEAN/);
+  assert.match(fn, /file->>'status' = 'COMPLETED'/);
+  assert.match(fn, /WHEN p_effect_uncertain THEN 'CONFIRM_REQUIRED'[\s\S]*WHEN safe_complete THEN 'COMPLETED'[\s\S]*WHEN confirmed_effect THEN 'CONFIRM_REQUIRED'[\s\S]*WHEN p_legacy_status = 'CANCELLED' THEN 'CANCELLED'/);
+  assert.match(fn, /result_code = CASE WHEN safe_complete THEN 'DOCUMENT_FILES_CONFIRMED'[\s\S]*WHEN common_status = 'CONFIRM_REQUIRED' THEN 'DOCUMENT_EFFECT_UNCERTAIN'/);
+});
+
+test("claim과 orphan recovery API는 Worker token 경계와 atomic Document claim RPC를 유지한다", () => {
   const claim = readFileSync("app/api/document-worker/jobs/claim/route.ts", "utf8");
   const recovery = readFileSync("app/api/document-worker/jobs/recover-cancelled/route.ts", "utf8");
   assert.match(claim, /isAuthorizedDocumentWorker/);
-  assert.match(claim, /p_worker_lease_id: workerLeaseId/);
+  assert.match(claim, /claim_next_document_automation_job/);
+  assert.match(claim, /claim_next_document_automation_job/);
   assert.match(recovery, /isAuthorizedDocumentWorker/);
   assert.match(recovery, /recover_cancelled_document_generation_jobs/);
 });
@@ -338,21 +355,18 @@ test("Node WorkerDaemon은 background_jobs adaptive backoff와 별도 stale watc
   assert.doesNotMatch(source, /document-worker\/jobs\/claim/);
 });
 
-test("Realtime은 개인정보 없는 pending INSERT 신호만 구독하고 claim API를 유지한다", () => {
+test("Realtime은 개인정보 없는 common signal을 구독하고 common claim API를 유지한다", () => {
   const runtime = readFileSync("document_worker_realtime.py", "utf8");
-  const migration = readFileSync(
-    "supabase/migrations/20260719_add_document_worker_realtime_wakeup.sql",
-    "utf8"
-  );
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
   const claimRoute = readFileSync("app/api/document-worker/jobs/claim/route.ts", "utf8");
   assert.match(runtime, /event="INSERT"/);
   assert.match(runtime, /filter=REALTIME_FILTER/);
-  assert.match(runtime, /document_job_pending_signals/);
+  assert.match(runtime, /automation_job_signals/);
   assert.match(migration, /AFTER INSERT ON public.document_generation_jobs/);
-  assert.match(migration, /CREATE TABLE IF NOT EXISTS public.document_job_pending_signals/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public.automation_job_signals/);
   assert.doesNotMatch(migration, /realtime.send/);
   assert.doesNotMatch(migration, /ADD TABLE public.document_generation_jobs/);
-  assert.match(claimRoute, /claim_next_document_generation_job/);
+  assert.match(claimRoute, /claim_next_document_automation_job/);
 });
 
 test("Worker 로그와 Realtime 설정은 비밀값을 출력하지 않는다", () => {
