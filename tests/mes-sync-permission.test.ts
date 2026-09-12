@@ -19,8 +19,11 @@ test("측정 외 직무 또는 직무 미설정 사용자는 실행할 수 없�
 });
 
 test("MES 미등록 점검은 동일 연도·주기의 전체 등록분을 생성일 제한 없이 조회한다", () => {
-  const source = readFileSync("lib/scheduler/background-tasks.ts", "utf8");
-  assert.match(source, /\.in\("year", surveyYears\)/);
-  assert.match(source, /\.in\("period", surveyPeriods\)/);
-  assert.doesNotMatch(source, /\.gte\("created_at",/);
+  const migration = readFileSync("supabase/migrations/20260911025729_automation_jobs_common_v1.sql", "utf8");
+  const check = migration.slice(
+    migration.indexOf("CREATE OR REPLACE FUNCTION public.run_mes_final_post_sync_check"),
+    migration.indexOf("CREATE OR REPLACE FUNCTION public.enqueue_mes_final_post_sync_check"),
+  );
+  assert.match(check, /m\.year = s\.year AND trim\(m\.period\) = trim\(s\.period\)/);
+  assert.doesNotMatch(check, /m\.created_at/);
 });

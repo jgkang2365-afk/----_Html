@@ -132,8 +132,11 @@ test("MES effect event is streamed before upload confirmation and classifies fai
   const daemon = fs.readFileSync(path.join(process.cwd(), "mes_daemon.py"), "utf8");
   const download = fs.readFileSync(path.join(process.cwd(), "mes_download.py"), "utf8");
   const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
-  assert.match(download, /AUTOMATION_EVENT:effect_started/);
+  assert.match(download, /AUTOMATION_EVENT:effect_start_request/);
+  assert.match(download, /permission\.get\("allow"\) is not True/);
   assert.match(daemon, /stderr=subprocess\.STDOUT/);
+  assert.match(daemon, /effect_started_at=now\(\)[\s\S]*allowed = True/);
+  assert.match(daemon, /process\.stdin\.write\(json\.dumps\(\{"allow": allowed\}\)/);
   assert.match(daemon, /output_reader/);
   assert.match(daemon, /CANCEL_REQUESTED_BEFORE_EFFECT/);
   assert.match(daemon, /MES_EFFECT_UNCERTAIN/);
@@ -161,12 +164,56 @@ test("MES manual and scheduled requests use one active execution lane", () => {
   assert.match(dashboard, /mesRequestIdRef\.current = null/);
 });
 
-test("14:00 MES post-sync action is coupled to the verified terminal transition", () => {
+test("14:00 MES post-sync action is enqueued once by the verified terminal transition", () => {
   const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
-  assert.match(migration, /trigger_mes_final_post_sync_check/);
-  assert.match(migration, /OLD\.status <> 'COMPLETED' AND NEW\.status = 'COMPLETED'/);
+  assert.match(migration, /enqueue_mes_final_post_sync_check/);
+  assert.match(migration, /OLD\.status = 'RUNNING' AND NEW\.status = 'COMPLETED'/);
   assert.match(migration, /NEW\.job_type = 'MES_SYNC'/);
-  assert.match(migration, /NEW\.request_payload->>'final_check'/);
-  assert.match(migration, /NEW\.result_payload->>'syncSuccess'/);
+  assert.match(migration, /NEW\.request_payload @> '\{"trigger":"scheduled","slot":"14:00","final_check":true\}'/);
+  assert.match(migration, /NEW\.result_payload @> '\{"syncSuccess":true\}'/);
+  assert.match(migration, /ON CONFLICT \(idempotency_key\) DO NOTHING/);
+  assert.match(migration, /process_mes_post_sync_checks/);
   assert.match(migration, /INSERT INTO public\.notifications/);
+});
+
+test("MES 후속 작업은 공통 스키마와 ACL·Realtime 비공개 경계를 유지한다", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  const section = migration.slice(migration.indexOf("CREATE OR REPLACE FUNCTION public.run_mes_final_post_sync_check"));
+  assert.match(migration, /status TEXT NOT NULL DEFAULT 'PENDING'/);
+  assert.match(migration, /request_payload JSONB NOT NULL DEFAULT '\{\}'::jsonb/);
+  assert.match(migration, /available_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP/);
+  assert.match(migration, /CONSTRAINT automation_jobs_idempotency_key_unique UNIQUE \(idempotency_key\)/);
+  assert.match(migration, /REVOKE ALL ON TABLE public\.automation_jobs FROM anon, authenticated/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.automation_job_signals \([\s\S]*?result_code TEXT,[\s\S]*?\);/);
+  const signals = migration.slice(migration.indexOf("CREATE TABLE IF NOT EXISTS public.automation_job_signals"), migration.indexOf("ALTER TABLE public.automation_job_signals"));
+  assert.doesNotMatch(signals, /request_payload|result_payload|error_message|requested_by/);
+  for (const name of ["run_mes_final_post_sync_check(UUID)", "enqueue_mes_final_post_sync_check()", "process_mes_post_sync_checks(INTEGER)"]) {
+    assert.ok(section.includes(`REVOKE ALL ON FUNCTION public.${name} FROM PUBLIC`));
+  }
+  assert.match(section, /GRANT EXECUTE ON FUNCTION public\.process_mes_post_sync_checks\(INTEGER\) TO service_role/);
+  assert.doesNotMatch(section, /GRANT EXECUTE ON FUNCTION public\.process_mes_post_sync_checks\(INTEGER\) TO (?:anon|authenticated)/);
+  assert.equal((section.match(/SECURITY DEFINER SET search_path = public/g) ?? []).length, 3);
+  assert.match(section, /WHERE job_type = 'MES_POST_SYNC_CHECK' AND status = 'PENDING'/);
+  assert.match(section, /FOR UPDATE SKIP LOCKED LIMIT p_limit/);
+  assert.match(section, /EXCEPTION WHEN OTHERS THEN[\s\S]*status=CASE WHEN attempts >= 3 THEN 'FAILED' ELSE 'PENDING' END/);
+});
+
+test("건강디딤돌 종료와 호환 표시값은 소유권 경계에서 원자 갱신하고 follow-up 경로를 보존한다", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/local-automation-worker.ts"), "utf8");
+  const terminal = migration.slice(migration.indexOf("CREATE OR REPLACE FUNCTION public.complete_national_support_automation_job"), migration.indexOf("REVOKE ALL ON FUNCTION public.complete_national_support_automation_job"));
+  const followup = migration.slice(migration.indexOf("CREATE OR REPLACE FUNCTION public.complete_automation_job_with_followup"), migration.indexOf("REVOKE ALL ON FUNCTION public.complete_automation_job_with_followup"));
+  for (const sql of [terminal, followup]) {
+    assert.match(sql, /job_type='NATIONAL_SUPPORT'/);
+    assert.match(sql, /worker_id=p_worker_id/);
+    assert.match(sql, /request_payload->>'target_id'=p_target_id::text/);
+    assert.match(sql, /UPDATE public\.measurement_target_business/);
+    assert.match(sql, /SET search_path = public/);
+  }
+  assert.match(terminal, /status='RUNNING'/);
+  assert.match(terminal, /NATIONAL_SUPPORT_TERMINAL_NOT_OWNED/);
+  assert.match(followup, /INSERT INTO public\.automation_jobs/);
+  assert.match(worker, /rpc\("complete_national_support_automation_job"/);
+  assert.match(worker, /rpc\("complete_automation_job_with_followup"/);
+  assert.doesNotMatch(worker, /projectCompatibility|projectFailure/);
 });

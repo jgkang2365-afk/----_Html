@@ -298,7 +298,8 @@ BEGIN
     result_payload=coalesce(p_result_payload,'{}'::jsonb), progress_percent=100,
     progress_stage='결과 확인', effect_confirmed_at=CURRENT_TIMESTAMP,
     finished_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
-  WHERE id=p_job_id AND worker_id=p_worker_id AND status='RUNNING'
+  WHERE id=p_job_id AND job_type='NATIONAL_SUPPORT' AND worker_id=p_worker_id AND status='RUNNING'
+    AND request_payload->>'target_id'=p_target_id::text
   RETURNING * INTO completed;
   IF NOT FOUND THEN RAISE EXCEPTION 'AUTOMATION_TERMINAL_NOT_OWNED'; END IF;
   UPDATE public.measurement_target_business
@@ -313,6 +314,45 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.complete_automation_job_with_followup(UUID,TEXT,TEXT,JSONB,TEXT,JSONB,TIMESTAMPTZ,BIGINT,TEXT,TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.complete_automation_job_with_followup(UUID,TEXT,TEXT,JSONB,TEXT,JSONB,TIMESTAMPTZ,BIGINT,TEXT,TEXT) TO service_role;
+
+-- Non-follow-up Health terminal and compatibility projection share one
+-- ownership-bound transaction.  A missing target or stale owner rolls both
+-- updates back, rather than leaving a terminal job with an old UI status.
+CREATE OR REPLACE FUNCTION public.complete_national_support_automation_job(
+  p_job_id UUID, p_worker_id TEXT, p_status TEXT, p_result_code TEXT,
+  p_result_payload JSONB, p_error_code TEXT, p_error_message TEXT,
+  p_target_id BIGINT, p_sync_status TEXT, p_sync_error_message TEXT,
+  p_effect_confirmed BOOLEAN DEFAULT FALSE
+) RETURNS public.automation_jobs
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE completed public.automation_jobs;
+BEGIN
+  IF p_status IS NULL OR p_status NOT IN ('COMPLETED','FAILED','CONFIRM_REQUIRED') OR
+     p_sync_status IS NULL OR p_sync_status NOT IN ('성공','조회대기','비대상대기','확인대기','신청완료대기','수동확인필요','실패') THEN
+    RAISE EXCEPTION 'NATIONAL_SUPPORT_TERMINAL_ARGUMENT_INVALID';
+  END IF;
+  UPDATE public.automation_jobs job SET status=p_status,
+    result_code=p_result_code, result_payload=p_result_payload,
+    error_code=p_error_code, error_message=p_error_message,
+    progress_stage=CASE p_status WHEN 'FAILED' THEN '조회 실패'
+      WHEN 'CONFIRM_REQUIRED' THEN '외부 효과 확인 필요' ELSE '결과 확인' END,
+    progress_percent=100, finished_at=CURRENT_TIMESTAMP,
+    effect_confirmed_at=CASE WHEN p_effect_confirmed THEN CURRENT_TIMESTAMP ELSE job.effect_confirmed_at END,
+    updated_at=CURRENT_TIMESTAMP
+  WHERE job.id=p_job_id AND job.job_type='NATIONAL_SUPPORT'
+    AND job.worker_id=p_worker_id AND job.status='RUNNING'
+    AND job.request_payload->>'target_id'=p_target_id::text
+  RETURNING job.* INTO completed;
+  IF NOT FOUND THEN RAISE EXCEPTION 'NATIONAL_SUPPORT_TERMINAL_NOT_OWNED'; END IF;
+  UPDATE public.measurement_target_business target
+  SET sync_status=p_sync_status, sync_error_message=p_sync_error_message,
+    updated_at=CURRENT_TIMESTAMP
+  WHERE target.id=p_target_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'NATIONAL_SUPPORT_TARGET_NOT_FOUND'; END IF;
+  RETURN completed;
+END $$;
+REVOKE ALL ON FUNCTION public.complete_national_support_automation_job(UUID,TEXT,TEXT,TEXT,JSONB,TEXT,TEXT,BIGINT,TEXT,TEXT,BOOLEAN) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.complete_national_support_automation_job(UUID,TEXT,TEXT,TEXT,JSONB,TEXT,TEXT,BIGINT,TEXT,TEXT,BOOLEAN) TO service_role;
 
 -- MES reports progress, effect boundaries, and terminal state through this
 -- ownership-checked RPC.  A worker that lost its lease (or was superseded by
@@ -748,25 +788,40 @@ BEGIN
 END;
 $$;
 
--- The 14:00 MES final check is a server-side, transaction-coupled post action.
--- It is deliberately triggered only by the one successful terminal transition,
--- never by the scheduler enqueue, a timer, or a worker-side GUI decision.
+-- The 14:00 MES final check is a separate durable DB-only action.
+-- Its terminal trigger only enqueues work; notification failures do not change MES.
 CREATE OR REPLACE FUNCTION public.run_mes_final_post_sync_check(p_job_id UUID)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE names TEXT[];
 DECLARE message TEXT;
+DECLARE parent public.automation_jobs;
 BEGIN
+  SELECT * INTO parent FROM public.automation_jobs WHERE id = p_job_id
+    AND job_type = 'MES_SYNC' AND status = 'COMPLETED'
+    AND request_payload @> '{"trigger":"scheduled","slot":"14:00","final_check":true}'::jsonb
+    AND result_payload @> '{"syncSuccess":true}'::jsonb;
+  IF NOT FOUND THEN RAISE EXCEPTION 'MES_POST_SYNC_PARENT_INVALID'; END IF;
   SELECT array_agg(s.business_name ORDER BY s.business_name) INTO names
   FROM public.preliminary_survey s
-  WHERE s.measurement_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
-    AND s.year IS NOT NULL AND trim(coalesce(s.period,'')) <> ''
+  WHERE s.measurement_date = (parent.finished_at AT TIME ZONE 'Asia/Seoul')::date
+    AND s.year IS NOT NULL AND s.year > 0 AND trim(coalesce(s.period,'')) <> ''
     AND NOT EXISTS (
       SELECT 1 FROM public.measurement_business m
-      WHERE m.year = s.year AND m.period = s.period AND (
+      WHERE m.year = s.year AND trim(m.period) = trim(s.period) AND (
         (nullif(trim(s.code),'') IS NOT NULL AND trim(m.code) = trim(s.code)) OR
-        (nullif(trim(s.business_name),'') IS NOT NULL AND
-          replace(replace(replace(coalesce(m.business_name,''),' ',''),'(주)',''),'주식회사','')
-          LIKE '%' || replace(replace(replace(trim(s.business_name),' ',''),'(주)',''),'주식회사','') || '%')
+        (nullif(replace(replace(regexp_replace(coalesce(s.business_name,''), '[[:space:]]+', '', 'g'),'(주)',''),'주식회사',''),'') IS NOT NULL
+         AND nullif(replace(replace(regexp_replace(coalesce(m.business_name,''), '[[:space:]]+', '', 'g'),'(주)',''),'주식회사',''),'') IS NOT NULL AND (
+          replace(replace(regexp_replace(coalesce(m.business_name,''), '[[:space:]]+', '', 'g'),'(주)',''),'주식회사','')
+            = replace(replace(regexp_replace(coalesce(s.business_name,''), '[[:space:]]+', '', 'g'),'(주)',''),'주식회사','') OR
+          strpos(
+            replace(replace(regexp_replace(coalesce(m.business_name,''), '[[:space:]]+', '', 'g'),'(주)',''),'주식회사',''),
+            replace(replace(regexp_replace(coalesce(s.business_name,''), '[[:space:]]+', '', 'g'),'(주)',''),'주식회사','')
+          ) > 0 OR
+          strpos(
+            replace(replace(regexp_replace(coalesce(s.business_name,''), '[[:space:]]+', '', 'g'),'(주)',''),'주식회사',''),
+            replace(replace(regexp_replace(coalesce(m.business_name,''), '[[:space:]]+', '', 'g'),'(주)',''),'주식회사','')
+          ) > 0
+        ))
       )
     );
   IF coalesce(array_length(names,1),0) = 0 THEN RETURN; END IF;
@@ -776,14 +831,17 @@ BEGIN
   SELECT id, 'mes_sync_warning', message, false FROM public.users WHERE is_journal_manager = true;
 END;
 $$;
-CREATE OR REPLACE FUNCTION public.trigger_mes_final_post_sync_check()
+CREATE OR REPLACE FUNCTION public.enqueue_mes_final_post_sync_check()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF OLD.status <> 'COMPLETED' AND NEW.status = 'COMPLETED'
+  IF OLD.status = 'RUNNING' AND NEW.status = 'COMPLETED'
     AND NEW.job_type = 'MES_SYNC'
-    AND coalesce((NEW.request_payload->>'final_check')::boolean,false)
-    AND coalesce((NEW.result_payload->>'syncSuccess')::boolean,false) THEN
-    PERFORM public.run_mes_final_post_sync_check(NEW.id);
+    AND NEW.request_payload @> '{"trigger":"scheduled","slot":"14:00","final_check":true}'::jsonb
+    AND NEW.result_payload @> '{"syncSuccess":true}'::jsonb THEN
+    INSERT INTO public.automation_jobs(job_type,idempotency_key,target_key,request_payload)
+    VALUES ('MES_POST_SYNC_CHECK', 'mes-post-sync:' || NEW.id::text,
+      'mes-post-sync:' || NEW.id::text, jsonb_build_object('parent_job_id', NEW.id))
+    ON CONFLICT (idempotency_key) DO NOTHING;
   END IF;
   RETURN NEW;
 END;
@@ -791,6 +849,42 @@ $$;
 DROP TRIGGER IF EXISTS trg_mes_final_post_sync_check ON public.automation_jobs;
 CREATE TRIGGER trg_mes_final_post_sync_check
 AFTER UPDATE OF status ON public.automation_jobs
-FOR EACH ROW EXECUTE FUNCTION public.trigger_mes_final_post_sync_check();
+FOR EACH ROW EXECUTE FUNCTION public.enqueue_mes_final_post_sync_check();
 REVOKE ALL ON FUNCTION public.run_mes_final_post_sync_check(UUID) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.trigger_mes_final_post_sync_check() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.enqueue_mes_final_post_sync_check() FROM PUBLIC;
+
+-- Server-only drain.  Each notification attempt uses an exception
+-- subtransaction: partial inserts roll back, and the MES parent stays terminal.
+CREATE OR REPLACE FUNCTION public.process_mes_post_sync_checks(p_limit INTEGER DEFAULT 10)
+RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE action public.automation_jobs;
+DECLARE attempts INTEGER;
+DECLARE processed INTEGER := 0;
+BEGIN
+  IF p_limit < 1 OR p_limit > 100 THEN RAISE EXCEPTION 'MES_POST_SYNC_LIMIT_INVALID'; END IF;
+  FOR action IN SELECT * FROM public.automation_jobs
+    WHERE job_type = 'MES_POST_SYNC_CHECK' AND status = 'PENDING'
+      AND available_at <= CURRENT_TIMESTAMP
+    ORDER BY created_at, id FOR UPDATE SKIP LOCKED LIMIT p_limit
+  LOOP
+    attempts := coalesce((action.result_payload->>'attempts')::INTEGER, 0) + 1;
+    BEGIN
+      PERFORM public.run_mes_final_post_sync_check((action.request_payload->>'parent_job_id')::UUID);
+      UPDATE public.automation_jobs SET status='COMPLETED', progress_stage='최종 점검 완료',
+        progress_percent=100, result_code='MES_POST_SYNC_CHECKED',
+        result_payload=jsonb_build_object('attempts',attempts), finished_at=CURRENT_TIMESTAMP,
+        updated_at=CURRENT_TIMESTAMP WHERE id=action.id;
+    EXCEPTION WHEN OTHERS THEN
+      UPDATE public.automation_jobs SET status=CASE WHEN attempts >= 3 THEN 'FAILED' ELSE 'PENDING' END,
+        available_at=CURRENT_TIMESTAMP + (attempts * INTERVAL '5 minutes'),
+        progress_stage='최종 점검 재시도 대기', error_code=SQLSTATE,
+        error_message=left(SQLERRM,1000), result_payload=jsonb_build_object('attempts',attempts),
+        finished_at=CASE WHEN attempts >= 3 THEN CURRENT_TIMESTAMP ELSE NULL END,
+        updated_at=CURRENT_TIMESTAMP WHERE id=action.id;
+    END;
+    processed := processed + 1;
+  END LOOP;
+  RETURN processed;
+END $$;
+REVOKE ALL ON FUNCTION public.process_mes_post_sync_checks(INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.process_mes_post_sync_checks(INTEGER) TO service_role;

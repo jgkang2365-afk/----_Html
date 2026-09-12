@@ -222,6 +222,15 @@ export async function POST(request: NextRequest) {
       requestedBy: Number(user.id),
     });
 
+    // The target lane may return another user's or a scheduled active job.
+    // Neither its identifier nor its payload belongs in this response.
+    if (automationJob.requested_by !== Number(user.id)) {
+      return NextResponse.json({
+        error: "다른 건강디딤돌 작업이 진행 중입니다.",
+        errorCode: "NATIONAL_SUPPORT_ALREADY_RUNNING",
+      }, { status: 409 });
+    }
+
     return NextResponse.json({
       success: true,
       message: jobMode === "apply_if_missing"

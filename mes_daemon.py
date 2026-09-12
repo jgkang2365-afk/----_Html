@@ -14,6 +14,7 @@ import threading
 import queue
 import time
 import traceback
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -108,7 +109,8 @@ class MesWorker:
             [sys.executable, str(script_path)], cwd=str(ROOT_DIR), stdout=subprocess.PIPE,
             # A single streamed pipe prevents an unread stderr buffer from
             # deadlocking a noisy child while preserving every line as UTF-8.
-            stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+            stderr=subprocess.STDOUT, stdin=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
         )
         output: list[str] = []
         output_queue: queue.Queue[str | None] = queue.Queue()
@@ -120,6 +122,21 @@ class MesWorker:
         output_reader = threading.Thread(target=read_output, daemon=True)
         output_reader.start()
         effect_started = False
+        def approve_effect_start() -> None:
+            nonlocal effect_started
+            allowed = False
+            try:
+                if not self.cancel_requested.is_set():
+                    self.update(str(self.current_job_id), effect_started_at=now(), progress_stage="DB 업로드 전송", progress_percent=70)
+                    allowed = True
+            finally:
+                if process.stdin is not None:
+                    process.stdin.write(json.dumps({"allow": allowed}) + "\n")
+                    process.stdin.flush()
+            if not allowed:
+                raise RuntimeError("MES_EFFECT_PERMISSION_DENIED")
+            effect_started = True
+            self.current_job_effect_started = True
         started = time.monotonic()
         last_lease_renewal = started
         while process.poll() is None:
@@ -127,10 +144,8 @@ class MesWorker:
                 line = output_queue.get_nowait()
                 if line is None: continue
                 output.append(line)
-                if line.strip() == "AUTOMATION_EVENT:effect_started" and not effect_started:
-                    effect_started = True
-                    self.current_job_effect_started = True
-                    self.update(str(self.current_job_id), effect_started_at=now(), progress_stage="DB 업로드 전송", progress_percent=70)
+                if line.strip() == "AUTOMATION_EVENT:effect_start_request":
+                    approve_effect_start()
             if time.monotonic() - last_lease_renewal >= LEASE_HEARTBEAT_SECONDS:
                 self.supabase.rpc("renew_automation_job_lease", {
                     "p_job_id": self.current_job_id, "p_worker_id": self.worker_id,
@@ -161,10 +176,8 @@ class MesWorker:
                 break
             if line is not None:
                 output.append(line)
-                if line.strip() == "AUTOMATION_EVENT:effect_started" and not effect_started:
-                    effect_started = True
-                    self.current_job_effect_started = True
-                    self.update(str(self.current_job_id), effect_started_at=now(), progress_stage="DB 업로드 전송", progress_percent=70)
+                if line.strip() == "AUTOMATION_EVENT:effect_start_request":
+                    approve_effect_start()
         if process.returncode:
             raise RuntimeError(("".join(output) or f"exit code {process.returncode}")[-3000:])
         # mes_download.py only exits successfully after both upload API calls have

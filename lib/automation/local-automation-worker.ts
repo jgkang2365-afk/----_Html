@@ -85,22 +85,27 @@ export class LocalAutomationWorker {
     }, delay);
   }
 
-  private async projectCompatibility(payload: NationalSupportJobPayload, code: NationalSupportResultCode) {
-    const { error } = await createAdminClient().from("measurement_target_business")
-      .update(nationalSupportCompatibilityProjection(code)).eq("id", payload.target_id);
-    if (error) throw error;
+  private async completeTerminal(
+    jobId: string, payload: NationalSupportJobPayload,
+    status: "COMPLETED" | "FAILED" | "CONFIRM_REQUIRED",
+    code: NationalSupportResultCode | null, error: string | null = null,
+    effectConfirmed = false,
+  ) {
+    const { error: rpcError } = await createAdminClient().rpc("complete_national_support_automation_job", {
+      p_job_id: jobId, p_worker_id: workerId, p_status: status, p_result_code: code,
+      p_result_payload: code ? { result_code: code } : null,
+      p_error_code: error ? "NATIONAL_SUPPORT_WORKER_ERROR" : null,
+      p_error_message: error, p_target_id: Number(payload.target_id),
+      p_sync_status: status === "FAILED" ? "실패" : nationalSupportCompatibilityProjection(code!).sync_status,
+      p_sync_error_message: error,
+      p_effect_confirmed: effectConfirmed,
+    });
+    if (rpcError) throw rpcError;
   }
 
   private async projectRunning(payload: NationalSupportJobPayload) {
     const { error } = await createAdminClient().from("measurement_target_business").update({
       sync_status: "조회중", sync_error_message: null, updated_at: new Date().toISOString(),
-    }).eq("id", payload.target_id);
-    if (error) throw error;
-  }
-
-  private async projectFailure(payload: NationalSupportJobPayload, message: string) {
-    const { error } = await createAdminClient().from("measurement_target_business").update({
-      sync_status: "실패", sync_error_message: message, updated_at: new Date().toISOString(),
     }).eq("id", payload.target_id);
     if (error) throw error;
   }
@@ -121,11 +126,7 @@ export class LocalAutomationWorker {
           await updateAutomationJobOwned(supabase, job.id, workerId, { progress_stage: "신청조건 확인", progress_percent: 20 });
           // Guard 1: a journal makes both lookup scheduling and application ineligible.
           if (await hasMeasurementJournalForTarget(supabase, payload)) {
-            await updateAutomationJobOwned(supabase, job.id, workerId, {
-              status: "COMPLETED", progress_stage: "측정일지 등록으로 제외", progress_percent: 100,
-              result_code: "JOURNAL_REGISTERED_SKIP",
-            });
-            await this.projectCompatibility(payload, "JOURNAL_REGISTERED_SKIP");
+            await this.completeTerminal(job.id, payload, "COMPLETED", "JOURNAL_REGISTERED_SKIP");
             continue;
           }
           const result = await processNationalSupportJob(payload, {
@@ -160,25 +161,13 @@ export class LocalAutomationWorker {
             if (error) throw error;
             continue;
           }
-          await updateAutomationJobOwned(supabase, job.id, workerId, {
-            status: code === "APPLICATION_UNCERTAIN" ? "CONFIRM_REQUIRED" : "COMPLETED",
-            progress_stage: code === "APPLICATION_UNCERTAIN" ? "신청 결과 확인 필요" : "결과 확인",
-            progress_percent: 100, result_code: code,
-            result_payload: { result_code: code },
-            ...(effectStarted && code === "APPLIED_WAITING_RESULT"
-              ? { effect_confirmed_at: new Date().toISOString() }
-              : {}),
-          });
-          await this.projectCompatibility(payload, code);
+          await this.completeTerminal(job.id, payload,
+            code === "APPLICATION_UNCERTAIN" ? "CONFIRM_REQUIRED" : "COMPLETED",
+            code, null, effectStarted && code === "APPLIED_WAITING_RESULT");
         } catch (error: any) {
           const uncertain = effectStarted;
-          await updateAutomationJobOwned(supabase, job.id, workerId, {
-            status: uncertain ? "CONFIRM_REQUIRED" : "FAILED", progress_stage: uncertain ? "외부 효과 확인 필요" : "조회 실패",
-            progress_percent: 100, result_code: uncertain ? "APPLICATION_UNCERTAIN" : undefined,
-            error_code: "NATIONAL_SUPPORT_WORKER_ERROR", error_message: error?.message || String(error),
-          });
-          if (uncertain) await this.projectCompatibility(payload, "APPLICATION_UNCERTAIN");
-          else await this.projectFailure(payload, error?.message || String(error));
+          await this.completeTerminal(job.id, payload, uncertain ? "CONFIRM_REQUIRED" : "FAILED",
+            uncertain ? "APPLICATION_UNCERTAIN" : null, error?.message || String(error));
         }
       }
     } finally {

@@ -1,8 +1,7 @@
 import { BounceChecker } from '../email/bounce-checker';
 import { backupDatabase } from '../../scripts/backup-db';
 import { createAdminClient } from '../supabase/admin';
-import { createClient } from '../supabase/server';
-import { getKSTDateString, getKSTISOString } from '../utils/date-utils';
+import { getKSTDateString } from '../utils/date-utils';
 import { K2B_VERIFY_SCHEDULE } from '../constants/k2b-verification';
 import { buildK2BSyncRange, K2B_SYNC_OVERLAP_DAYS } from '../automation/k2b-original-sync';
 import { enqueueAutomationJob, mesScheduledIdempotencyKey, nationalSupportIdempotencyKey } from '../automation/jobs';
@@ -103,6 +102,17 @@ export class BackgroundTasks {
             await BackgroundTasks.getInstance().runMesDownloadScript(true);
         }, KST_CRON_OPTIONS);
 
+        // The local server drains DB-only post actions independently of the
+        // Windows MES worker.  Pending retries remain durable in Postgres.
+        cron.schedule('*/5 * * * *', async () => {
+            try {
+                const { error } = await createAdminClient().rpc('process_mes_post_sync_checks', { p_limit: 100 });
+                if (error) throw error;
+            } catch (error) {
+                console.error('[BackgroundTasks] MES 후속 점검 처리 실패:', error);
+            }
+        });
+
         cron.schedule('0 17 * * *', async () => {
             await this.enqueueDailyNationalSupportChecks();
         }, KST_CRON_OPTIONS);
@@ -201,155 +211,4 @@ export class BackgroundTasks {
         }
     }
 
-    /**
-     * 14:00 최종 미등록 예비조사 업체 감지 및 일지담당자 알림 발송
-     */
-    public async checkAndNotifyUnregisteredBusinesses() {
-        console.log("[BackgroundTasks] 14:00 최종 미등록 예비조사 업체 점검 시작...");
-        const supabase = await createClient();
-        
-        // 당일 날짜 구하기 (KST 기준 YYYY-MM-DD)
-        const kstToday = getKSTISOString().slice(0, 10);
-        
-        // 1. 오늘의 예비조사 목록 조회
-        const { data: todaySurveys, error: surveyError } = await supabase
-            .from("preliminary_survey")
-            .select("code, business_name, year, period")
-            .eq("measurement_date", kstToday);
-            
-        if (surveyError) {
-            console.error("[BackgroundTasks] 예비조사 목록 조회 실패:", surveyError.message);
-            return;
-        }
-        
-        if (!todaySurveys || todaySurveys.length === 0) {
-            console.log("[BackgroundTasks] 오늘 예정된 예비조사 업체 일정이 없습니다.");
-            return;
-        }
-        
-        const validTodaySurveys = todaySurveys.filter(survey => {
-            const rawYear = survey.year;
-            const year = Number(rawYear);
-            const period = String(survey.period || "").trim();
-            return rawYear !== null
-                && rawYear !== undefined
-                && String(rawYear).trim() !== ""
-                && Number.isInteger(year)
-                && year > 0
-                && period !== "";
-        });
-
-        if (validTodaySurveys.length < todaySurveys.length) {
-            console.warn(
-                `[BackgroundTasks] 연도/주기 정보가 없는 오늘 예비조사 ${todaySurveys.length - validTodaySurveys.length}건은 오탐 방지를 위해 MES 미등록 점검에서 제외합니다.`
-            );
-        }
-
-        if (validTodaySurveys.length === 0) {
-            console.error("[BackgroundTasks] 연도와 주기가 확인되는 오늘 예비조사가 없어 MES 등록 여부를 확인할 수 없습니다.");
-            return;
-        }
-
-        const surveyYears = [...new Set(
-            validTodaySurveys.map(survey => Number(survey.year))
-        )];
-        const surveyPeriods = [...new Set(
-            validTodaySurveys.map(survey => String(survey.period).trim())
-        )];
-
-        // 2. 오늘 예비조사와 같은 연도/주기의 측정대상 사업장을 모두 조회
-        // Supabase 기본 조회 한도(통상 1,000건)로 기존 등록분이 누락되지 않도록 페이지 단위로 조회한다.
-        const mbList: Array<{
-            code: string | null;
-            business_name: string | null;
-            year: number | string | null;
-            period: string | null;
-        }> = [];
-        const pageSize = 1000;
-
-        for (let from = 0; ; from += pageSize) {
-            const { data: mbRows, error: mbError } = await supabase
-                .from("measurement_business")
-                .select("code, business_name, year, period")
-                .in("year", surveyYears)
-                .in("period", surveyPeriods)
-                .order("year", { ascending: true })
-                .order("period", { ascending: true })
-                .order("code", { ascending: true })
-                .range(from, from + pageSize - 1);
-
-            if (mbError) {
-                console.error("[BackgroundTasks] 측정대상 사업장 목록 조회 실패:", mbError.message);
-                return;
-            }
-
-            const pageRows = mbRows || [];
-            mbList.push(...pageRows);
-            if (pageRows.length < pageSize) break;
-        }
-
-        const unregisteredNames: string[] = [];
-        
-        for (const survey of validTodaySurveys) {
-            const sCode = String(survey.code || "").trim();
-            const sName = String(survey.business_name || "").trim();
-            const sYear = Number(survey.year);
-            const sPeriod = String(survey.period || "").trim();
-            
-            // 매칭 비교 (3단계 알고리즘 대조)
-            const isRegistered = mbList.some(row => {
-                const rCode = String(row.code || "").trim();
-                const rName = String(row.business_name || "").trim();
-                const rYear = Number(row.year);
-                const rPeriod = String(row.period || "").trim();
-
-                // 해당 예비조사의 연도/주기에 등록된 MES 자료만 인정
-                if (sYear !== rYear || sPeriod !== rPeriod) return false;
-                
-                // 1단계: 코드 매칭
-                if (sCode && rCode && sCode === rCode) return true;
-                // 2단계: 사업장명 매칭
-                if (sName && rName) {
-                    const cleanSName = sName.replace(/\s/g, "").replace(/\(주\)/g, "").replace(/주식회사/g, "");
-                    const cleanRName = rName.replace(/\s/g, "").replace(/\(주\)/g, "").replace(/주식회사/g, "");
-                    if (cleanSName === cleanRName || cleanRName.includes(cleanSName) || cleanSName.includes(cleanRName)) {
-                        return true;
-                    }
-                }
-                return false;
-            });
-            
-            if (!isRegistered) {
-                unregisteredNames.push(sName);
-            }
-        }
-        
-        if (unregisteredNames.length > 0) {
-            console.log(`[BackgroundTasks] 14:00 최종 미등록 업체 감지: ${unregisteredNames.join(", ")}`);
-            
-            // 일지담당자(is_journal_manager = true) 목록 조회
-            const { data: managers } = await supabase
-                .from("users")
-                .select("id")
-                .eq("is_journal_manager", true);
-                
-            const managerIds = (managers || []).map(m => m.id);
-            
-            if (managerIds.length > 0) {
-                const notiMsg = `[MES 미등록 경고] '${unregisteredNames[0]}'${unregisteredNames.length > 1 ? ` 외 ${unregisteredNames.length - 1}개` : ''} 업체가 금일 14:00까지 MES에 등록되지 않았습니다. 기사의 당일 등록 확인이 필요합니다.`;
-                
-                const notis = managerIds.map(mId => ({
-                    user_id: mId,
-                    type: "mes_sync_warning",
-                    message: notiMsg,
-                    is_read: false
-                }));
-                
-                await supabase.from("notifications").insert(notis);
-                console.log("[BackgroundTasks] 일지담당자 대상 최종 미등록 누락 알림 생성 완료.");
-            }
-        } else {
-            console.log("[BackgroundTasks] 오늘 예정된 모든 예비조사 업체가 정상 등록 및 연동 완료되었습니다.");
-        }
-    }
 }

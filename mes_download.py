@@ -7,6 +7,7 @@ import subprocess
 import shutil
 import traceback
 import importlib.metadata
+import json
 
 # 표준 출력을 UTF-8로 설정하여 Windows 콘솔(CP949) 한글/특수문자 출력 에러 방지
 try:
@@ -724,7 +725,13 @@ def main():
                 }
                 
                 print(f"[-] API 전송 및 DB 동기화 대기 중... (타입: {file_type})")
-                print("AUTOMATION_EVENT:effect_started", flush=True)
+                print("AUTOMATION_EVENT:effect_start_request", flush=True)
+                try:
+                    permission = json.loads(sys.stdin.readline())
+                except (ValueError, OSError) as permission_error:
+                    raise RuntimeError("MES_EFFECT_PERMISSION_DENIED") from permission_error
+                if permission.get("allow") is not True:
+                    raise RuntimeError("MES_EFFECT_PERMISSION_DENIED")
                 upload_res = session.post(upload_url, files=files, data=data, timeout=180)
                 upload_res.raise_for_status()
                 
