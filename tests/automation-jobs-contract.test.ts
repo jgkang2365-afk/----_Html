@@ -138,6 +138,8 @@ test("document common and legacy terminal paths share an ownership-bound transac
   assert.match(migration, /effect_started_at IS NULL/);
   assert.match(migration, /effect_started_at IS NOT NULL[\s\S]*effect_confirmed_at IS NULL/);
   assert.match(claim, /reconcile_stale_document_automation_jobs/);
+  assert.match(claim, /claim_next_document_automation_job/);
+  assert.doesNotMatch(claim, /claimNextAutomationJob/);
   assert.match(complete, /complete_document_automation_job/);
   assert.match(effect, /mark_document_automation_effect_started/);
   assert.match(migration, /renew_document_automation_job_lease/);
@@ -161,6 +163,16 @@ test("MES effect event is streamed before upload confirmation and classifies fai
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.update_automation_job_owned/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.mark_mes_automation_effect_started/);
   assert.match(migration, /job\.worker_id = p_worker_id/);
+  assert.equal((download.match(/AUTOMATION_EVENT:effect_start_request/g) || []).length, 1);
+});
+
+test("Guard2 distinguishes a registered journal from a database/protocol error", () => {
+  const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/local-automation-worker.ts"), "utf8");
+  const flow = fs.readFileSync(path.join(process.cwd(), "건강디딤돌_접수_자동화.py"), "utf8");
+  assert.match(worker, /reason: "JOURNAL_REGISTERED"/);
+  assert.match(worker, /reason: "GUARD_ERROR"/);
+  assert.match(flow, /guard_reason == "JOURNAL_REGISTERED"/);
+  assert.match(flow, /return "GUARD_ERROR"/);
 });
 
 test("common document confirmation blocks a legacy replay at the database boundary", () => {

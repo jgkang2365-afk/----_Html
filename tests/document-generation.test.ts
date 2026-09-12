@@ -224,12 +224,12 @@ test("Worker 완료 API는 common/legacy terminal을 원자적으로 기록하�
   assert.match(migration, /status IN \('RUNNING', 'CANCEL_REQUESTED'\)/);
 });
 
-test("claim과 orphan recovery API는 Worker token 경계와 common lease RPC를 유지한다", () => {
+test("claim과 orphan recovery API는 Worker token 경계와 atomic Document claim RPC를 유지한다", () => {
   const claim = readFileSync("app/api/document-worker/jobs/claim/route.ts", "utf8");
   const recovery = readFileSync("app/api/document-worker/jobs/recover-cancelled/route.ts", "utf8");
   assert.match(claim, /isAuthorizedDocumentWorker/);
-  assert.match(claim, /claimNextAutomationJob/);
-  assert.match(claim, /worker_lease_expires_at/);
+  assert.match(claim, /claim_next_document_automation_job/);
+  assert.match(claim, /claim_next_document_automation_job/);
   assert.match(recovery, /isAuthorizedDocumentWorker/);
   assert.match(recovery, /recover_cancelled_document_generation_jobs/);
 });
@@ -355,7 +355,7 @@ test("Realtime은 개인정보 없는 common signal을 구독하고 common claim
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public.automation_job_signals/);
   assert.doesNotMatch(migration, /realtime.send/);
   assert.doesNotMatch(migration, /ADD TABLE public.document_generation_jobs/);
-  assert.match(claimRoute, /claimNextAutomationJob/);
+  assert.match(claimRoute, /claim_next_document_automation_job/);
 });
 
 test("Worker 로그와 Realtime 설정은 비밀값을 출력하지 않는다", () => {

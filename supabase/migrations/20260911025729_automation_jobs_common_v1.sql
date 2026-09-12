@@ -171,6 +171,66 @@ BEGIN
 END;
 $$;
 
+-- Claim the common and legacy Document rows under one transaction. The
+-- cancel RPC locks the same rows in the same order, preventing observable
+-- RUNNING/PENDING or PENDING/PROCESSING intermediate states.
+CREATE OR REPLACE FUNCTION public.claim_next_document_automation_job(
+  p_worker_id TEXT,
+  p_worker_lease_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  common public.automation_jobs;
+  legacy public.document_generation_jobs;
+BEGIN
+  IF coalesce(trim(p_worker_id), '') = '' OR p_worker_lease_id IS NULL THEN
+    RAISE EXCEPTION 'DOCUMENT_CLAIM_ARGUMENT_INVALID';
+  END IF;
+
+  SELECT * INTO common
+  FROM public.automation_jobs
+  WHERE job_type = 'DOCUMENT_GENERATION'
+    AND status = 'PENDING'
+    AND available_at <= CURRENT_TIMESTAMP
+  ORDER BY created_at, id
+  FOR UPDATE SKIP LOCKED
+  LIMIT 1;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+
+  SELECT * INTO legacy
+  FROM public.document_generation_jobs
+  WHERE id = (common.request_payload->>'document_generation_job_id')::uuid
+  FOR UPDATE;
+  IF NOT FOUND OR legacy.status <> 'PENDING' THEN
+    RETURN NULL;
+  END IF;
+
+  UPDATE public.automation_jobs
+  SET status = 'RUNNING', worker_id = p_worker_id,
+      claimed_at = CURRENT_TIMESTAMP, started_at = CURRENT_TIMESTAMP,
+      worker_lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds',
+      progress_stage = '문서 생성', progress_percent = 25,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = common.id;
+
+  UPDATE public.document_generation_jobs
+  SET status = 'PROCESSING', worker_id = p_worker_id,
+      worker_lease_id = p_worker_lease_id,
+      worker_heartbeat_at = CURRENT_TIMESTAMP,
+      worker_lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds',
+      started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+  WHERE id = legacy.id;
+
+  SELECT * INTO legacy FROM public.document_generation_jobs
+  WHERE id = (common.request_payload->>'document_generation_job_id')::uuid;
+  RETURN to_jsonb(legacy) || jsonb_build_object('automation_job_id', common.id);
+END;
+$$;
+
 -- Recovery has three deliberately distinct paths.  Before an external effect
 -- starts a job can safely return to PENDING.  Once an effect has started but
 -- is not evidenced, retrying would duplicate work and requires confirmation.
@@ -329,10 +389,12 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.claim_next_automation_job(TEXT, TEXT[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.claim_next_document_automation_job(TEXT, UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.enqueue_automation_job(TEXT, TEXT, TEXT, JSONB, BIGINT, TIMESTAMPTZ) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.reconcile_stale_automation_jobs(TEXT[]) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.renew_automation_job_lease(UUID, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.claim_next_automation_job(TEXT, TEXT[]) TO service_role;
+GRANT EXECUTE ON FUNCTION public.claim_next_document_automation_job(TEXT, UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.enqueue_automation_job(TEXT, TEXT, TEXT, JSONB, BIGINT, TIMESTAMPTZ) TO service_role;
 GRANT EXECUTE ON FUNCTION public.reconcile_stale_automation_jobs(TEXT[]) TO service_role;
 GRANT EXECUTE ON FUNCTION public.renew_automation_job_lease(UUID, TEXT) TO service_role;

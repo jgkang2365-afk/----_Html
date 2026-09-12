@@ -958,9 +958,20 @@ class HealthProgramAutomation:
         # Optional local-worker callbacks keep the legacy standalone GUI flow
         # unchanged while placing both guards at the real irreversible edge.
         before_final_apply = getattr(self, "before_final_apply", None)
-        if callable(before_final_apply) and not before_final_apply():
-            self.update_progress("  -> 측정일지 등록이 확인되어 최종 신청을 중단합니다.")
-            return "JOURNAL_REGISTERED_SKIP"
+        if callable(before_final_apply):
+            guard_result = before_final_apply()
+            if isinstance(guard_result, dict):
+                guard_allowed = bool(guard_result.get("allow"))
+                guard_reason = str(guard_result.get("reason") or "GUARD_ERROR")
+            else:
+                guard_allowed = bool(guard_result)
+                guard_reason = "JOURNAL_REGISTERED" if not guard_allowed else ""
+            if not guard_allowed:
+                if guard_reason == "JOURNAL_REGISTERED":
+                    self.update_progress("  -> 측정일지 등록이 확인되어 최종 신청을 중단합니다.")
+                    return "JOURNAL_REGISTERED_SKIP"
+                self.update_progress("  -> 측정일지 Guard2 조회 오류로 최종 신청을 중단합니다.")
+                return "GUARD_ERROR"
         mark_effect_started = getattr(self, "mark_effect_started", None)
         if callable(mark_effect_started) and not mark_effect_started():
             self.update_progress("  -> 신청 effect 경계를 확인하지 못해 최종 신청을 중단합니다.")

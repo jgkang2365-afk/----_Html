@@ -706,6 +706,14 @@ def main():
     # 10-2. 가공된 엑셀 파일들을 API를 통해 순차적 업로드 및 자동 동기화
     try:
         upload_url = f"{WEB_API_URL.rstrip('/')}/api/upload/excel"
+        # The irreversible boundary belongs to the MES job, not each file.
+        print("AUTOMATION_EVENT:effect_start_request", flush=True)
+        try:
+            permission = json.loads(sys.stdin.readline())
+        except (ValueError, OSError) as permission_error:
+            raise RuntimeError("MES_EFFECT_PERMISSION_DENIED") from permission_error
+        if permission.get("allow") is not True:
+            raise RuntimeError("MES_EFFECT_PERMISSION_DENIED")
         for local_file_path in local_upload_files:
             file_name = os.path.basename(local_file_path)
             file_type = "business-info" if "business_info" in file_name else "measurement-business"
@@ -725,13 +733,6 @@ def main():
                 }
                 
                 print(f"[-] API 전송 및 DB 동기화 대기 중... (타입: {file_type})")
-                print("AUTOMATION_EVENT:effect_start_request", flush=True)
-                try:
-                    permission = json.loads(sys.stdin.readline())
-                except (ValueError, OSError) as permission_error:
-                    raise RuntimeError("MES_EFFECT_PERMISSION_DENIED") from permission_error
-                if permission.get("allow") is not True:
-                    raise RuntimeError("MES_EFFECT_PERMISSION_DENIED")
                 upload_res = session.post(upload_url, files=files, data=data, timeout=180)
                 upload_res.raise_for_status()
                 

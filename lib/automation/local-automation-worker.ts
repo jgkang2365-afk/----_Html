@@ -154,7 +154,15 @@ export class LocalAutomationWorker {
           const result = await processNationalSupportJob(payload, {
             onWorkerEvent: async (event) => {
               if (event === "journal_guard_before_apply") {
-                return { allow: !(await hasMeasurementJournalForTarget(supabase, payload)) };
+                try {
+                  const registered = await hasMeasurementJournalForTarget(supabase, payload);
+                  return registered
+                    ? { allow: false, reason: "JOURNAL_REGISTERED" }
+                    : { allow: true };
+                } catch (error) {
+                  console.error("[NationalSupportWorker] Guard2 조회 실패", error);
+                  return { allow: false, reason: "GUARD_ERROR" };
+                }
               }
               if (event === "effect_started") {
                 effectStarted = true;

@@ -50,7 +50,7 @@ def worker_boundary(event):
         response = json.loads(sys.stdin.readline() or "{}")
     except json.JSONDecodeError:
         response = {}
-    return bool(response.get("allow"))
+    return response
 
 
 def normalize_representative(value):

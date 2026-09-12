@@ -61,12 +61,14 @@ function terminateProcessTree(childPid?: number) {
   }
 }
 
+type WorkerBoundaryReply = { allow: boolean; reason?: string };
+
 function runPythonAutomation(
   scriptName: string,
   args: string[],
   label: string,
   timeoutMs: number,
-  onWorkerEvent?: (event: string) => Promise<{ allow: boolean }>,
+  onWorkerEvent?: (event: string) => Promise<WorkerBoundaryReply>,
 ): Promise<AutomationResult> {
   return new Promise((resolve, reject) => {
     const script = path.join(process.cwd(), "scratch", scriptName);
@@ -158,7 +160,7 @@ function runCrawler(payload: NationalSupportJobPayload) {
 
 function runIntegratedFlow(
   payload: NationalSupportJobPayload,
-  onWorkerEvent?: (event: string) => Promise<{ allow: boolean }>,
+  onWorkerEvent?: (event: string) => Promise<WorkerBoundaryReply>,
 ) {
   if (
     !isValidNationalSupportContactName(payload.contact_name) ||
@@ -177,7 +179,7 @@ function runIntegratedFlow(
 
 export async function processNationalSupportJob(
   payload: NationalSupportJobPayload,
-  options: { onWorkerEvent?: (event: string) => Promise<{ allow: boolean }> } = {},
+  options: { onWorkerEvent?: (event: string) => Promise<WorkerBoundaryReply> } = {},
 ): Promise<NationalSupportProcessResult> {
   const supabase = await createClient();
   const mode = payload.mode || "lookup_only";

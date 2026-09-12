@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAuthorizedDocumentWorker } from "@/lib/document-generation/worker-auth";
-import { claimNextAutomationJob, updateAutomationJobOwned } from "@/lib/automation/jobs";
 
 export const dynamic = "force-dynamic";
 
@@ -20,35 +19,12 @@ export async function POST(request: NextRequest) {
     // never replays a document generation whose file effect is unknown.
     const { error: reconcileError } = await admin.rpc("reconcile_stale_document_automation_jobs");
     if (reconcileError) throw reconcileError;
-    const automationJob = await claimNextAutomationJob(admin, workerId, ["DOCUMENT_GENERATION"]);
-    if (!automationJob) return NextResponse.json({ job: null });
-    const legacyId = String(automationJob.request_payload?.document_generation_job_id || "");
-    if (!legacyId) {
-      await updateAutomationJobOwned(admin, automationJob.id, workerId, {
-        status: "FAILED", error_code: "DOCUMENT_LEGACY_JOB_MISSING", error_message: "문서 작업 원본 ID가 없습니다.", progress_percent: 100,
-      });
-      return NextResponse.json({ job: null });
-    }
-    const now = new Date().toISOString();
-    const { data: legacy, error } = await admin
-      .from("document_generation_jobs")
-      .update({
-        status: "PROCESSING", worker_id: workerId, worker_lease_id: workerLeaseId,
-        worker_heartbeat_at: now,
-        worker_lease_expires_at: new Date(Date.now() + 90_000).toISOString(),
-        started_at: now, updated_at: now,
-      })
-      .eq("id", legacyId).eq("status", "PENDING")
-      .select("*").maybeSingle();
-    if (error || !legacy) {
-      await updateAutomationJobOwned(admin, automationJob.id, workerId, {
-        status: "FAILED", error_code: "DOCUMENT_LEGACY_CLAIM_FAILED",
-        error_message: "문서 원본 작업을 선점하지 못했습니다. 외부 파일 효과는 시작되지 않았습니다.", progress_percent: 100,
-      });
-      return NextResponse.json({ job: null });
-    }
-    await updateAutomationJobOwned(admin, automationJob.id, workerId, { progress_stage: "문서 생성", progress_percent: 25 });
-    return NextResponse.json({ job: { ...legacy, automation_job_id: automationJob.id } });
+    const { data: claimed, error } = await admin.rpc("claim_next_document_automation_job", {
+      p_worker_id: workerId,
+      p_worker_lease_id: workerLeaseId,
+    });
+    if (error) throw error;
+    return NextResponse.json({ job: claimed || null });
   } catch (error) {
     console.error("[DocumentWorker] 공통 작업 선점 실패", error);
     return NextResponse.json({ error: "작업 선점에 실패했습니다." }, { status: 500 });
