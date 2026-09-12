@@ -167,7 +167,7 @@ test("MES manual and scheduled requests use one active execution lane", () => {
 test("14:00 MES post-sync action is enqueued once by the verified terminal transition", () => {
   const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
   assert.match(migration, /enqueue_mes_final_post_sync_check/);
-  assert.match(migration, /OLD\.status = 'RUNNING' AND NEW\.status = 'COMPLETED'/);
+  assert.match(migration, /OLD\.status <> 'COMPLETED' AND NEW\.status = 'COMPLETED'/);
   assert.match(migration, /NEW\.job_type = 'MES_SYNC'/);
   assert.match(migration, /NEW\.request_payload @> '\{"trigger":"scheduled","slot":"14:00","final_check":true\}'/);
   assert.match(migration, /NEW\.result_payload @> '\{"syncSuccess":true\}'/);
@@ -212,6 +212,9 @@ test("건강디딤돌 종료와 호환 표시값은 소유권 경계에서 원�
   }
   assert.match(terminal, /status='RUNNING'/);
   assert.match(terminal, /NATIONAL_SUPPORT_TERMINAL_NOT_OWNED/);
+  assert.match(terminal, /INSERT INTO public\.national_support_application/);
+  assert.match(terminal, /ON CONFLICT \(code, year, period\) DO UPDATE/);
+  assert.match(terminal, /UPDATE public\.measurement_journal SET national_support_status/);
   assert.match(followup, /INSERT INTO public\.automation_jobs/);
   assert.match(worker, /rpc\("complete_national_support_automation_job"/);
   assert.match(worker, /rpc\("complete_automation_job_with_followup"/);

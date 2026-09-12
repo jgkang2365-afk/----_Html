@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { claimNextAutomationJob, updateAutomationJobOwned } from "@/lib/automation/jobs";
 import { processNationalSupportJob, type NationalSupportJobPayload } from "@/lib/automation/national-support-worker";
 import { hasMeasurementJournalForTarget, nationalSupportCompatibilityProjection, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
+import { syncToMasterTables } from "@/lib/sync/master-tables";
 
 const NATIONAL_SUPPORT = "NATIONAL_SUPPORT";
 const workerId = `local-automation-${process.pid}`;
@@ -103,6 +104,23 @@ export class LocalAutomationWorker {
     if (rpcError) throw rpcError;
   }
 
+  /** Secondary master projection follows the authoritative terminal commit. */
+  private async projectFinalMaster(payload: NationalSupportJobPayload) {
+    try {
+      const admin = createAdminClient();
+      const { data: target, error } = await admin.from("measurement_target_business")
+        .select("business_name").eq("id", payload.target_id).single();
+      if (error) throw error;
+      await syncToMasterTables(admin, payload.code, Number(payload.year), payload.period,
+        target?.business_name || "미등록 사업장", payload.representative || null,
+        payload.sanjae || null, payload.commencement || null,
+        { updateBusinessInfo: false });
+    } catch (error) {
+      // Do not turn a confirmed final result into FAILED or replay a portal action.
+      console.error("[LocalAutomationWorker] 건강디딤돌 master 보조 반영 실패", error);
+    }
+  }
+
   private async projectRunning(payload: NationalSupportJobPayload) {
     const { error } = await createAdminClient().from("measurement_target_business").update({
       sync_status: "조회중", sync_error_message: null, updated_at: new Date().toISOString(),
@@ -164,6 +182,9 @@ export class LocalAutomationWorker {
           await this.completeTerminal(job.id, payload,
             code === "APPLICATION_UNCERTAIN" ? "CONFIRM_REQUIRED" : "COMPLETED",
             code, null, effectStarted && code === "APPLIED_WAITING_RESULT");
+          if (code === "SUPPORT" || code === "NON_SUPPORT") {
+            await this.projectFinalMaster(payload);
+          }
         } catch (error: any) {
           const uncertain = effectStarted;
           await this.completeTerminal(job.id, payload, uncertain ? "CONFIRM_REQUIRED" : "FAILED",

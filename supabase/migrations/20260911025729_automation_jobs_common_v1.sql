@@ -326,10 +326,19 @@ CREATE OR REPLACE FUNCTION public.complete_national_support_automation_job(
 ) RETURNS public.automation_jobs
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE completed public.automation_jobs;
+DECLARE final_support_status TEXT;
+DECLARE final_application_status TEXT;
 BEGIN
   IF p_status IS NULL OR p_status NOT IN ('COMPLETED','FAILED','CONFIRM_REQUIRED') OR
      p_sync_status IS NULL OR p_sync_status NOT IN ('성공','조회대기','비대상대기','확인대기','신청완료대기','수동확인필요','실패') THEN
     RAISE EXCEPTION 'NATIONAL_SUPPORT_TERMINAL_ARGUMENT_INVALID';
+  END IF;
+  final_support_status := CASE p_result_code WHEN 'SUPPORT' THEN '대상'
+    WHEN 'NON_SUPPORT' THEN '비대상' ELSE NULL END;
+  final_application_status := CASE p_result_code WHEN 'SUPPORT' THEN '○'
+    WHEN 'NON_SUPPORT' THEN '신청취소' ELSE NULL END;
+  IF final_support_status IS NOT NULL AND (p_status <> 'COMPLETED' OR p_sync_status <> '성공') THEN
+    RAISE EXCEPTION 'NATIONAL_SUPPORT_FINAL_STATUS_INVALID';
   END IF;
   UPDATE public.automation_jobs job SET status=p_status,
     result_code=p_result_code, result_payload=p_result_payload,
@@ -346,9 +355,31 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'NATIONAL_SUPPORT_TERMINAL_NOT_OWNED'; END IF;
   UPDATE public.measurement_target_business target
   SET sync_status=p_sync_status, sync_error_message=p_sync_error_message,
+    national_support_status=coalesce(final_support_status,target.national_support_status),
     updated_at=CURRENT_TIMESTAMP
-  WHERE target.id=p_target_id;
+  WHERE target.id=p_target_id AND (
+    final_support_status IS NULL OR (
+      target.code=completed.request_payload->>'code'
+      AND target.year=(completed.request_payload->>'year')::INTEGER
+      AND target.period=completed.request_payload->>'period'
+    ));
   IF NOT FOUND THEN RAISE EXCEPTION 'NATIONAL_SUPPORT_TARGET_NOT_FOUND'; END IF;
+  IF final_support_status IS NOT NULL THEN
+    INSERT INTO public.national_support_application (
+      code, year, period, application_status, result, national_support_status
+    ) VALUES (
+      completed.request_payload->>'code', (completed.request_payload->>'year')::INTEGER,
+      completed.request_payload->>'period', final_application_status,
+      final_support_status, final_support_status
+    ) ON CONFLICT (code, year, period) DO UPDATE SET
+      application_status=EXCLUDED.application_status, result=EXCLUDED.result,
+      national_support_status=EXCLUDED.national_support_status,
+      updated_at=CURRENT_TIMESTAMP;
+    UPDATE public.measurement_journal SET national_support_status=final_support_status
+    WHERE code=completed.request_payload->>'code'
+      AND measurement_year=(completed.request_payload->>'year')::INTEGER
+      AND measurement_period=completed.request_payload->>'period';
+  END IF;
   RETURN completed;
 END $$;
 REVOKE ALL ON FUNCTION public.complete_national_support_automation_job(UUID,TEXT,TEXT,TEXT,JSONB,TEXT,TEXT,BIGINT,TEXT,TEXT,BOOLEAN) FROM PUBLIC;
@@ -734,6 +765,7 @@ BEGIN
   RETURN;
 END;
 $$;
+REVOKE ALL ON FUNCTION public.claim_next_document_generation_job(TEXT,UUID) FROM PUBLIC, anon, authenticated;
 
 -- Protect the reverse direction too: old code may still insert pre-existing
 -- legacy national-support work while it drains.  It shares the same advisory
@@ -834,7 +866,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.enqueue_mes_final_post_sync_check()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF OLD.status = 'RUNNING' AND NEW.status = 'COMPLETED'
+  IF OLD.status <> 'COMPLETED' AND NEW.status = 'COMPLETED'
     AND NEW.job_type = 'MES_SYNC'
     AND NEW.request_payload @> '{"trigger":"scheduled","slot":"14:00","final_check":true}'::jsonb
     AND NEW.result_payload @> '{"syncSuccess":true}'::jsonb THEN

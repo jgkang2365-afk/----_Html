@@ -104,14 +104,9 @@ export class BackgroundTasks {
 
         // The local server drains DB-only post actions independently of the
         // Windows MES worker.  Pending retries remain durable in Postgres.
-        cron.schedule('*/5 * * * *', async () => {
-            try {
-                const { error } = await createAdminClient().rpc('process_mes_post_sync_checks', { p_limit: 100 });
-                if (error) throw error;
-            } catch (error) {
-                console.error('[BackgroundTasks] MES 후속 점검 처리 실패:', error);
-            }
-        });
+        for (const schedule of ['5,10,20,30,40,50 14 * * *', '0,10,30 15 * * *', '0 16 * * *']) {
+            cron.schedule(schedule, () => this.drainMesPostSyncChecks(), KST_CRON_OPTIONS);
+        }
 
         cron.schedule('0 17 * * *', async () => {
             await this.enqueueDailyNationalSupportChecks();
@@ -148,6 +143,15 @@ export class BackgroundTasks {
         } catch (error: any) {
             console.error('[BackgroundTasks] K2B 일일 검증 등록 실패:', error?.message || String(error));
             return null;
+        }
+    }
+
+    private async drainMesPostSyncChecks(): Promise<void> {
+        try {
+            const { error } = await createAdminClient().rpc('process_mes_post_sync_checks', { p_limit: 100 });
+            if (error) throw error;
+        } catch (error) {
+            console.error('[BackgroundTasks] MES 후속 점검 처리 실패:', error);
         }
     }
 

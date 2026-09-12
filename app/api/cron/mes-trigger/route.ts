@@ -41,39 +41,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: message }, { status: message === "Unauthorized" ? 401 : message === "Forbidden" ? 403 : 500 });
   }
 }
-
-/** One explicit read for focus/reconnect recovery; never used as an interval. */
-export async function GET(request: NextRequest) {
-  try {
-    await requireMesSyncAccess();
-    const jobId = new URL(request.url).searchParams.get("jobId");
-    if (!jobId) return NextResponse.json({ success: false, error: "jobId가 필요합니다." }, { status: 400 });
-    const supabase = await createClient();
-    const { data, error } = await supabase.from("automation_jobs")
-      .select("id, status, progress_stage, progress_percent, error_code, error_message, result_code, updated_at")
-      .eq("id", jobId).maybeSingle();
-    if (error) throw error;
-    if (!data) return NextResponse.json({ success: false, error: "작업을 찾을 수 없습니다." }, { status: 404 });
-    return NextResponse.json({ success: true, job: data }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error?.message || "작업 상태 조회 실패" }, { status: 500 });
-  }
-}
-
-export async function DELETE(request: NextRequest) {
-  try {
-    const { session, supabase } = await requireMesSyncAccess();
-    const jobId = new URL(request.url).searchParams.get("jobId");
-    if (!jobId) return NextResponse.json({ success: false, error: "jobId가 필요합니다." }, { status: 400 });
-    const now = new Date().toISOString();
-    const { data, error } = await supabase.from("automation_jobs")
-      .update({ status: "CANCEL_REQUESTED", cancel_requested_at: now, updated_at: now })
-      .eq("id", jobId).eq("requested_by", Number(session.userId)).in("status", ["PENDING", "RUNNING"])
-      .select("id, status").maybeSingle();
-    if (error) throw error;
-    if (!data) return NextResponse.json({ success: false, error: "중단할 작업이 없거나 권한이 없습니다." }, { status: 409 });
-    return NextResponse.json({ success: true, job: data });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error?.message || "취소 요청 실패" }, { status: 500 });
-  }
-}

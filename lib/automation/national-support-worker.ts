@@ -1,7 +1,6 @@
 import { spawn, spawnSync } from "child_process";
 import path from "path";
 import { createClient } from "@/lib/supabase/server";
-import { syncToMasterTables } from "@/lib/sync/master-tables";
 import {
   FINAL_LOOKUP_DELAY_MS,
   FINAL_LOOKUP_MAX_ATTEMPTS,
@@ -217,71 +216,11 @@ export async function processNationalSupportJob(
     return Boolean(data?.length);
   };
 
-  const persistFinalStatus = async (
-    supportStatus: "대상" | "비대상",
-    reason: string | null,
-    applicationStatus: string,
-  ): Promise<NationalSupportProcessResult> => {
-    const { error: targetError } = await supabase
-      .from("measurement_target_business")
-      .update({
-        ...commonTargetFields,
-        sync_error_message: reason,
-        national_support_status: supportStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", payload.target_id);
-    if (targetError) throw targetError;
-
-    const { error: resultError } = await supabase
-      .from("national_support_application")
-      .upsert({
-        code: payload.code,
-        year: Number(payload.year),
-        period: payload.period,
-        application_status: applicationStatus,
-        result: supportStatus,
-        national_support_status: supportStatus,
-      }, { onConflict: "code,year,period" });
-    if (resultError) throw resultError;
-
-    const { error: journalError } = await supabase
-      .from("measurement_journal")
-      .update({ national_support_status: supportStatus })
-      .eq("code", payload.code)
-      .eq("measurement_year", Number(payload.year))
-      .eq("measurement_period", payload.period);
-    if (journalError) throw journalError;
-
-    const { data: target } = await supabase
-      .from("measurement_target_business")
-      .select("business_name")
-      .eq("id", payload.target_id)
-      .single();
-    await syncToMasterTables(
-      supabase,
-      payload.code,
-      Number(payload.year),
-      payload.period,
-      target?.business_name || "미등록 사업장",
-      payload.representative || null,
-      payload.sanjae || null,
-      payload.commencement || null,
-      { updateBusinessInfo: false },
-    );
-    return { resultCode: supportStatus === "대상" ? "SUPPORT" : "NON_SUPPORT" };
-  };
-
   const handleLookupResult = async (
     lookupResult: PortalLookupResult,
   ): Promise<NationalSupportProcessResult | null> => {
     if (lookupResult === "SUPPORT" || lookupResult === "NON_SUPPORT") {
-      const supported = lookupResult === "SUPPORT";
-      return persistFinalStatus(
-        supported ? "대상" : "비대상",
-        supported ? null : "공단 비대상 판정 확인",
-        supported ? "○" : "신청취소",
-      );
+      return { resultCode: lookupResult };
     }
     if (lookupResult === "FAIL") throw new Error("건강디딤돌 조회가 실패했습니다.");
     return null;

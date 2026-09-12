@@ -4,10 +4,16 @@
       "path": "/api/cron/sync",
       "schedule": "0 9 * * *"
     },
-    {
-      "path": "/api/cron/mes-post-sync",
-      "schedule": "5 5 * * *"
-    }
+    { "path": "/api/cron/mes-post-sync/1405", "schedule": "5 5 * * *" },
+    { "path": "/api/cron/mes-post-sync/1410", "schedule": "10 5 * * *" },
+    { "path": "/api/cron/mes-post-sync/1420", "schedule": "20 5 * * *" },
+    { "path": "/api/cron/mes-post-sync/1430", "schedule": "30 5 * * *" },
+    { "path": "/api/cron/mes-post-sync/1440", "schedule": "40 5 * * *" },
+    { "path": "/api/cron/mes-post-sync/1450", "schedule": "50 5 * * *" },
+    { "path": "/api/cron/mes-post-sync/1500", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/mes-post-sync/1510", "schedule": "10 6 * * *" },
+    { "path": "/api/cron/mes-post-sync/1530", "schedule": "30 6 * * *" },
+    { "path": "/api/cron/mes-post-sync/1600", "schedule": "0 7 * * *" }
   ],
   "git": {
     "deploymentEnabled": {
