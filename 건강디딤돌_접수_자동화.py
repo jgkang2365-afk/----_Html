@@ -19,6 +19,17 @@ import sys
 from datetime import datetime
 
 
+def classify_journal_guard_result(result):
+    """Classify Guard2 without treating invalid values as a journal skip."""
+    if isinstance(result, dict):
+        if result.get("allow") is True:
+            return "ALLOW"
+        if result.get("reason") == "JOURNAL_REGISTERED":
+            return "JOURNAL_REGISTERED"
+        return "GUARD_ERROR"
+    return "ALLOW" if result is True else "GUARD_ERROR"
+
+
 def normalize_contact_phone_suffix(value):
     """공단 화면의 고정 010 선택 상자 뒤에 입력할 가입자 번호만 반환합니다."""
     digits = re.sub(r"\D", "", str(value or ""))
@@ -960,12 +971,8 @@ class HealthProgramAutomation:
         before_final_apply = getattr(self, "before_final_apply", None)
         if callable(before_final_apply):
             guard_result = before_final_apply()
-            if isinstance(guard_result, dict):
-                guard_allowed = guard_result.get("allow") is True
-                guard_reason = str(guard_result.get("reason") or "GUARD_ERROR")
-            else:
-                guard_allowed = guard_result is True
-                guard_reason = "JOURNAL_REGISTERED" if not guard_allowed else ""
+            guard_reason = classify_journal_guard_result(guard_result)
+            guard_allowed = guard_reason == "ALLOW"
             if not guard_allowed:
                 if guard_reason == "JOURNAL_REGISTERED":
                     self.update_progress("  -> 측정일지 등록이 확인되어 최종 신청을 중단합니다.")

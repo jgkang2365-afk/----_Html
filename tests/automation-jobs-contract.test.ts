@@ -168,16 +168,20 @@ test("MES effect event is streamed before upload confirmation and classifies fai
 
 test("Guard2 distinguishes a registered journal from a database/protocol error", () => {
   const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/local-automation-worker.ts"), "utf8");
+  const nationalSupportWorker = fs.readFileSync(path.join(process.cwd(), "lib/automation/national-support-worker.ts"), "utf8");
   const flow = fs.readFileSync(path.join(process.cwd(), "건강디딤돌_접수_자동화.py"), "utf8");
   const cli = fs.readFileSync(path.join(process.cwd(), "scratch/national_support_flow_cli.py"), "utf8");
   assert.match(worker, /reason: "JOURNAL_REGISTERED"/);
   assert.match(worker, /reason: "GUARD_ERROR"/);
   assert.match(flow, /guard_reason == "JOURNAL_REGISTERED"/);
+  assert.match(flow, /classify_journal_guard_result/);
   assert.match(flow, /return "GUARD_ERROR"/);
-  assert.match(flow, /guard_result\.get\("allow"\) is True/);
+  assert.match(flow, /result\.get\("allow"\) is True/);
   assert.match(flow, /effect_result\.get\("allow"\) is True/);
   assert.match(cli, /"JOURNAL_REGISTERED_SKIP": "JOURNAL_REGISTERED_SKIP"/);
   assert.match(cli, /"GUARD_ERROR": "GUARD_ERROR"/);
+  assert.match(nationalSupportWorker, /if \(flowResult === "GUARD_ERROR"\)/);
+  assert.match(nationalSupportWorker, /Guard2 조회 오류로 신청을 중단했습니다/);
 });
 
 test("common document confirmation blocks a legacy replay at the database boundary", () => {

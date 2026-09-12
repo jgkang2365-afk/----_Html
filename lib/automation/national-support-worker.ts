@@ -31,7 +31,7 @@ export type NationalSupportJobPayload = {
 
 type AutomationResult = {
   status?: string;
-  result?: PortalLookupResult | ApplicationResult | "JOURNAL_REGISTERED_SKIP";
+  result?: PortalLookupResult | ApplicationResult | "JOURNAL_REGISTERED_SKIP" | "GUARD_ERROR";
 };
 
 export type NationalSupportProcessResult = {
@@ -268,6 +268,9 @@ export async function processNationalSupportJob(
       if (flowResult === "JOURNAL_REGISTERED_SKIP") {
         await updateProgress("성공", "측정일지 등록이 확인되어 신청하지 않았습니다.");
         return { resultCode: "JOURNAL_REGISTERED_SKIP" };
+      }
+      if (flowResult === "GUARD_ERROR") {
+        throw new Error("건강디딤돌 Guard2 조회 오류로 신청을 중단했습니다.");
       }
       const applicationResult = flowResult as ApplicationResult;
 
