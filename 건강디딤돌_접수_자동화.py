@@ -20,13 +20,15 @@ from datetime import datetime
 
 
 def classify_journal_guard_result(result):
-    """Classify Guard2 without treating invalid values as a journal skip."""
+    """Classify Guard2 with a fail-closed, unambiguous protocol."""
     if isinstance(result, dict):
-        if result.get("allow") is True:
+        # The only normal approval shape is exactly {"allow": True}.
+        if result == {"allow": True}:
             return "ALLOW"
-        if result.get("allow") is False and result.get("reason") == "JOURNAL_REGISTERED":
+        # A journal skip must be explicitly identified and carry no
+        # contradictory/error fields.
+        if result == {"allow": False, "reason": "JOURNAL_REGISTERED"}:
             return "JOURNAL_REGISTERED"
-        return "GUARD_ERROR"
     return "GUARD_ERROR"
 
 

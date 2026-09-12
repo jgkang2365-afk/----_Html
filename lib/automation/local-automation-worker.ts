@@ -165,11 +165,14 @@ export class LocalAutomationWorker {
                 }
               }
               if (event === "effect_started") {
-                effectStarted = true;
                 await updateAutomationJobOwned(supabase, job.id, workerId, {
                   effect_started_at: new Date().toISOString(),
                   progress_stage: "신청 요청 전송", progress_percent: 70,
                 });
+                // The in-memory boundary is true only after the durable
+                // ownership-checked marker succeeds.  A marker failure is
+                // therefore still a pre-effect error and is terminal FAILED.
+                effectStarted = true;
                 return { allow: true };
               }
               return { allow: false };

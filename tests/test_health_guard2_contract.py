@@ -29,6 +29,15 @@ class HealthGuard2ContractTests(unittest.TestCase):
             with self.subTest(response=response):
                 self.assertEqual(classify_journal_guard_result(response), "GUARD_ERROR")
 
+    def test_mixed_allow_reason_responses_fail_closed(self):
+        for response in (
+            {"allow": True, "reason": "GUARD_ERROR"},
+            {"allow": True, "reason": "JOURNAL_REGISTERED"},
+            {"allow": False, "reason": "JOURNAL_REGISTERED", "error": "DB_FAILURE"},
+        ):
+            with self.subTest(response=response):
+                self.assertEqual(classify_journal_guard_result(response), "GUARD_ERROR")
+
 
 if __name__ == "__main__":
     unittest.main()

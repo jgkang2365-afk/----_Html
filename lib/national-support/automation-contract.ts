@@ -46,5 +46,8 @@ export async function hasMeasurementJournalForTarget(
     .eq("code", target.code).eq("measurement_year", Number(target.year))
     .eq("measurement_period", target.period).limit(1);
   if (error) throw error;
-  return Boolean(data?.length);
+  if (!Array.isArray(data)) {
+    throw new Error("measurement_journal 조회 응답 형식이 올바르지 않습니다.");
+  }
+  return data.length > 0;
 }

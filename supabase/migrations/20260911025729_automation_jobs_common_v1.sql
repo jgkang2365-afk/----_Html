@@ -672,7 +672,6 @@ BEGIN
   common_status := CASE
     WHEN p_effect_uncertain THEN 'CONFIRM_REQUIRED'
     WHEN safe_complete THEN 'COMPLETED'
-    WHEN jsonb_array_length(coalesce(p_result_files, '[]'::jsonb)) > 0 THEN 'CONFIRM_REQUIRED'
     WHEN p_legacy_status = 'CANCELLED' THEN 'CANCELLED'
     ELSE 'FAILED'
   END;

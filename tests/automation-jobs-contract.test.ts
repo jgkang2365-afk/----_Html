@@ -76,6 +76,26 @@ test("Production canonical journal key and compatibility projection are fixed", 
   assert.equal(getNationalSupportDisplayStatus({ period: "하반기", sync_status: "일지 등록 · 제외", national_support_status: null, industrial_accident_number: "1", commencement_number: "2", representative_name: "대표" } as any), "일지 등록 · 제외");
 });
 
+test("journal lookup fails closed for null or malformed data", async () => {
+  for (const response of [
+    { data: null, error: null },
+    { data: undefined, error: null },
+    { data: {}, error: null },
+    { data: null, error: new Error("db failure") },
+  ]) {
+    const query: any = {
+      select: () => query,
+      eq: () => query,
+      limit: async () => response,
+    };
+    await assert.rejects(
+      () => hasMeasurementJournalForTarget({ from: () => query } as any, { code: "A", year: 2026, period: "하반기" }),
+    );
+  }
+  const rowsQuery: any = { select: () => rowsQuery, eq: () => rowsQuery, limit: async () => ({ data: [{ id: 1 }], error: null }) };
+  assert.equal(await hasMeasurementJournalForTarget({ from: () => rowsQuery } as any, { code: "A", year: 2026, period: "하반기" }), true);
+});
+
 test("Health drain 중 도착한 wake는 다음 reconcile 요청으로 보존한다", async () => {
   const worker: any = Object.create(LocalAutomationWorker.prototype);
   worker.draining = true;
@@ -175,7 +195,8 @@ test("Guard2 distinguishes a registered journal from a database/protocol error",
   assert.match(worker, /reason: "GUARD_ERROR"/);
   assert.match(flow, /guard_reason == "JOURNAL_REGISTERED"/);
   assert.match(flow, /classify_journal_guard_result/);
-  assert.match(flow, /result\.get\("allow"\) is False and result\.get\("reason"\) == "JOURNAL_REGISTERED"/);
+  assert.match(flow, /result == \{"allow": True\}/);
+  assert.match(flow, /result == \{"allow": False, "reason": "JOURNAL_REGISTERED"\}/);
   assert.match(flow, /return "GUARD_ERROR"/);
   assert.match(flow, /result\.get\("allow"\) is True/);
   assert.match(flow, /effect_result\.get\("allow"\) is True/);
@@ -183,6 +204,26 @@ test("Guard2 distinguishes a registered journal from a database/protocol error",
   assert.match(cli, /"GUARD_ERROR": "GUARD_ERROR"/);
   assert.match(nationalSupportWorker, /if \(flowResult === "GUARD_ERROR"\)/);
   assert.match(nationalSupportWorker, /Guard2 조회 오류로 신청을 중단했습니다/);
+});
+
+test("Health effect marker becomes uncertain only after durable marker success", () => {
+  const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/local-automation-worker.ts"), "utf8");
+  const marker = worker.indexOf("effect_started_at: new Date().toISOString()");
+  const assignment = worker.indexOf("effectStarted = true", marker);
+  assert.ok(marker >= 0);
+  assert.ok(assignment > marker);
+  assert.match(worker, /uncertain \? "CONFIRM_REQUIRED" : "FAILED"/);
+});
+
+test("Document pre-effect result files remain FAILED unless effect is uncertain", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  const start = migration.indexOf("CREATE OR REPLACE FUNCTION public.complete_document_automation_job");
+  const end = migration.indexOf("REVOKE ALL ON FUNCTION public.complete_document_automation_job", start);
+  const complete = migration.slice(start, end);
+  assert.match(complete, /WHEN p_effect_uncertain THEN 'CONFIRM_REQUIRED'/);
+  assert.match(complete, /WHEN p_legacy_status = 'CANCELLED' THEN 'CANCELLED'/);
+  assert.match(complete, /ELSE 'FAILED'/);
+  assert.doesNotMatch(complete, /WHEN jsonb_array_length\(coalesce\(p_result_files/);
 });
 
 test("common document confirmation blocks a legacy replay at the database boundary", () => {
