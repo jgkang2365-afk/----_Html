@@ -23,6 +23,15 @@ export function terminalForNationalSupportResult(
   };
 }
 
+/** A malformed internal follow-up is post-effect by contract: never reopen it for replay. */
+export function terminalForMalformedNationalSupportFinalLookup() {
+  return {
+    status: "CONFIRM_REQUIRED" as const,
+    resultCode: "APPLICATION_UNCERTAIN" as const,
+    uncertain: true,
+  };
+}
+
 /**
  * Windows-local worker for jobs that must not be processed by the web UI.
  * It is event-driven: startup/reconnect drains once, then Realtime wakes it.
@@ -164,7 +173,8 @@ export class LocalAutomationWorker {
         let effectStarted = payload.effect_started === true;
         try {
           if (payload.mode === "final_lookup" && !effectStarted) {
-            await this.completeTerminal(job.id, payload, "FAILED", null,
+            const terminal = terminalForMalformedNationalSupportFinalLookup();
+            await this.completeTerminal(job.id, payload, terminal.status, terminal.resultCode,
               "NATIONAL_SUPPORT_FINAL_LOOKUP_LINEAGE_MISSING");
             continue;
           }

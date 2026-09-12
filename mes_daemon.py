@@ -172,17 +172,23 @@ class MesWorker:
         def approve_effect_start() -> None:
             nonlocal effect_started
             allowed = False
-            try:
-                if not self.cancel_requested.is_set():
-                    allowed = self.allow_effect_start(str(self.current_job_id))
-            finally:
+            if not self.cancel_requested.is_set():
+                allowed = self.allow_effect_start(str(self.current_job_id))
+            if not allowed:
                 if process.stdin is not None:
                     process.stdin.write(json.dumps({"allow": allowed}) + "\n")
                     process.stdin.flush()
-            if not allowed:
                 raise RuntimeError("MES_EFFECT_PERMISSION_DENIED")
+
+            # The durable marker is the irreversible boundary.  Cross the
+            # in-memory boundary before sending allow=true: a BrokenPipe,
+            # flush failure, or child exit after this point means the child
+            # may have received permission and must be treated as uncertain.
             effect_started = True
             self.current_job_effect_started = True
+            if process.stdin is not None:
+                process.stdin.write(json.dumps({"allow": True}) + "\n")
+                process.stdin.flush()
         started = time.monotonic()
         last_lease_renewal = started
         while process.poll() is None:

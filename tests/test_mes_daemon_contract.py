@@ -18,6 +18,34 @@ class _FinishedProcess:
         return self.returncode
 
 
+class _FailingStdin:
+    def write(self, _value):
+        raise BrokenPipeError("child stdin closed")
+
+    def flush(self):
+        raise BrokenPipeError("child stdin closed")
+
+
+class _FlushFailingStdin:
+    def write(self, value):
+        return len(value)
+
+    def flush(self):
+        raise BrokenPipeError("child stdin flush failed")
+
+
+class _MarkerApprovedButReplyLostProcess(_FinishedProcess):
+    def __init__(self):
+        super().__init__("AUTOMATION_EVENT:effect_start_request\n", 0)
+        self.stdin = _FailingStdin()
+
+
+class _MarkerApprovedButFlushLostProcess(_FinishedProcess):
+    def __init__(self):
+        super().__init__("AUTOMATION_EVENT:effect_start_request\n", 0)
+        self.stdin = _FlushFailingStdin()
+
+
 class MesDaemonContractTest(unittest.TestCase):
     def _worker(self):
         worker = object.__new__(mes_daemon.MesWorker)
@@ -63,6 +91,30 @@ class MesDaemonContractTest(unittest.TestCase):
                 worker.run_macro()
         self.assertEqual(popen.return_value.stdin.getvalue(), '{"allow": false}\n')
         self.assertFalse(worker.current_job_effect_started)
+
+    @patch("mes_daemon.subprocess.Popen")
+    def test_marker_success_but_child_allow_reply_failure_is_confirm_required(self, popen):
+        popen.return_value = _MarkerApprovedButReplyLostProcess()
+        worker = self._worker()
+        worker.claim = lambda: {"id": "job-1", "status": "RUNNING"}
+        worker.allow_effect_start = lambda job_id: True
+        with patch.object(mes_daemon, "DRY_RUN", False):
+            self.assertTrue(worker.process_next())
+        terminals = [fields for _, fields in worker.update_calls if fields.get("status")]
+        self.assertEqual(terminals[-1]["status"], "CONFIRM_REQUIRED")
+        self.assertEqual(terminals[-1]["result_code"], "MES_EFFECT_UNCERTAIN")
+
+    @patch("mes_daemon.subprocess.Popen")
+    def test_marker_success_but_child_allow_flush_failure_is_confirm_required(self, popen):
+        popen.return_value = _MarkerApprovedButFlushLostProcess()
+        worker = self._worker()
+        worker.claim = lambda: {"id": "job-1", "status": "RUNNING"}
+        worker.allow_effect_start = lambda job_id: True
+        with patch.object(mes_daemon, "DRY_RUN", False):
+            self.assertTrue(worker.process_next())
+        terminals = [fields for _, fields in worker.update_calls if fields.get("status")]
+        self.assertEqual(terminals[-1]["status"], "CONFIRM_REQUIRED")
+        self.assertEqual(terminals[-1]["result_code"], "MES_EFFECT_UNCERTAIN")
 
     @patch("mes_daemon.subprocess.Popen")
     def test_cancelled_database_owner_denies_effect_even_without_local_cancel_signal(self, popen):

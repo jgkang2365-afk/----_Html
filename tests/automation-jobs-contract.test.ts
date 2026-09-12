@@ -20,7 +20,7 @@ import {
 } from "../lib/national-support/automation-contract";
 import { forEachAscendingIdPage } from "../lib/scheduler/id-pages";
 import { getNationalSupportDisplayStatus } from "../lib/national-support/eligibility";
-import { LocalAutomationWorker, shouldRunNationalSupportJournalGuard, terminalForNationalSupportResult } from "../lib/automation/local-automation-worker";
+import { LocalAutomationWorker, shouldRunNationalSupportJournalGuard, terminalForMalformedNationalSupportFinalLookup, terminalForNationalSupportResult } from "../lib/automation/local-automation-worker";
 
 test("automation job status contract has only the approved states", () => {
   assert.deepEqual(AUTOMATION_JOB_STATUSES, [
@@ -405,6 +405,13 @@ test("건강디딤돌 final_lookup은 parent effect lineage를 보존한다", ()
   assert.match(nationalSupport, /mode: "final_lookup", attempt_count: 0, effect_started: true/);
   assert.deepEqual(
     terminalForNationalSupportResult("APPLICATION_UNCERTAIN", true),
+    { status: "CONFIRM_REQUIRED", resultCode: "APPLICATION_UNCERTAIN", uncertain: true },
+  );
+});
+
+test("lineage 없는 final_lookup은 재시도 가능한 FAILED가 아니라 CONFIRM_REQUIRED다", () => {
+  assert.deepEqual(
+    terminalForMalformedNationalSupportFinalLookup(),
     { status: "CONFIRM_REQUIRED", resultCode: "APPLICATION_UNCERTAIN", uncertain: true },
   );
 });
