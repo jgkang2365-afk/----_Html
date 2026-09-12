@@ -104,10 +104,20 @@ BEGIN
     RAISE EXCEPTION 'AUTOMATION_CLAIM_ARGUMENT_INVALID';
   END IF;
 
+  -- Serialize competing MES claimers, including separate worker processes.
+  IF 'MES_SYNC' = ANY(p_job_types) THEN
+    PERFORM pg_advisory_xact_lock(hashtext('automation:mes-sync'));
+  END IF;
+
   WITH next_job AS (
     SELECT id
     FROM public.automation_jobs
     WHERE status = 'PENDING' AND available_at <= CURRENT_TIMESTAMP AND job_type = ANY(p_job_types)
+      AND (job_type <> 'MES_SYNC' OR NOT EXISTS (
+        SELECT 1 FROM public.automation_jobs active
+        WHERE active.job_type = 'MES_SYNC'
+          AND active.status IN ('RUNNING', 'CANCEL_REQUESTED', 'CONFIRM_REQUIRED')
+      ))
     ORDER BY created_at, id
     FOR UPDATE SKIP LOCKED
     LIMIT 1
@@ -141,6 +151,14 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
+  -- A cancelled MES run with no effect is terminal, never requeued.
+  UPDATE public.automation_jobs
+  SET status = 'CANCELLED', progress_stage = '실행 전 취소됨', progress_percent = 100,
+      finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+  WHERE status = 'CANCEL_REQUESTED' AND job_type = 'MES_SYNC'
+    AND job_type = ANY(p_job_types) AND worker_lease_expires_at < CURRENT_TIMESTAMP
+    AND effect_started_at IS NULL;
+
   -- Safe recovery: no external effect boundary was crossed.
   UPDATE public.automation_jobs
   SET status = 'PENDING', worker_id = NULL, worker_lease_expires_at = NULL,
@@ -158,15 +176,16 @@ BEGIN
   UPDATE public.automation_jobs
   SET status = 'COMPLETED', progress_stage = '확인된 효과 복구', progress_percent = 100,
       finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-  WHERE status = 'RUNNING'
+  WHERE status IN ('RUNNING', 'CANCEL_REQUESTED')
     AND job_type = ANY(p_job_types)
     AND job_type <> 'DOCUMENT_GENERATION'
     AND worker_lease_expires_at < CURRENT_TIMESTAMP
     AND effect_confirmed_at IS NOT NULL
     AND result_payload IS NOT NULL
     AND (
-      (result_payload ? 'files' AND jsonb_array_length(coalesce(result_payload->'files', '[]'::jsonb)) > 0)
-      OR result_payload @> '{"syncSuccess": true}'::jsonb
+      (job_type = 'MES_SYNC' AND result_payload @> '{"syncSuccess": true}'::jsonb)
+      OR (job_type <> 'MES_SYNC' AND result_payload ? 'files'
+          AND jsonb_array_length(coalesce(result_payload->'files', '[]'::jsonb)) > 0)
     );
 
   RETURN QUERY
@@ -179,7 +198,7 @@ BEGIN
       error_message = '실행 중 Worker 연결이 복구되지 않아 자동 재실행하지 않았습니다.',
       finished_at = CURRENT_TIMESTAMP,
       updated_at = CURRENT_TIMESTAMP
-  WHERE status = 'RUNNING'
+  WHERE status IN ('RUNNING', 'CANCEL_REQUESTED')
     AND job_type = ANY(p_job_types)
     AND job_type <> 'DOCUMENT_GENERATION'
     AND worker_lease_expires_at < CURRENT_TIMESTAMP
@@ -250,16 +269,17 @@ BEGIN
     IF FOUND THEN RETURN queued; END IF;
   END IF;
 
-  -- MES is a single interactive Windows application.  A manual request and a
-  -- scheduled request must therefore share one atomic execution lane even
-  -- though their idempotency keys intentionally differ.
+  -- Scheduled slots are durable intents even while another MES run owns the
+  -- physical lane. Manual requests continue to reuse an active run.
   IF p_job_type = 'MES_SYNC' THEN
     PERFORM pg_advisory_xact_lock(hashtext('automation:mes-sync'));
-    SELECT * INTO queued FROM public.automation_jobs
-      WHERE job_type = 'MES_SYNC'
-        AND status IN ('PENDING','RUNNING','CANCEL_REQUESTED','CONFIRM_REQUIRED')
-      ORDER BY created_at DESC LIMIT 1;
-    IF FOUND THEN RETURN queued; END IF;
+    IF p_request_payload->>'trigger' IS DISTINCT FROM 'scheduled' THEN
+      SELECT * INTO queued FROM public.automation_jobs
+        WHERE job_type = 'MES_SYNC'
+          AND status IN ('PENDING','RUNNING','CANCEL_REQUESTED','CONFIRM_REQUIRED')
+        ORDER BY created_at DESC LIMIT 1;
+      IF FOUND THEN RETURN queued; END IF;
+    END IF;
   END IF;
 
   INSERT INTO public.automation_jobs (
@@ -614,26 +634,27 @@ CREATE OR REPLACE FUNCTION public.renew_document_automation_job_lease(
   p_worker_lease_id UUID, p_result_files JSONB DEFAULT NULL
 ) RETURNS TABLE(status TEXT, cancel_requested BOOLEAN, lease_expires_at TIMESTAMPTZ)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE renewed_legacy public.document_generation_jobs;
 BEGIN
-  RETURN QUERY
-  WITH legacy AS (
-    UPDATE public.document_generation_jobs job
+  -- Both UPDATEs must succeed or the function raises and rolls the transaction back.
+  UPDATE public.document_generation_jobs job
     SET worker_heartbeat_at = CURRENT_TIMESTAMP,
         worker_lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds',
         result_files = coalesce(p_result_files, job.result_files), updated_at = CURRENT_TIMESTAMP
     WHERE job.id = p_legacy_job_id AND job.status = 'PROCESSING'
       AND job.worker_id = p_worker_id AND job.worker_lease_id = p_worker_lease_id
-    RETURNING job.status, job.cancel_requested_at, job.worker_lease_expires_at
-  ), common AS (
-    UPDATE public.automation_jobs job
+    RETURNING job.* INTO renewed_legacy;
+  IF NOT FOUND THEN RAISE EXCEPTION 'DOCUMENT_AUTOMATION_LEASE_NOT_OWNED'; END IF;
+
+  UPDATE public.automation_jobs job
     SET worker_lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '30 minutes', updated_at = CURRENT_TIMESTAMP
     WHERE job.id = p_automation_job_id AND job.job_type = 'DOCUMENT_GENERATION'
       AND job.worker_id = p_worker_id AND job.status IN ('RUNNING', 'CANCEL_REQUESTED')
-      AND EXISTS (SELECT 1 FROM legacy)
-    RETURNING job.id
-  )
-  SELECT legacy.status, legacy.cancel_requested_at IS NOT NULL, legacy.worker_lease_expires_at
-  FROM legacy WHERE EXISTS (SELECT 1 FROM common);
+      AND job.request_payload->>'document_generation_job_id' = p_legacy_job_id::text;
+  IF NOT FOUND THEN RAISE EXCEPTION 'DOCUMENT_AUTOMATION_LEASE_NOT_OWNED'; END IF;
+
+  RETURN QUERY SELECT renewed_legacy.status, renewed_legacy.cancel_requested_at IS NOT NULL,
+    renewed_legacy.worker_lease_expires_at;
 END;
 $$;
 

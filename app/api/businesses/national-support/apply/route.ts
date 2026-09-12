@@ -9,6 +9,7 @@ import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber } 
 import { enqueueAutomationJob, nationalSupportIdempotencyKey } from "@/lib/automation/jobs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasMeasurementJournalForTarget, nationalSupportCompatibilityProjection } from "@/lib/national-support/automation-contract";
+import { matchesNationalSupportTargetKey, NATIONAL_SUPPORT_TARGET_KEY_MISMATCH } from "@/lib/national-support/apply-boundaries";
 
 /**
  * 건강디딤돌 자동 신청 API
@@ -37,9 +38,9 @@ export async function POST(request: NextRequest) {
       representative,
       contact_name,
       contact_phone,
-      period,
-      code,
-      year,
+      period: requestedPeriod,
+      code: requestedCode,
+      year: requestedYear,
       mode = "lookup_only",
     } = body;
 
@@ -48,12 +49,30 @@ export async function POST(request: NextRequest) {
       : "lookup_only";
 
     // 필수 입력값 검증 (담당자명 및 연락처는 결과 조회 시 필수 항목이 아니므로 제외)
-    if (!target_id || !sanjae || !commencement || !representative || !period || !code || !year) {
+    if (!target_id || !sanjae || !commencement || !representative || !requestedPeriod || !requestedCode || !requestedYear) {
       return NextResponse.json(
         { error: "필수 요청 항목이 누락되었습니다." },
         { status: 400 }
       );
     }
+
+    const { data: canonicalTarget, error: targetError } = await createAdminClient()
+      .from("measurement_target_business")
+      .select("id, code, year, period")
+      .eq("id", target_id).maybeSingle();
+    if (targetError) throw targetError;
+    if (!canonicalTarget) {
+      return NextResponse.json({ error: "대상 사업장 정보를 찾을 수 없습니다." }, { status: 404 });
+    }
+    if (!matchesNationalSupportTargetKey(
+      { code: requestedCode, year: requestedYear, period: requestedPeriod }, canonicalTarget,
+    )) {
+      return NextResponse.json({
+        error: "요청한 사업장 코드·연도·주기가 대상 사업장과 일치하지 않습니다.",
+        errorCode: NATIONAL_SUPPORT_TARGET_KEY_MISMATCH,
+      }, { status: 409 });
+    }
+    const { id: canonicalTargetId, code, year, period } = canonicalTarget;
 
     const normalizedSanjae = normalizeElevenDigitNumber(sanjae);
     const normalizedCommencement = normalizeElevenDigitNumber(commencement);
@@ -102,7 +121,7 @@ export async function POST(request: NextRequest) {
     const { data: currentPlan, error: selectError } = await supabase
       .from("measurement_target_business")
       .select("sync_status, national_support_status")
-      .eq("id", target_id)
+      .eq("id", canonicalTargetId)
       .single();
 
     if (selectError) {
@@ -157,7 +176,7 @@ export async function POST(request: NextRequest) {
           representative_name: representative || null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", target_id);
+        .eq("id", canonicalTargetId);
 
       if (errTarget) {
         console.error("즉시 동기화 계획 테이블 업데이트 실패:", errTarget);
@@ -168,7 +187,7 @@ export async function POST(request: NextRequest) {
         const { data: targetBusiness } = await supabase
           .from("measurement_target_business")
           .select("business_name")
-          .eq("id", target_id)
+          .eq("id", canonicalTargetId)
           .single();
         
         const bName = targetBusiness?.business_name || "미등록 사업장";
@@ -198,7 +217,7 @@ export async function POST(request: NextRequest) {
 
 
     const jobPayload = {
-      target_id,
+      target_id: canonicalTargetId,
       sanjae: normalizedSanjae,
       commencement: normalizedCommencement,
       representative: normalizeRepresentativeName(representative) || representative,
@@ -217,7 +236,7 @@ export async function POST(request: NextRequest) {
         jobMode === "apply_if_missing" ? "apply" : "lookup",
         String(code), year, period, requestId,
       ),
-      targetKey: `national-support:${target_id}`,
+      targetKey: `national-support:${canonicalTargetId}`,
       requestPayload: jobPayload,
       requestedBy: Number(user.id),
     });

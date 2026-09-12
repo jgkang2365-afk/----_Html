@@ -5,6 +5,7 @@ import { getKSTDateString } from '../utils/date-utils';
 import { K2B_VERIFY_SCHEDULE } from '../constants/k2b-verification';
 import { buildK2BSyncRange, K2B_SYNC_OVERLAP_DAYS } from '../automation/k2b-original-sync';
 import { enqueueAutomationJob, mesScheduledIdempotencyKey, nationalSupportIdempotencyKey } from '../automation/jobs';
+import { forEachAscendingIdPage } from './id-pages';
 import { hasMeasurementJournalForTarget } from '../national-support/automation-contract';
 import { hasNationalSupportApplicationInformation } from '../national-support/eligibility';
 
@@ -89,17 +90,17 @@ export class BackgroundTasks {
         // 3. MES 자동 다운로드 스케줄 (오전 11:30, 낮 12:00, 오후 14:00 최종 점검)
         cron.schedule('30 11 * * *', async () => {
             console.log("[BackgroundTasks] 11:30 MES 자동 다운로드 작업을 기동합니다...");
-            await BackgroundTasks.getInstance().runMesDownloadScript(false);
+            await BackgroundTasks.getInstance().runMesDownloadScript('11:30');
         }, KST_CRON_OPTIONS);
 
         cron.schedule('0 12 * * *', async () => {
             console.log("[BackgroundTasks] 12:00 MES 자동 다운로드 작업을 기동합니다...");
-            await BackgroundTasks.getInstance().runMesDownloadScript(false);
+            await BackgroundTasks.getInstance().runMesDownloadScript('12:00');
         }, KST_CRON_OPTIONS);
 
         cron.schedule('0 14 * * *', async () => {
             console.log("[BackgroundTasks] 14:00 최종 MES 자동 다운로드 및 연동 여부 점검을 기동합니다...");
-            await BackgroundTasks.getInstance().runMesDownloadScript(true);
+            await BackgroundTasks.getInstance().runMesDownloadScript('14:00');
         }, KST_CRON_OPTIONS);
 
         // The local server drains DB-only post actions independently of the
@@ -159,17 +160,21 @@ export class BackgroundTasks {
     public async enqueueDailyNationalSupportChecks(): Promise<void> {
         const admin = createAdminClient();
         const date = getKSTDateString();
-        const { data: targets, error } = await admin.from('measurement_target_business')
-            .select('id, code, year, period, industrial_accident_number, commencement_number, representative_name, manager_name, manager_mobile, national_support_status')
-            .is('national_support_status', null)
-            .not('code', 'is', null)
-            .not('year', 'is', null)
-            .not('period', 'is', null);
-        if (error) throw error;
-        for (const target of targets || []) {
-            if (String(target.period).includes('(수시)')) continue;
-            if (!target.industrial_accident_number || !target.commencement_number || !target.representative_name) continue;
-            if (await hasMeasurementJournalForTarget(admin, target)) continue;
+        const pageSize = 500;
+        await forEachAscendingIdPage(pageSize, async (lastId, limit) => {
+          const { data, error } = await admin.from('measurement_target_business')
+              .select('id, code, year, period, industrial_accident_number, commencement_number, representative_name, manager_name, manager_mobile, national_support_status')
+              .is('national_support_status', null)
+              .not('code', 'is', null)
+              .not('year', 'is', null)
+              .not('period', 'is', null)
+              .gt('id', lastId).order('id', { ascending: true }).limit(limit);
+          if (error) throw error;
+          return data || [];
+        }, async (target) => {
+            if (String(target.period).includes('(수시)')) return;
+            if (!target.industrial_accident_number || !target.commencement_number || !target.representative_name) return;
+            if (await hasMeasurementJournalForTarget(admin, target)) return;
             await enqueueAutomationJob(admin, {
                 jobType: 'NATIONAL_SUPPORT',
                 idempotencyKey: nationalSupportIdempotencyKey('scheduled_lookup', String(target.code), target.year, target.period, date),
@@ -187,17 +192,17 @@ export class BackgroundTasks {
                     }) ? 'apply_if_missing' : 'lookup_only', scheduled_at: date,
                 },
             });
-        }
+        });
     }
 
     /**
      * MES 다운로드 파이썬 스크립트 실행
      */
-    public async runMesDownloadScript(isFinalCheck: boolean = false): Promise<boolean> {
+    public async runMesDownloadScript(slot: '11:30' | '12:00' | '14:00'): Promise<boolean> {
         try {
             const supabase = createAdminClient();
             const kstDate = getKSTDateString();
-            const slot = isFinalCheck ? '14:00' : new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
+            const isFinalCheck = slot === '14:00';
             const job = await enqueueAutomationJob(supabase, {
                 jobType: 'MES_SYNC',
                 idempotencyKey: mesScheduledIdempotencyKey(slot, kstDate),

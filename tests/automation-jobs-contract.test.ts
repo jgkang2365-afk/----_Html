@@ -9,11 +9,16 @@ import {
   mesScheduledIdempotencyKey,
   nationalSupportIdempotencyKey,
   terminalAutomationStatus,
+  supportsGenericAutomationCancellation,
+  DOCUMENT_CANCEL_USE_DOCUMENT_ENDPOINT,
+  NATIONAL_SUPPORT_CANCEL_NOT_SUPPORTED,
+  unsupportedCancellationCode,
 } from "../lib/automation/jobs";
 import {
   hasMeasurementJournalForTarget,
   nationalSupportCompatibilityStatus,
 } from "../lib/national-support/automation-contract";
+import { forEachAscendingIdPage } from "../lib/scheduler/id-pages";
 
 test("automation job status contract has only the approved states", () => {
   assert.deepEqual(AUTOMATION_JOB_STATUSES, [
@@ -174,6 +179,71 @@ test("14:00 MES post-sync action is enqueued once by the verified terminal trans
   assert.match(migration, /ON CONFLICT \(idempotency_key\) DO NOTHING/);
   assert.match(migration, /process_mes_post_sync_checks/);
   assert.match(migration, /INSERT INTO public\.notifications/);
+});
+
+test("scheduled MES slot은 활성 lane에서도 별도 PENDING intent로 남고 claim만 직렬화된다", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  const enqueue = migration.slice(migration.indexOf("CREATE OR REPLACE FUNCTION public.enqueue_automation_job"), migration.indexOf("REVOKE ALL ON FUNCTION public.claim_next_automation_job"));
+  const claim = migration.slice(migration.indexOf("CREATE OR REPLACE FUNCTION public.claim_next_automation_job"), migration.indexOf("CREATE OR REPLACE FUNCTION public.reconcile_stale_automation_jobs"));
+  assert.match(enqueue, /p_request_payload->>'trigger' IS DISTINCT FROM 'scheduled'/);
+  assert.match(enqueue, /ON CONFLICT \(idempotency_key\) DO UPDATE/);
+  assert.match(claim, /pg_advisory_xact_lock\(hashtext\('automation:mes-sync'\)\)/);
+  assert.match(claim, /active\.status IN \('RUNNING', 'CANCEL_REQUESTED', 'CONFIRM_REQUIRED'\)/);
+  for (const slot of ["11:30", "12:00", "14:00"]) {
+    assert.equal(mesScheduledIdempotencyKey(slot, "2026-09-12"), `mes:scheduled:2026-09-12:${slot}`);
+  }
+});
+
+test("MES 취소 lease 만료는 무효과 취소·불확실 확인·syncSuccess 확인 완료로 나뉜다", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  const recovery = migration.slice(migration.indexOf("CREATE OR REPLACE FUNCTION public.reconcile_stale_automation_jobs"), migration.indexOf("CREATE OR REPLACE FUNCTION public.renew_automation_job_lease"));
+  assert.match(recovery, /status = 'CANCELLED'[\s\S]*status = 'CANCEL_REQUESTED' AND job_type = 'MES_SYNC'[\s\S]*effect_started_at IS NULL/);
+  assert.match(recovery, /status = 'COMPLETED'[\s\S]*status IN \('RUNNING', 'CANCEL_REQUESTED'\)[\s\S]*effect_confirmed_at IS NOT NULL[\s\S]*job_type = 'MES_SYNC' AND result_payload @> '\{"syncSuccess": true\}'/);
+  assert.match(recovery, /status = 'CONFIRM_REQUIRED'[\s\S]*status IN \('RUNNING', 'CANCEL_REQUESTED'\)[\s\S]*effect_started_at IS NOT NULL/);
+});
+
+test("generic DELETE는 MES만 취소하고 문서·건강디딤돌은 명시 코드 409로 거절한다", () => {
+  assert.equal(supportsGenericAutomationCancellation("MES_SYNC"), true);
+  for (const type of ["DOCUMENT_GENERATION", "NATIONAL_SUPPORT"]) {
+    assert.equal(supportsGenericAutomationCancellation(type), false);
+  }
+  assert.equal(unsupportedCancellationCode("DOCUMENT_GENERATION"), DOCUMENT_CANCEL_USE_DOCUMENT_ENDPOINT);
+  assert.equal(unsupportedCancellationCode("NATIONAL_SUPPORT"), NATIONAL_SUPPORT_CANCEL_NOT_SUPPORTED);
+  const route = fs.readFileSync(path.join(process.cwd(), "app/api/automation-jobs/[id]/route.ts"), "utf8");
+  const deletion = route.slice(route.indexOf("export async function DELETE"));
+  assert.ok(deletion.indexOf("supportsGenericAutomationCancellation(owned.job_type)") < deletion.indexOf(".update({ status: \"CANCELLED\""));
+  assert.match(deletion, /errorCode: unsupportedCancellationCode\(owned\.job_type\)[\s\S]*status: 409/);
+  assert.match(deletion, /\.eq\("job_type", "MES_SYNC"\)\.eq\("status", "PENDING"\)/);
+  assert.match(deletion, /\.eq\("job_type", "MES_SYNC"\)\.eq\("status", "RUNNING"\)/);
+});
+
+test("17시 Health scheduler는 id ASC keyset으로 모든 페이지를 처리하고 MES slot은 고정된다", async () => {
+  const source = fs.readFileSync(path.join(process.cwd(), "lib/scheduler/background-tasks.ts"), "utf8");
+  const pages: number[] = [];
+  const visited: number[] = [];
+  await forEachAscendingIdPage(500, async (after, limit) => {
+    pages.push(after);
+    return Array.from({ length: 1101 }, (_, index) => ({ id: index + 1 }))
+      .filter(row => row.id > after).slice(0, limit);
+  }, async row => { visited.push(row.id); });
+  assert.deepEqual(pages, [0, 500, 1000]);
+  assert.equal(visited.length, 1101);
+  assert.equal(new Set(visited).size, 1101);
+  assert.match(source, /\.gt\('id', lastId\)\.order\('id', \{ ascending: true \}\)\.limit\(limit\)/);
+  assert.match(source, /forEachAscendingIdPage\(pageSize/);
+  for (const slot of ["11:30", "12:00", "14:00"]) {
+    assert.match(source, new RegExp(`runMesDownloadScript\\('${slot}'\\)`));
+  }
+  assert.doesNotMatch(source, /toLocaleTimeString\('en-GB'/);
+});
+
+test("문서 heartbeat는 두 lease 중 하나라도 소유하지 못하면 트랜잭션을 롤백한다", () => {
+  const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
+  const lease = migration.slice(migration.indexOf("CREATE OR REPLACE FUNCTION public.renew_document_automation_job_lease"), migration.indexOf("CREATE OR REPLACE FUNCTION public.recover_cancelled_document_generation_jobs"));
+  assert.equal((lease.match(/IF NOT FOUND THEN RAISE EXCEPTION 'DOCUMENT_AUTOMATION_LEASE_NOT_OWNED'/g) ?? []).length, 2);
+  assert.match(lease, /job\.request_payload->>'document_generation_job_id' = p_legacy_job_id::text/);
+  assert.match(lease, /RETURN QUERY SELECT renewed_legacy\.status/);
+  assert.match(migration, /REVOKE ALL ON FUNCTION public\.renew_document_automation_job_lease\(UUID,UUID,TEXT,UUID,JSONB\) FROM PUBLIC/);
 });
 
 test("MES 후속 작업은 공통 스키마와 ACL·Realtime 비공개 경계를 유지한다", () => {

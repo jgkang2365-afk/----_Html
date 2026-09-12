@@ -12,6 +12,20 @@ export const AUTOMATION_JOB_STATUSES = [
 
 export type AutomationJobStatus = (typeof AUTOMATION_JOB_STATUSES)[number];
 
+export const AUTOMATION_CANCEL_UNSUPPORTED_JOB_TYPE = "AUTOMATION_CANCEL_UNSUPPORTED_JOB_TYPE";
+export const DOCUMENT_CANCEL_USE_DOCUMENT_ENDPOINT = "DOCUMENT_CANCEL_USE_DOCUMENT_ENDPOINT";
+export const NATIONAL_SUPPORT_CANCEL_NOT_SUPPORTED = "NATIONAL_SUPPORT_CANCEL_NOT_SUPPORTED";
+
+export function supportsGenericAutomationCancellation(jobType: string) {
+  return jobType === "MES_SYNC";
+}
+
+export function unsupportedCancellationCode(jobType: string) {
+  if (jobType === "DOCUMENT_GENERATION") return DOCUMENT_CANCEL_USE_DOCUMENT_ENDPOINT;
+  if (jobType === "NATIONAL_SUPPORT") return NATIONAL_SUPPORT_CANCEL_NOT_SUPPORTED;
+  return AUTOMATION_CANCEL_UNSUPPORTED_JOB_TYPE;
+}
+
 export type AutomationJob = {
   id: string;
   job_type: string;

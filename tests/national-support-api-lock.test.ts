@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { matchesNationalSupportTargetKey, nationalSupportApplyOutcome, NATIONAL_SUPPORT_TARGET_KEY_MISMATCH } from "../lib/national-support/apply-boundaries";
 
 const route = fs.readFileSync(
   path.join(
@@ -41,4 +42,36 @@ test("구조화 로그에는 요청 식별자만 기록하고 신청 개인정�
   const logBlock = route.slice(logStart, logEnd);
   assert.match(logBlock, /correlationId/);
   assert.doesNotMatch(logBlock, /contact_name|contact_phone|sanjae|commencement/);
+});
+
+test("target_id의 canonical code/year/period가 다르면 409이고 guard·payload는 DB 값을 쓴다", () => {
+  const canonical = { code: "A", year: 2026, period: "하반기" };
+  assert.equal(matchesNationalSupportTargetKey(canonical, canonical), true);
+  for (const altered of [
+    { ...canonical, code: "B" }, { ...canonical, year: 2025 },
+    { ...canonical, period: "상반기" }, { ...canonical, year: "invalid" },
+  ]) assert.equal(matchesNationalSupportTargetKey(altered, canonical), false);
+  const binding = route.slice(route.indexOf("const { data: canonicalTarget"), route.indexOf("const normalizedSanjae"));
+  assert.match(binding, /\.eq\("id", target_id\)\.maybeSingle\(\)/);
+  assert.match(binding, /matchesNationalSupportTargetKey/);
+  assert.match(binding, /status: 409/);
+  assert.match(route, /errorCode: NATIONAL_SUPPORT_TARGET_KEY_MISMATCH/);
+  assert.equal(NATIONAL_SUPPORT_TARGET_KEY_MISMATCH, "NATIONAL_SUPPORT_TARGET_KEY_MISMATCH");
+  assert.match(route, /const \{ id: canonicalTargetId, code, year, period \} = canonicalTarget/);
+  assert.match(route, /hasMeasurementJournalForTarget\(createAdminClient\(\), \{[\s\S]*?code: String\(code\), year: Number\(year\), period: String\(period\)/);
+  assert.match(route, /target_id: canonicalTargetId/);
+  assert.match(route, /targetKey: `national-support:\$\{canonicalTargetId\}`/);
+});
+
+test("JOURNAL_REGISTERED_SKIP는 네 UI 호출 경로 모두 제외로 분류하며 작업 대기로 표시하지 않는다", () => {
+  assert.equal(nationalSupportApplyOutcome({ resultCode: "JOURNAL_REGISTERED_SKIP" }), "excluded");
+  assert.equal(nationalSupportApplyOutcome({ resultCode: "JOURNAL_REGISTERED_SKIP", instantSync: true }), "excluded");
+  assert.equal(nationalSupportApplyOutcome({ instantSync: true }), "instant");
+  assert.equal(nationalSupportApplyOutcome({}), "queued");
+  const management = fs.readFileSync(path.join(process.cwd(), "components/features/MeasurementTargetBusinessManagement.tsx"), "utf8");
+  const users = fs.readFileSync(path.join(process.cwd(), "components/features/UserManagement.tsx"), "utf8");
+  assert.equal((management.match(/nationalSupportApplyOutcome\([^)]*\) === "excluded"/g) ?? []).length, 3);
+  assert.equal((users.match(/nationalSupportApplyOutcome\([^)]*\) === "excluded"/g) ?? []).length, 1);
+  assert.match(management, /\[제외\].*측정일지가 등록되어/);
+  assert.match(users, /\[제외\].*측정일지가 등록되어/);
 });
