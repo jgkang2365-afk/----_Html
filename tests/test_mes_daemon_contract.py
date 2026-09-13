@@ -1,6 +1,7 @@
 import io
 import asyncio
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import threading
 import unittest
 from unittest.mock import patch
@@ -50,6 +51,7 @@ class MesDaemonContractTest(unittest.TestCase):
     def _worker(self):
         worker = object.__new__(mes_daemon.MesWorker)
         worker.current_job_id = "job-1"
+        worker.worker_id = "worker-1"
         worker.current_job_effect_started = False
         worker.cancel_requested = threading.Event()
         worker.cleanup_zombie_processes = lambda: None
@@ -189,6 +191,51 @@ class MesDaemonContractTest(unittest.TestCase):
         self.assertEqual(calls[0], ("process_mes_post_sync_checks", {"p_limit": 100}))
         self.assertEqual(len(timers), 1)
         self.assertGreater(timers[0].delay, 4 * 60)
+
+    def test_heartbeat_cancel_response_is_realtime_fallback(self):
+        class Response:
+            def __init__(self, data): self.data = data
+        self.assertTrue(mes_daemon.MesWorker.heartbeat_requested_cancel(Response("CANCEL_REQUESTED")))
+        self.assertTrue(mes_daemon.MesWorker.heartbeat_requested_cancel(Response({"status": "CANCEL_REQUESTED"})))
+        self.assertTrue(mes_daemon.MesWorker.heartbeat_requested_cancel(Response([{"status": "CANCEL_REQUESTED"}])))
+        self.assertFalse(mes_daemon.MesWorker.heartbeat_requested_cancel(Response({"status": "RUNNING"})))
+
+    def test_heartbeat_cancel_response_sets_the_existing_cancellation_event(self):
+        worker = self._worker()
+
+        class Response:
+            data = {"status": "CANCEL_REQUESTED"}
+
+        class Rpc:
+            def execute(self): return Response()
+
+        class Supabase:
+            def rpc(self, name, args):
+                self.name, self.args = name, args
+                return Rpc()
+
+        worker.supabase = Supabase()
+        self.assertTrue(worker.renew_lease_and_check_cancel())
+        self.assertTrue(worker.cancel_requested.is_set())
+        self.assertEqual(worker.supabase.name, "renew_automation_job_lease")
+
+    def test_heartbeat_running_response_keeps_the_cancellation_event_clear(self):
+        worker = self._worker()
+
+        class Response:
+            data = {"status": "RUNNING"}
+
+        class Rpc:
+            def execute(self): return Response()
+
+        worker.supabase = type("Supabase", (), {"rpc": lambda *_args: Rpc()})()
+        self.assertFalse(worker.renew_lease_and_check_cancel())
+        self.assertFalse(worker.cancel_requested.is_set())
+
+    def test_cleanup_is_process_tree_scoped_not_image_scoped(self):
+        source = Path("mes_daemon.py").read_text(encoding="utf-8")
+        self.assertIn('["taskkill", "/f", "/t", "/pid", str(pid)]', source)
+        self.assertNotIn('"/im", image_name', source)
 
 
 if __name__ == "__main__":

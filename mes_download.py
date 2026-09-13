@@ -6,7 +6,6 @@ import threading
 import subprocess
 import shutil
 import traceback
-import importlib.metadata
 import json
 
 # 표준 출력을 UTF-8로 설정하여 Windows 콘솔(CP949) 한글/특수문자 출력 에러 방지
@@ -17,104 +16,14 @@ except Exception:
     pass
 
 
-# ==========================================
-# 0-0. 필수 라이브러리 자동 검사 및 무인 설치 (Dependency Harness)
-# ==========================================
-def install_dependencies():
-    """ 
-    실행 환경에 필수 외부 라이브러리가 설치되어 있는지 확인하고, 
-    없을 경우 pip를 호출하여 사용자 개입 없이 자동으로 설치합니다.
-    """
-    # PyInstaller로 패키징된 실행 파일(.exe) 환경에서는 이미 의존성이 패키징되어 있으므로 자동 검사 및 설치를 건너뜁니다.
-    if getattr(sys, 'frozen', False):
-        return
-        
-    required_packages = {
-        "pandas": ("pandas", None),
-        "xlrd": ("xlrd", "2.0.1"),  # Pandas 최신 버전이 요구하는 xlrd 최소 사양 명시
-        "openpyxl": ("openpyxl", None),
-        "pywinauto": ("pywinauto", None),
-        "requests": ("requests", None),
-        "dotenv": ("python-dotenv", None),
-        "win32com": ("pywin32", None)
-    }
-    
-    missing_or_outdated = []
-    for module_name, (package_name, min_version) in required_packages.items():
-        try:
-            # 먼저 임포트가 가능한지 확인
-            __import__(module_name)
-            
-            # 임포트 성공 시 최소 버전 요구 조건이 있다면 검사
-            if min_version:
-                installed_ver = importlib.metadata.version(package_name)
-                inst_parts = [int(x) for x in installed_ver.split('.') if x.isdigit()]
-                min_parts = [int(x) for x in min_version.split('.') if x.isdigit()]
-                if inst_parts < min_parts:
-                    print(f"[-] '{package_name}' 버전이 너무 낮습니다 (설치됨: {installed_ver}, 요구됨: >={min_version})")
-                    missing_or_outdated.append(package_name)
-        except (ImportError, importlib.metadata.PackageNotFoundError):
-            missing_or_outdated.append(package_name)
-            
-    if missing_or_outdated:
-        print(f"[-] 누락되거나 업데이트가 필요한 라이브러리 발견: {missing_or_outdated}")
-        print("[-] 백그라운드 무인 설치/업그레이드를 시작합니다. 잠시만 기다려주세요...")
-        for pkg in missing_or_outdated:
-            install_target = pkg
-            if pkg == "xlrd":
-                install_target = "xlrd>=2.0.1"
-            if pkg == "python-dotenv":
-                install_target = "python-dotenv"
-                
-            print(f"[-] '{install_target}' 설치/업데이트 중...")
-            try:
-                # --quiet 옵션과 --disable-pip-version-check를 사용해 로그를 간결하게 유지하고 에러 방지
-                subprocess.check_call([
-                    sys.executable, "-m", 
-                    "pip", "install", 
-                    "--upgrade",
-                    install_target, 
-                    "--quiet", 
-                    "--disable-pip-version-check"
-                ])
-                print(f"[OK] '{pkg}' 라이브러리 설치/업데이트 성공.")
-            except Exception as e:
-                print(f"[오류] '{pkg}' 라이브러리 설치 중 심각한 에러가 발생했습니다: {e}")
-                print("[-] 스크립트를 더 이상 진행할 수 없어 안전하게 종료합니다.")
-                sys.exit(1)
-        print("[✓] 모든 필수 라이브러리 설치 및 업데이트가 완료되었습니다.\n")
-
-# 스크립트 진입 시 즉시 의존성 확인 및 설치 실행
-install_dependencies()
-
-# 의존성이 해결된 후 안전하게 외부 라이브러리 임포트
+# Required dependencies must be provisioned by the managed runtime. This
+# background worker must never install or upgrade an interpreter package.
 import pandas as pd
 from datetime import datetime, timedelta
-from pywinauto import Application
+from pywinauto import Application, Desktop
 from pywinauto.keyboard import send_keys
 from dotenv import load_dotenv
 import requests
-
-# ==========================================
-# 0. 관리자 권한 확인 및 자동 승격 (성공 케이스 대조 반영)
-# ==========================================
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
-
-# 비대화형(백그라운드) 실행 여부 감지 (표준 입력이 터미널에 연결되어 있는지 확인)
-is_interactive = sys.stdin is not None and sys.stdin.isatty()
-
-if not is_admin():
-    if not is_interactive:
-        print("[오류] 관리자 권한이 없으나 백그라운드 환경이라 UAC 팝업을 띄울 수 없습니다. 관리자 권한으로 서버를 실행해 주세요.")
-        sys.exit(1)
-    # 관리자 권한이 아니면 권한 상승 후 재실행
-    print("[-] 관리자 권한으로 재실행을 시도합니다...")
-    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-    sys.exit()
 
 # ==========================================
 # 0-1. 전역 ESC 키 감시 및 비상 종료 훅 (오토핫키 Esc::ExitApp 매칭)
@@ -124,8 +33,10 @@ def monitor_esc():
     user32 = ctypes.windll.user32
     while True:
         if user32.GetAsyncKeyState(0x1B) & 0x8000:
-            print("\n[중단] 사용자가 ESC 키를 입력하여 프로세스를 즉시 강제 종료합니다.")
-            os._exit(1)
+            print("\n[중단] 사용자가 ESC 키를 입력했습니다. 실행한 MES를 안전하게 정리합니다.")
+            cancel_requested.set()
+            cleanup_owned_mes()
+            return
         time.sleep(0.1)
 
 # ==========================================
@@ -142,6 +53,92 @@ SAVE_PATH = os.getenv("MES_SAVE_PATH", r"Z:\data\측정팀\자동화 툴\MES 프
 WEB_API_URL = os.getenv("WEB_API_URL", "http://localhost:3000") # 업로드 대상 웹 서버 주소
 WEB_USERNAME = os.getenv("WEB_USERNAME")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD")
+owned_mes_process: subprocess.Popen | None = None
+cancel_requested = threading.Event()
+
+def cleanup_owned_mes() -> None:
+    """Close only the MES instance launched by this run, never a user's MES."""
+    global owned_mes_process
+    process = owned_mes_process
+    if process is None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/f", "/t", "/pid", str(process.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            return
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+    finally:
+        owned_mes_process = None
+
+def wait_for_logged_in_main(login_win, prior_main_handles: set[int], timeout: float = 30):
+    """Require the Login window to disappear and a newly-created MES main window."""
+    deadline = time.monotonic() + timeout
+    desktop = Desktop(backend="win32")
+    while time.monotonic() < deadline:
+        login_closed = not login_win.exists(timeout=0.2)
+        if login_closed:
+            for candidate in desktop.windows(title_re=MAIN_TITLE, visible_only=True):
+                if candidate.handle not in prior_main_handles:
+                    return candidate
+        time.sleep(0.25)
+    raise RuntimeError("MES_MAIN_WINDOW_NOT_FOUND")
+
+def start_mes_and_login(read_only: bool = False):
+    """Start one owned MES process and return a verified, newly-created main window."""
+    global owned_mes_process
+    try:
+        desktop = Desktop(backend="win32")
+        prior_main_handles = {window.handle for window in desktop.windows(title_re=MAIN_TITLE, visible_only=True)}
+    except Exception as error:
+        raise RuntimeError("MES_DESKTOP_DISCOVERY_FAILED") from error
+    try:
+        owned_mes_process = subprocess.Popen([MES_EXE])
+    except Exception as error:
+        raise RuntimeError("MES_PROCESS_START_FAILED") from error
+
+    app = Application(backend="win32")
+    try:
+        login_win = app.connect(title_re=LOGIN_TITLE, timeout=30).window(title_re=LOGIN_TITLE)
+        login_win.set_focus()
+    except Exception as error:
+        raise RuntimeError("MES_LOGIN_WINDOW_NOT_FOUND") from error
+
+    try:
+        # Existing keyboard fallback is retained until READ_ONLY inspection
+        # proves stable, named login controls on the target MES build.
+        send_keys("+{TAB}")
+        time.sleep(0.3)
+        send_keys("^a{BACKSPACE}")
+        time.sleep(0.3)
+        send_keys("강종구{ENTER}")
+        time.sleep(0.5)
+        send_keys(f"{PASSWORD}{{ENTER}}")
+    except Exception as error:
+        raise RuntimeError("MES_LOGIN_FAILED") from error
+
+    try:
+        main_win = wait_for_logged_in_main(login_win, prior_main_handles)
+        main_win.set_focus()
+        return main_win
+    except Exception as error:
+        raise RuntimeError("MES_MAIN_WINDOW_NOT_FOUND") from error
+
+def read_only_smoke() -> None:
+    """Verify Login -> newly-created main window -> owned-process cleanup only."""
+    if not PASSWORD:
+        raise RuntimeError("MES_PASSWORD_MISSING")
+    try:
+        main_win = start_mes_and_login(read_only=True)
+        process_id = main_win.process_id()
+        handle = main_win.handle
+        print(f"READ_ONLY_SMOKE_PASS main_handle={handle} main_pid={process_id}")
+    finally:
+        cleanup_owned_mes()
 
 def require_runtime_credentials():
     missing = [
@@ -349,16 +346,10 @@ def convert_and_copy_excel_files(filenames):
     """
     os.makedirs("C:\\Temp", exist_ok=True)
     
-    # 기존에 남아있는 좀비 엑셀 프로세스가 락을 잡고 있으면 해제
-    try:
-        subprocess.run(["taskkill", "/f", "/im", "excel.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(0.5)
-    except Exception:
-        pass
-        
     import win32com.client as win32
     print("[-] 엑셀 백그라운드 변환 엔진 초기화 중...")
-    excel = win32.Dispatch('Excel.Application')
+    # DispatchEx creates an instance owned by this run; finally only quits it.
+    excel = win32.DispatchEx('Excel.Application')
     excel.Visible = False
     excel.DisplayAlerts = False
     
@@ -439,15 +430,6 @@ def main():
 
     print("[시작] 통합 자동화 봇 가동")
 
-    # 0. 중복 기동 및 좀비 프로세스 락 방지를 위한 사전 프로세스 강제 정리
-    print("[-] 이전 중복 기동 방지를 위해 기존 프로그램 인스턴스 종료 시도...")
-    try:
-        subprocess.run(["taskkill", "/f", "/im", "excel.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["taskkill", "/f", "/im", "hwsmes.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(1.0)
-    except Exception:
-        pass
-
     # 0-1. 덮어쓰기 팝업 강제 유도를 위한 빈 파일 터치(Touch) 안전 장치
     print("[-] 덮어쓰기 팝업 활성화를 위해 기존 파일 유무 점검 및 임시 Touch 수행...")
     try:
@@ -479,46 +461,10 @@ def main():
                 with open(req_f, "w") as f:
                     f.write("")
 
-    # 1. MES 프로그램 실행
-    print("[-] MES 프로그램을 실행합니다.")
+    # 1-3. Launch, login, and prove the new main window before any menu action.
+    print("[-] MES 로그인 및 메인 화면 진입 대기 중...")
     try:
-        subprocess.Popen([MES_EXE])
-    except Exception as run_err:
-        print(f"[치명적 오류] MES 프로그램 실행 실패 ({MES_EXE}): {run_err}")
-        sys.exit(1)
-    
-    # pywinauto를 이용한 윈도우 객체 제어 연결
-    app = Application(backend="win32")
-    
-    # 2. 로그인 창 대기 및 제어 (타이아웃 30초)
-    print("[-] 로그인 창 대기 중...")
-    time.sleep(3) # 프로그램 초기 구동 대기
-    
-    try:
-        login_win = app.connect(title_re=LOGIN_TITLE, timeout=30).window(title_re=LOGIN_TITLE)
-        login_win.set_focus()
-        time.sleep(0.5)
-        
-        # ID 칸으로 이동 후 초기화 (Shift+Tab -> Ctrl+A -> Backspace)
-        send_keys("+{TAB}")
-        time.sleep(0.3)
-        send_keys("^a{BACKSPACE}")
-        time.sleep(0.3)
-        
-        # 이름 및 암호 입력 (강종구)
-        send_keys("강종구{ENTER}")
-        time.sleep(0.5)
-        send_keys(f"{PASSWORD}{{ENTER}}")
-        print("[OK] 로그인 정보 입력 완료.")
-    except Exception as e:
-        print(f"[오류] 로그인 창 제어 실패: {e}")
-        raise RuntimeError(f"로그인 창 제어 실패: {e}")
-
-    # 3. 메인 화면 및 초기 팝업 대기
-    print("[-] 메인 화면 진입 대기 중...")
-    try:
-        main_win = app.connect(title_re=MAIN_TITLE, timeout=30).window(title_re=MAIN_TITLE)
-        main_win.set_focus()
+        main_win = start_mes_and_login()
         time.sleep(2)
         
         # 초기 공지 팝업 3개 닫기 시퀀스 (Tab -> Space)
@@ -528,8 +474,9 @@ def main():
             send_keys("{SPACE}")
             time.sleep(0.5)
         print("[OK] 초기 팝업 처리 완료.")
-    except Exception as e:
-        print(f"[주의] 메인 창 또는 팝업 제어 중 확인 필요: {e}")
+    except Exception:
+        cleanup_owned_mes()
+        raise
 
     # 4. 메뉴 이동 (측정사업장)
     print("[-] 측정사업장 메뉴로 이동합니다.")
@@ -656,10 +603,7 @@ def main():
         # 종료 과정에서 혹시 오류가 나더라도 taskkill로 백업 클린업 수행
         pass
     
-    try:
-        subprocess.run(["taskkill", "/f", "/im", "hwsmes.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+    cleanup_owned_mes()
 
     # 9. 파이썬 내부 백그라운드 엑셀 가공 처리
     print("[4] 다운로드된 엑셀 가공 데이터 처리 시작...")
@@ -759,8 +703,15 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        if "--read-only-smoke" in sys.argv[1:]:
+            read_only_smoke()
+        else:
+            main()
     except Exception as global_err:
+        cleanup_owned_mes()
+        if "--read-only-smoke" in sys.argv[1:]:
+            print(f"READ_ONLY_SMOKE_FAIL code={global_err}")
+            sys.exit(1)
         print("\n" + "="*50)
         print("[치명적 에러] 프로그램 실행 중 예기치 못한 에러가 발생했습니다.")
         print(f"에러 메시지: {global_err}")

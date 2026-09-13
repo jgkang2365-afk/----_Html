@@ -121,6 +121,16 @@ test("MES upload requires explicit database synchronization acknowledgement", ()
   assert.match(source, /웹 DB 동기화 확인 실패/);
 });
 
+test("MES login accepts only a newly-created main window and never installs packages", () => {
+  const source = fs.readFileSync(path.join(process.cwd(), "mes_download.py"), "utf8");
+  assert.match(source, /wait_for_logged_in_main/);
+  assert.match(source, /login_closed = not login_win\.exists/);
+  assert.match(source, /candidate\.handle not in prior_main_handles/);
+  assert.match(source, /prior_main_handles = \{window\.handle/);
+  assert.match(source, /cleanup_owned_mes\(\)/);
+  assert.doesNotMatch(source, /install_dependencies|pip", "install|taskkill", "\/f", "\/im"/);
+});
+
 test("durable delayed follow-up uses available_at and one-shot wake, never an idle interval", () => {
   const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
   const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/local-automation-worker.ts"), "utf8");
@@ -261,6 +271,18 @@ test("MES manual and scheduled requests use one active execution lane", () => {
   assert.match(migration, /WHERE job_type = 'MES_SYNC'/);
   assert.match(dashboard, /mesRequestIdRef\.current \?\? crypto\.randomUUID\(\)/);
   assert.match(dashboard, /mesRequestIdRef\.current = null/);
+});
+
+test("MES 수동 요청은 브라우저 장치나 Windows 관리자 상태와 무관하게 job만 생성한다", () => {
+  const dashboard = fs.readFileSync(path.join(process.cwd(), "components/features/DashboardClient.tsx"), "utf8");
+  const route = fs.readFileSync(path.join(process.cwd(), "app/api/cron/mes-trigger/route.ts"), "utf8");
+  const worker = fs.readFileSync(path.join(process.cwd(), "mes_daemon.py"), "utf8");
+  assert.match(dashboard, /fetch\("\/api\/cron\/mes-trigger"/);
+  assert.match(route, /jobType: "MES_SYNC"/);
+  assert.match(route, /requestPayload: \{ trigger: "manual", requested_at:/);
+  assert.doesNotMatch(route, /device|hostname|is_admin|administrator|windows.*admin/i);
+  assert.match(worker, /\[MES_JOB_TYPE\]/);
+  assert.match(worker, /str\(script_path\)/);
 });
 
 test("14:00 MES post-sync action is enqueued once by the verified terminal transition", () => {
