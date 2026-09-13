@@ -62,6 +62,7 @@ class MesWorker:
         self.current_job_id: str | None = None
         self.current_job_effect_started = False
         self.cancel_requested = threading.Event()
+        self.active_macro_process: subprocess.Popen[str] | None = None
         self.post_sync_timer: threading.Timer | None = None
         self.post_sync_deadline: float | None = None
         self.post_sync_lock = threading.RLock()
@@ -141,9 +142,41 @@ class MesWorker:
             self.cancel_requested.set()
 
     def cleanup_zombie_processes(self) -> None:
-        # Existing MES cleanup remains local to the interactive worker process.
-        for image_name in ("excel.exe", "hwsmes.exe"):
-            subprocess.run(["taskkill", "/f", "/im", image_name], capture_output=True, text=True, check=False)
+        # Never kill a user's unrelated Excel/MES session by image name. The
+        # macro child owns every process it launches, so its process tree is
+        # the only safe cleanup boundary.
+        return None
+
+    @staticmethod
+    def cleanup_owned_macro(process: subprocess.Popen[str]) -> None:
+        """Stop the macro and descendants it started, without touching peers."""
+        pid = getattr(process, "pid", None)
+        if os.name == "nt" and pid is not None:
+            # Kill the tree while its root is still alive; terminating the root
+            # first can orphan hwsmes.exe and lose the ownership relationship.
+            subprocess.run(
+                ["taskkill", "/f", "/t", "/pid", str(pid)],
+                capture_output=True, text=True, check=False,
+            )
+            return
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+    @staticmethod
+    def heartbeat_requested_cancel(response: Any) -> bool:
+        data = getattr(response, "data", response)
+        if data == "CANCEL_REQUESTED":
+            return True
+        if isinstance(data, dict):
+            return data.get("status") == "CANCEL_REQUESTED"
+        return isinstance(data, list) and any(
+            item == "CANCEL_REQUESTED" or isinstance(item, dict) and item.get("status") == "CANCEL_REQUESTED"
+            for item in data
+        )
 
     def run_macro(self) -> tuple[dict[str, Any], bool]:
         if DRY_RUN:
@@ -159,6 +192,7 @@ class MesWorker:
             stderr=subprocess.STDOUT, stdin=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
         )
+        self.active_macro_process = process
         output: list[str] = []
         output_queue: queue.Queue[str | None] = queue.Queue()
         def read_output() -> None:
@@ -178,6 +212,7 @@ class MesWorker:
                 if process.stdin is not None:
                     process.stdin.write(json.dumps({"allow": allowed}) + "\n")
                     process.stdin.flush()
+                self.cleanup_owned_macro(process)
                 raise RuntimeError("MES_EFFECT_PERMISSION_DENIED")
 
             # The durable marker is the irreversible boundary.  Cross the
@@ -186,9 +221,13 @@ class MesWorker:
             # may have received permission and must be treated as uncertain.
             effect_started = True
             self.current_job_effect_started = True
-            if process.stdin is not None:
-                process.stdin.write(json.dumps({"allow": True}) + "\n")
-                process.stdin.flush()
+            try:
+                if process.stdin is not None:
+                    process.stdin.write(json.dumps({"allow": True}) + "\n")
+                    process.stdin.flush()
+            except Exception:
+                self.cleanup_owned_macro(process)
+                raise
         started = time.monotonic()
         last_lease_renewal = started
         while process.poll() is None:
@@ -199,23 +238,23 @@ class MesWorker:
                 if line.strip() == "AUTOMATION_EVENT:effect_start_request":
                     approve_effect_start()
             if time.monotonic() - last_lease_renewal >= LEASE_HEARTBEAT_SECONDS:
-                self.supabase.rpc("renew_automation_job_lease", {
+                heartbeat = self.supabase.rpc("renew_automation_job_lease", {
                     "p_job_id": self.current_job_id, "p_worker_id": self.worker_id,
                 }).execute()
+                if self.heartbeat_requested_cancel(heartbeat):
+                    # Realtime remains the fast path. This fallback closes the
+                    # cancellation gap when a signal is dropped while the child
+                    # is still running.
+                    self.cancel_requested.set()
                 last_lease_renewal = time.monotonic()
             if self.cancel_requested.is_set():
-                process.terminate()
-                try:
-                    process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                self.cleanup_zombie_processes()
+                self.cleanup_owned_macro(process)
                 raise RuntimeError(
                     "CANCEL_REQUESTED_AFTER_EFFECT_START"
                     if effect_started else "CANCEL_REQUESTED_BEFORE_EFFECT"
                 )
             if time.monotonic() - started > MACRO_TIMEOUT_SECONDS:
-                process.terminate()
+                self.cleanup_owned_macro(process)
                 raise RuntimeError("MES_MACRO_TIMEOUT")
             time.sleep(0.5)
         # The reader owns stdout.  Do not call communicate() after streaming
@@ -231,9 +270,11 @@ class MesWorker:
                 if line.strip() == "AUTOMATION_EVENT:effect_start_request":
                     approve_effect_start()
         if process.returncode:
+            self.cleanup_owned_macro(process)
             raise RuntimeError(("".join(output) or f"exit code {process.returncode}")[-3000:])
         # mes_download.py only exits successfully after both upload API calls have
         # returned success, which is this worker's DB-effect acknowledgement.
+        self.active_macro_process = None
         return {"stdout_tail": "".join(output)[-2000:], "stderr_tail": "", "syncSuccess": True}, effect_started
 
     def process_next(self) -> bool:
@@ -259,6 +300,9 @@ class MesWorker:
             )
             self.drain_post_sync()
         except Exception as error:
+            active_process = getattr(self, "active_macro_process", None)
+            if active_process is not None:
+                self.cleanup_owned_macro(active_process)
             code = str(error)
             if code in {"CANCEL_REQUESTED_BEFORE_EFFECT", "MES_EFFECT_PERMISSION_DENIED"} and not self.current_job_effect_started:
                 self.update(job_id, status="CANCELLED", progress_stage="사용자 취소", progress_percent=100,
@@ -275,6 +319,7 @@ class MesWorker:
                     error_code=code[:100], error_message=traceback.format_exc()[-3000:], finished_at=now(),
                 )
         finally:
+            self.active_macro_process = None
             self.current_job_id = None
             self.current_job_effect_started = False
             self.cancel_requested.clear()

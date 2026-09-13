@@ -1,6 +1,7 @@
 import io
 import asyncio
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import threading
 import unittest
 from unittest.mock import patch
@@ -189,6 +190,19 @@ class MesDaemonContractTest(unittest.TestCase):
         self.assertEqual(calls[0], ("process_mes_post_sync_checks", {"p_limit": 100}))
         self.assertEqual(len(timers), 1)
         self.assertGreater(timers[0].delay, 4 * 60)
+
+    def test_heartbeat_cancel_response_is_realtime_fallback(self):
+        class Response:
+            def __init__(self, data): self.data = data
+        self.assertTrue(mes_daemon.MesWorker.heartbeat_requested_cancel(Response("CANCEL_REQUESTED")))
+        self.assertTrue(mes_daemon.MesWorker.heartbeat_requested_cancel(Response({"status": "CANCEL_REQUESTED"})))
+        self.assertTrue(mes_daemon.MesWorker.heartbeat_requested_cancel(Response([{"status": "CANCEL_REQUESTED"}])))
+        self.assertFalse(mes_daemon.MesWorker.heartbeat_requested_cancel(Response({"status": "RUNNING"})))
+
+    def test_cleanup_is_process_tree_scoped_not_image_scoped(self):
+        source = Path("mes_daemon.py").read_text(encoding="utf-8")
+        self.assertIn('["taskkill", "/f", "/t", "/pid", str(pid)]', source)
+        self.assertNotIn('"/im", image_name', source)
 
 
 if __name__ == "__main__":
