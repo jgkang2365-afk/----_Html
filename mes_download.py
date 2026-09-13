@@ -37,14 +37,15 @@ def is_admin():
 # 비대화형(백그라운드) 실행 여부 감지 (표준 입력이 터미널에 연결되어 있는지 확인)
 is_interactive = sys.stdin is not None and sys.stdin.isatty()
 
-if not is_admin():
-    if not is_interactive:
-        print("[오류] 관리자 권한이 없으나 백그라운드 환경이라 UAC 팝업을 띄울 수 없습니다. 관리자 권한으로 서버를 실행해 주세요.")
-        sys.exit(1)
+def ensure_admin(allow_elevation: bool = True) -> None:
+    if is_admin():
+        return
+    if not allow_elevation or not is_interactive:
+        raise RuntimeError("MES_ADMIN_REQUIRED")
     # 관리자 권한이 아니면 권한 상승 후 재실행
     print("[-] 관리자 권한으로 재실행을 시도합니다...")
     ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-    sys.exit()
+    raise SystemExit(0)
 
 # ==========================================
 # 0-1. 전역 ESC 키 감시 및 비상 종료 훅 (오토핫키 Esc::ExitApp 매칭)
@@ -107,7 +108,61 @@ def wait_for_logged_in_main(login_win, prior_main_handles: set[int], timeout: fl
                 if candidate.handle not in prior_main_handles:
                     return candidate
         time.sleep(0.25)
-    raise RuntimeError("로그인 완료 후 새 MES 메인 창을 확인하지 못했습니다.")
+    raise RuntimeError("MES_MAIN_WINDOW_NOT_FOUND")
+
+def start_mes_and_login(read_only: bool = False):
+    """Start one owned MES process and return a verified, newly-created main window."""
+    global owned_mes_process
+    try:
+        desktop = Desktop(backend="win32")
+        prior_main_handles = {window.handle for window in desktop.windows(title_re=MAIN_TITLE, visible_only=True)}
+    except Exception as error:
+        raise RuntimeError("MES_DESKTOP_DISCOVERY_FAILED") from error
+    try:
+        owned_mes_process = subprocess.Popen([MES_EXE])
+    except Exception as error:
+        raise RuntimeError("MES_PROCESS_START_FAILED") from error
+
+    app = Application(backend="win32")
+    try:
+        login_win = app.connect(title_re=LOGIN_TITLE, timeout=30).window(title_re=LOGIN_TITLE)
+        login_win.set_focus()
+    except Exception as error:
+        raise RuntimeError("MES_LOGIN_WINDOW_NOT_FOUND") from error
+
+    try:
+        # Existing keyboard fallback is retained until READ_ONLY inspection
+        # proves stable, named login controls on the target MES build.
+        send_keys("+{TAB}")
+        time.sleep(0.3)
+        send_keys("^a{BACKSPACE}")
+        time.sleep(0.3)
+        send_keys("강종구{ENTER}")
+        time.sleep(0.5)
+        send_keys(f"{PASSWORD}{{ENTER}}")
+    except Exception as error:
+        raise RuntimeError("MES_LOGIN_FAILED") from error
+
+    try:
+        main_win = wait_for_logged_in_main(login_win, prior_main_handles)
+        main_win.set_focus()
+        return main_win
+    except Exception as error:
+        raise RuntimeError("MES_MAIN_WINDOW_NOT_FOUND") from error
+
+def read_only_smoke() -> None:
+    """Verify Login -> newly-created main window -> owned-process cleanup only."""
+    # A verification command must never trigger a surprise UAC prompt.
+    ensure_admin(allow_elevation=False)
+    if not PASSWORD:
+        raise RuntimeError("MES_PASSWORD_MISSING")
+    try:
+        main_win = start_mes_and_login(read_only=True)
+        process_id = main_win.process_id()
+        handle = main_win.handle
+        print(f"READ_ONLY_SMOKE_PASS main_handle={handle} main_pid={process_id}")
+    finally:
+        cleanup_owned_mes()
 
 def require_runtime_credentials():
     missing = [
@@ -392,6 +447,7 @@ def convert_and_copy_excel_files(filenames):
 # MAIN AUTOMATION PROCESS
 # ==========================================
 def main():
+    ensure_admin()
     require_runtime_credentials()
 
     # ESC 키 전역 감시 스레드 구동 (비상 종료 훅)
@@ -430,48 +486,10 @@ def main():
                 with open(req_f, "w") as f:
                     f.write("")
 
-    # 1. MES 프로그램 실행
-    print("[-] MES 프로그램을 실행합니다.")
-    global owned_mes_process
-    prior_main_handles = {window.handle for window in Desktop(backend="win32").windows(title_re=MAIN_TITLE, visible_only=True)}
+    # 1-3. Launch, login, and prove the new main window before any menu action.
+    print("[-] MES 로그인 및 메인 화면 진입 대기 중...")
     try:
-        owned_mes_process = subprocess.Popen([MES_EXE])
-    except Exception as run_err:
-        print(f"[치명적 오류] MES 프로그램 실행 실패 ({MES_EXE}): {run_err}")
-        sys.exit(1)
-    
-    # pywinauto를 이용한 윈도우 객체 제어 연결
-    app = Application(backend="win32")
-    
-    # 2. 로그인 창 대기 및 제어 (타이아웃 30초)
-    print("[-] 로그인 창 대기 중...")
-    time.sleep(3) # 프로그램 초기 구동 대기
-    
-    try:
-        login_win = app.connect(title_re=LOGIN_TITLE, timeout=30).window(title_re=LOGIN_TITLE)
-        login_win.set_focus()
-        time.sleep(0.5)
-        
-        # ID 칸으로 이동 후 초기화 (Shift+Tab -> Ctrl+A -> Backspace)
-        send_keys("+{TAB}")
-        time.sleep(0.3)
-        send_keys("^a{BACKSPACE}")
-        time.sleep(0.3)
-        
-        # 이름 및 암호 입력 (강종구)
-        send_keys("강종구{ENTER}")
-        time.sleep(0.5)
-        send_keys(f"{PASSWORD}{{ENTER}}")
-        print("[OK] 로그인 정보 입력 완료.")
-    except Exception as e:
-        print(f"[오류] 로그인 창 제어 실패: {e}")
-        raise RuntimeError(f"로그인 창 제어 실패: {e}")
-
-    # 3. Login 창이 사라지고, 실행 전에는 없던 MES 메인 창이 생겨야 한다.
-    print("[-] 메인 화면 진입 대기 중...")
-    try:
-        main_win = wait_for_logged_in_main(login_win, prior_main_handles)
-        main_win.set_focus()
+        main_win = start_mes_and_login()
         time.sleep(2)
         
         # 초기 공지 팝업 3개 닫기 시퀀스 (Tab -> Space)
@@ -481,8 +499,9 @@ def main():
             send_keys("{SPACE}")
             time.sleep(0.5)
         print("[OK] 초기 팝업 처리 완료.")
-    except Exception as e:
-        raise RuntimeError(f"MES 로그인 완료 또는 새 메인 창 검증 실패: {e}") from e
+    except Exception:
+        cleanup_owned_mes()
+        raise
 
     # 4. 메뉴 이동 (측정사업장)
     print("[-] 측정사업장 메뉴로 이동합니다.")
@@ -709,9 +728,15 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        if "--read-only-smoke" in sys.argv[1:]:
+            read_only_smoke()
+        else:
+            main()
     except Exception as global_err:
         cleanup_owned_mes()
+        if "--read-only-smoke" in sys.argv[1:]:
+            print(f"READ_ONLY_SMOKE_FAIL code={global_err}")
+            sys.exit(1)
         print("\n" + "="*50)
         print("[치명적 에러] 프로그램 실행 중 예기치 못한 에러가 발생했습니다.")
         print(f"에러 메시지: {global_err}")

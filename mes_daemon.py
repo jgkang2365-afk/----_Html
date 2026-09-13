@@ -178,6 +178,15 @@ class MesWorker:
             for item in data
         )
 
+    def renew_lease_and_check_cancel(self) -> bool:
+        heartbeat = self.supabase.rpc("renew_automation_job_lease", {
+            "p_job_id": self.current_job_id, "p_worker_id": self.worker_id,
+        }).execute()
+        if self.heartbeat_requested_cancel(heartbeat):
+            self.cancel_requested.set()
+            return True
+        return False
+
     def run_macro(self) -> tuple[dict[str, Any], bool]:
         if DRY_RUN:
             return {"dry_run": True}, False
@@ -238,10 +247,7 @@ class MesWorker:
                 if line.strip() == "AUTOMATION_EVENT:effect_start_request":
                     approve_effect_start()
             if time.monotonic() - last_lease_renewal >= LEASE_HEARTBEAT_SECONDS:
-                heartbeat = self.supabase.rpc("renew_automation_job_lease", {
-                    "p_job_id": self.current_job_id, "p_worker_id": self.worker_id,
-                }).execute()
-                if self.heartbeat_requested_cancel(heartbeat):
+                if self.renew_lease_and_check_cancel():
                     # Realtime remains the fast path. This fallback closes the
                     # cancellation gap when a signal is dropped while the child
                     # is still running.
