@@ -15,6 +15,7 @@ import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Card } from '@/components/ui/Card';
 import { K2BBusinessResultPanel } from '@/components/features/K2BBusinessResultPanel';
+import RemoteJobProgressDialog, { type RemoteJobProgressView } from '@/components/features/RemoteJobProgressDialog';
 import {
     collectReportExplorerBusinessNames,
     deriveReportExplorerConnectionStatus,
@@ -125,7 +126,8 @@ export default function ReportProcessingPage() {
     const [loading, setLoading] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [processingMessage, setProcessingMessage] = useState('');
-    const [activeJob, setActiveJob] = useState<{ id: string; type: 'email' | 'k2b' | 'k2b_verify' } | null>(null);
+    const [activeJob, setActiveJob] = useState<{ id: string; type: 'email' | 'k2b' | 'k2b_verify'; status: 'pending' | 'processing' | 'cancel_requested' } | null>(null);
+    const [showRemoteJobProgress, setShowRemoteJobProgress] = useState(true);
     const [k2bExecutionRefreshKey, setK2BExecutionRefreshKey] = useState<string | null>(null);
     const [refreshing, setRefreshing] = useState(false);
     const [records, setRecords] = useState<BusinessRecord[]>([]);
@@ -362,6 +364,7 @@ export default function ReportProcessingPage() {
 
     const cancelActiveJob = useCallback(async () => {
         if (!activeJob) return;
+        if (activeJob.status === 'cancel_requested') return;
         const label = activeJob.type === 'email' ? '이메일 전송' : activeJob.type === 'k2b_verify' ? 'K2B 실제결과 검증' : 'K2B 업로드';
         if (!confirm(`진행 중인 ${label} 작업을 중단하시겠습니까?\n이미 처리된 항목은 되돌릴 수 없고, 남은 항목만 중단됩니다.`)) return;
 
@@ -377,6 +380,8 @@ export default function ReportProcessingPage() {
                 if (data.status === 'cancelled') {
                     clearJobMonitor();
                     setActiveJob(null);
+                } else if (data.status === 'cancel_requested') {
+                    setActiveJob((current) => current?.id === activeJob.id ? { ...current, status: 'cancel_requested' } : current);
                 }
             } else {
                 toast.error(data.error || '중단 요청을 전달하지 못했습니다.');
@@ -416,6 +421,9 @@ export default function ReportProcessingPage() {
                 const data = await res.json();
                 const status = data.status;
                 const errorMsg = data.errorMessage;
+                if (status === 'pending' || status === 'processing' || status === 'cancel_requested') {
+                    setActiveJob((current) => current?.id === jobId && !(current.status === 'cancel_requested' && status !== 'cancel_requested') ? { ...current, status } : current);
+                }
 
                 // 1. 상태가 processing으로 전환되었을 때 알림
                 if (status === 'processing' && !notifiedProcessing) {
@@ -425,21 +433,22 @@ export default function ReportProcessingPage() {
 
                 // 2. 완료 또는 실패 시 감시 종료 및 목록 새로고침
                 if (status === 'success') {
-                    toast.success(`[${jobType === 'email' ? '이메일' : jobType === 'k2b_verify' ? 'K2B 검증' : 'K2B'}] 백그라운드 작업이 완료되었습니다.`);
                     clearJobMonitor();
+                    if (jobType === 'k2b_verify') return;
+                    toast.success(`[${jobType === 'email' ? '이메일' : 'K2B'}] 백그라운드 작업이 완료되었습니다.`);
                     setActiveJob(null);
-                    if (jobType === 'k2b_verify') setK2BExecutionRefreshKey(jobId);
                     fetchRecords(); // 목록 새로고침
                 } else if (status === 'cancelled') {
-                    toast.warning(`[${jobType === 'email' ? '이메일' : jobType === 'k2b_verify' ? 'K2B 검증' : 'K2B'}] 사용자 요청으로 작업을 중단했습니다.`);
                     clearJobMonitor();
+                    if (jobType === 'k2b_verify') return;
+                    toast.warning(`[${jobType === 'email' ? '이메일' : 'K2B'}] 사용자 요청으로 작업을 중단했습니다.`);
                     setActiveJob(null);
                     fetchRecords();
                 } else if (status === 'failed') {
-                    toast.error(`[${jobType === 'email' ? '이메일' : jobType === 'k2b_verify' ? 'K2B 검증' : 'K2B'}] 백그라운드 작업 실패: ${errorMsg || '알 수 없는 오류'}`);
                     clearJobMonitor();
+                    if (jobType === 'k2b_verify') return;
+                    toast.error(`[${jobType === 'email' ? '이메일' : 'K2B'}] 백그라운드 작업 실패: ${errorMsg || '알 수 없는 오류'}`);
                     setActiveJob(null);
-                    if (jobType === 'k2b_verify') setK2BExecutionRefreshKey(jobId);
                     fetchRecords(); // 목록 새로고침
                 }
 
@@ -516,7 +525,7 @@ export default function ReportProcessingPage() {
             if (res.ok && data.jobId) {
                 toast.success('이메일 발송 요청이 등록되었습니다. 사내 로컬 컴퓨터에서 백그라운드로 발송됩니다.');
                 setSelectedKeys([]);
-                setActiveJob({ id: data.jobId, type: 'email' });
+                setActiveJob({ id: data.jobId, type: 'email', status: 'pending' }); setShowRemoteJobProgress(true);
                 // 백그라운드 모니터링 개시
                 monitorJob(data.jobId, 'email');
             } else {
@@ -579,7 +588,7 @@ export default function ReportProcessingPage() {
             if (res.ok && data.jobId) {
                 toast.success('K2B 업로드 요청이 등록되었습니다. 사내 로컬 컴퓨터에서 자동 업로드가 실행됩니다.');
                 setSelectedKeys([]);
-                setActiveJob({ id: data.jobId, type: 'k2b' });
+                setActiveJob({ id: data.jobId, type: 'k2b', status: 'pending' }); setShowRemoteJobProgress(true);
                 // 백그라운드 모니터링 개시
                 monitorJob(data.jobId, 'k2b');
             } else {
@@ -599,8 +608,9 @@ export default function ReportProcessingPage() {
             const body = await response.json();
             if (!response.ok) throw new Error(body.error || '재검증 등록 실패');
             toast.success(body.message || 'K2B 읽기 전용 재검증을 등록했습니다.');
-            setActiveJob({ id: body.jobId, type: 'k2b_verify' });
+            setActiveJob({ id: body.jobId, type: 'k2b_verify', status: 'pending' }); setShowRemoteJobProgress(true);
             setK2BExecutionRefreshKey(body.jobId);
+            monitorJob(body.jobId, 'k2b_verify');
         } catch (error) { toast.error(error instanceof Error ? error.message : 'K2B 재검증 등록 실패'); }
     };
 
@@ -671,15 +681,28 @@ export default function ReportProcessingPage() {
         }
     };
 
+    const remoteJobCopy: Record<NonNullable<typeof activeJob>["type"], { title: string; processing: string }> = {
+        email: { title: "이메일 작업을 처리하고 있습니다", processing: "깡통컴에서 이메일 작업을 처리 중입니다" },
+        k2b: { title: "K2B 업로드를 진행하고 있습니다", processing: "깡통컴에서 K2B 업로드를 처리 중입니다" },
+        k2b_verify: { title: "K2B 결과를 확인하고 있습니다", processing: "깡통컴에서 K2B 실제결과를 확인 중입니다" },
+    };
+    const remoteJobView: RemoteJobProgressView | null = activeJob ? activeJob.status === 'cancel_requested'
+        ? { step: 1, heading: "중단 요청을 전달했습니다", detail: "깡통컴에서 현재 작업을 안전하게 정리하고 있습니다.", tone: "amber" }
+        : activeJob.status === 'processing'
+        ? { step: 1, heading: remoteJobCopy[activeJob.type].processing, detail: "처리가 끝나면 자동으로 결과를 확인합니다.", tone: "blue" }
+        : { step: 0, heading: "요청을 깡통컴에 전달하고 있습니다", detail: "작업이 시작되면 진행 상태를 계속 알려드립니다.", tone: "blue" } : null;
+
     return (
+        <>
+        {activeJob && showRemoteJobProgress && remoteJobView && <RemoteJobProgressDialog title={remoteJobCopy[activeJob.type].title} view={remoteJobView} running onClose={() => setShowRemoteJobProgress(false)} onCancel={cancelActiveJob} cancelLabel="작업 중단" cancelPending={activeJob.status === 'cancel_requested'} />}
         <div className="w-full min-w-0 max-w-[calc(100vw-2rem)] space-y-4 overflow-hidden p-4 md:p-6 lg:max-w-none">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h1 className="text-xl font-bold text-gray-800 md:text-2xl">작업환경측정결과 보고서 처리</h1>
                 <div className="flex flex-wrap gap-2">
                     {activeJob && (
-                        <Button size="sm" variant="secondary" onClick={cancelActiveJob} className="h-10 border-red-200 px-4 text-red-700 hover:bg-red-50">
+                        <Button size="sm" variant="secondary" onClick={cancelActiveJob} disabled={activeJob.status === 'cancel_requested'} className="h-10 border-red-200 px-4 text-red-700 hover:bg-red-50">
                             <X className="w-4 h-4 mr-2" />
-                            진행 작업 중단 (Esc)
+                            {activeJob.status === 'cancel_requested' ? '중단 요청 중...' : '진행 작업 중단 (Esc)'}
                         </Button>
                     )}
                     <Button
@@ -729,8 +752,9 @@ export default function ReportProcessingPage() {
                 refreshKey={k2bExecutionRefreshKey}
                 onApproved={() => void fetchRecords(true)}
                 onVerificationQueued={(jobId) => {
-                    setActiveJob({ id: jobId, type: 'k2b_verify' });
+                    setActiveJob({ id: jobId, type: 'k2b_verify', status: 'pending' }); setShowRemoteJobProgress(true);
                     setK2BExecutionRefreshKey(jobId);
+                    monitorJob(jobId, 'k2b_verify');
                 }}
                 onExecutionFinished={(status) => {
                     setActiveJob((current) => current?.type === 'k2b_verify' ? null : current);
@@ -1027,6 +1051,7 @@ export default function ReportProcessingPage() {
                 </div>
             )}
         </div>
+        </>
     );
 }
 

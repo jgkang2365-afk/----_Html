@@ -10,6 +10,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
 import { NewBusinessDocumentGeneration } from "@/components/features/NewBusinessDocumentGeneration";
+import AutomationProgressModal from "@/components/features/AutomationProgressModal";
 import { BusinessMapModal } from "@/components/features/BusinessMapModal";
 import { MeasurementTargetBusinessFormSections } from "@/components/features/MeasurementTargetBusinessFormSections";
 import { MeasurementTargetIntegrityPanel } from "@/components/features/MeasurementTargetIntegrityPanel";
@@ -306,6 +307,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [bulkFailedCount, setBulkFailedCount] = useState(0);
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [bulkLogs, setBulkLogs] = useState<string[]>([]);
+    const [nationalSupportJob, setNationalSupportJob] = useState<{ id: string; applying: boolean } | null>(null);
 
     // 좌표 일괄 재조회를 위한 상태 정의
     const [isGeocodeProcessing, setIsGeocodeProcessing] = useState(false);
@@ -1533,7 +1535,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 alert(resData.message || "건강디딤돌 신청결과가 즉시 반영되었습니다.");
                 fetchData();
             } else {
-                alert(resData.message || "조회 요청이 백그라운드 작업자에 전달되었습니다. 완료될 때까지 결과를 자동 갱신합니다.");
+                if (typeof resData.jobId === "string") {
+                    setNationalSupportJob({ id: resData.jobId, applying: hasNationalSupportApplicationInformation({ industrial_accident_number: sanjaeVal, commencement_number: commencementVal, representative_name: representativeVal, manager_name: item.manager_name, manager_mobile: item.manager_mobile }) });
+                } else {
+                    alert(resData.message || "조회 요청이 백그라운드 작업자에 전달되었습니다. 완료될 때까지 결과를 자동 갱신합니다.");
+                }
             }
 
         } catch (error) {
@@ -1762,6 +1768,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     }
 
     return (
+        <>
+        {nationalSupportJob && <AutomationProgressModal jobId={nationalSupportJob.id} title="건강디딤돌 작업을 처리하고 있습니다" processingMessage={nationalSupportJob.applying ? "깡통컴에서 건강디딤돌 조회·신청을 처리 중입니다" : "깡통컴에서 건강디딤돌 조회를 처리 중입니다"} onClose={() => setNationalSupportJob(null)} />}
         <div className="p-4 w-full min-w-[1400px]">
             {/* Sticky Container for Filter & Table Header */}
             <div className="sticky top-16 lg:top-[113px] z-40 space-y-4 bg-gray-50/95 backdrop-blur">
@@ -2644,5 +2652,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 />
             )}
         </div >
+        </>
     );
 };

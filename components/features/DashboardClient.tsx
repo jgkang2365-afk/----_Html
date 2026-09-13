@@ -28,13 +28,9 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
     const [activeTab, setActiveTab] = useState("general");
     const [syncRefreshKey, setSyncRefreshKey] = useState(0);
     const [mesJobId, setMesJobId] = useState<string | null>(null);
+    const [showMesProgress, setShowMesProgress] = useState(false);
     const mesRequestIdRef = useRef<string | null>(null);
     const isSyncing = Boolean(mesJobId);
-    // The legacy presentation remains below temporarily only to avoid a broad
-    // unrelated dashboard markup rewrite. It is unreachable; all MES state is
-    // rendered by AutomationProgressModal from the Realtime job signal.
-    const mesSyncStatus = 'idle' as const;
-    const syncErrorMessage: string | null = null;
 
     // 필터 상태 (Dashboard로 전달)
     const [startYear, setStartYear] = useState<string>(getCurrentYear().toString());
@@ -61,6 +57,7 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
             const data = await res.json();
             if (res.ok && data.success) {
                 setMesJobId(data.job.id);
+                setShowMesProgress(true);
             } else {
                 alert(data.error || "동기화 요청이 거부되었습니다.");
             }
@@ -231,90 +228,16 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                 )}
             </div>
 
-            {/* MES 동기화 진행률 모달 (폴링 기반 완료 자동 닫기) */}
-            {mesSyncStatus !== 'idle' && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm transition-all duration-300">
-                    <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 w-full max-w-sm mx-4 transform scale-100 transition-all duration-300 animate-in fade-in zoom-in-95 duration-200">
-                        <div className="flex flex-col items-center text-center">
-                            {mesSyncStatus === 'running' && (
-                                <>
-                                    <div className="relative flex items-center justify-center w-16 h-16 mb-4">
-                                        <div className="absolute inset-0 rounded-full border-4 border-primary-100 animate-pulse"></div>
-                                        <div className="absolute inset-0 rounded-full border-4 border-t-primary-600 border-r-transparent border-b-transparent border-l-transparent animate-spin"></div>
-                                        <svg className="w-6 h-6 text-primary-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 6H16" />
-                                        </svg>
-                                    </div>
-                                    <h3 className="text-lg font-bold text-slate-800 mb-1">MES 동기화 진행 중</h3>
-                                    <p className="text-xs text-slate-500 mb-2 leading-relaxed">
-                                        파이썬 봇이 MES 프로그램에서 엑셀을 내려받아 백업 및 DB 업로드를 진행하고 있습니다.
-                                    </p>
-                                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mb-1.5">
-                                        <div className="bg-primary-600 h-full rounded-full animate-pulse" style={{ width: '60%' }}></div>
-                                    </div>
-                                    <span className="text-[10px] text-slate-400">약 1~2분이 소요됩니다. 중단하려면 Esc를 누르세요.</span>
-                                    {syncErrorMessage && <span className="mt-2 text-[11px] text-amber-600">{syncErrorMessage}</span>}
-                                </>
-                            )}
-
-                            {mesSyncStatus === 'success' && (
-                                <>
-                                    <div className="flex items-center justify-center w-16 h-16 rounded-full bg-green-50 text-green-600 mb-4 animate-bounce">
-                                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    </div>
-                                    <h3 className="text-lg font-bold text-slate-800 mb-1">동기화 완료!</h3>
-                                    <p className="text-sm text-green-600 font-semibold mb-2">성공적으로 연동되었습니다.</p>
-                                    <span className="text-xs text-slate-500 leading-relaxed">
-                                        새로운 측정일지 및 일정 데이터의 DB 정합성 검증이 완료되었습니다.
-                                    </span>
-                                </>
-                            )}
-
-                            {mesSyncStatus === 'cancelled' && (
-                                <>
-                                    <div className="flex items-center justify-center w-16 h-16 rounded-full bg-amber-50 text-amber-600 mb-4">
-                                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M6 18L18 6" /></svg>
-                                    </div>
-                                    <h3 className="text-lg font-bold text-slate-800 mb-1">동기화 중단됨</h3>
-                                    <p className="text-sm text-amber-700 mb-4">{syncErrorMessage || '사용자 요청으로 동기화를 중단했습니다.'}</p>
-                                    <button onClick={() => setMesJobId(null)} className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-md">닫기</button>
-                                </>
-                            )}
-                            {mesSyncStatus === 'error' && (
-                                <>
-                                    <div className="flex items-center justify-center w-16 h-16 rounded-full bg-red-50 text-red-600 mb-4 animate-pulse">
-                                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </div>
-                                    <h3 className="text-lg font-bold text-slate-800 mb-1">동기화 실패</h3>
-                                    <p className="text-xs text-red-500 font-mono bg-red-50 border border-red-100 rounded-lg p-2.5 w-full text-left overflow-auto max-h-32 mb-4 leading-relaxed whitespace-pre-wrap">
-                                        {syncErrorMessage || "알 수 없는 에러가 발생했습니다."}
-                                    </p>
-                                    <button
-                                        onClick={() => setMesJobId(null)}
-                                        className="w-full py-2 bg-slate-800 hover:bg-slate-900 active:bg-black text-white text-xs font-semibold rounded-md shadow transition-colors"
-                                    >
-                                        닫기
-                                    </button>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
             {mesJobId && (
                 <AutomationProgressModal
                     jobId={mesJobId}
-                    title="MES 동기화"
-                    stages={["요청 전달", "MES 자료 추출", "엑셀 가공", "DB 반영 확인", "완료"]}
-                    onClose={() => {
-                        setMesJobId(null);
-                        mesRequestIdRef.current = null;
-                        setSyncRefreshKey((value) => value + 1);
-                    }}
+                    title="MES 동기화를 진행하고 있습니다"
+                    processingMessage="깡통컴에서 MES 동기화를 처리 중입니다"
+                    visible={showMesProgress}
+                    onCancel={handleCancelMesSync}
+                    cancelLabel="작업 중단"
+                    onClose={() => setShowMesProgress(false)}
+                    onTerminal={() => { setMesJobId(null); setShowMesProgress(false); mesRequestIdRef.current = null; setSyncRefreshKey((value) => value + 1); }}
                 />
             )}
         </div>

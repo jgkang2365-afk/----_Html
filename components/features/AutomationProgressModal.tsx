@@ -1,63 +1,37 @@
 "use client";
-
 import { useCallback, useEffect, useState } from "react";
 import { fetchAutomationJob, subscribeAutomationJob } from "@/lib/automation/job-client";
 import type { AutomationJob } from "@/lib/automation/jobs";
+import RemoteJobProgressDialog, { type RemoteJobProgressView } from "@/components/features/RemoteJobProgressDialog";
 
-type Props = {
-  jobId: string;
-  title: string;
-  stages: string[];
-  onClose: () => void;
-};
-
+type Props = { jobId: string; title: string; processingMessage: string; visible?: boolean; onClose: () => void; onTerminal?: () => void; onCancel?: () => void | Promise<void>; cancelLabel?: string; cancelDisabled?: boolean };
 const terminal = new Set(["COMPLETED", "FAILED", "CANCELLED", "CONFIRM_REQUIRED"]);
-
-export default function AutomationProgressModal({ jobId, title, stages, onClose }: Props) {
-  const [job, setJob] = useState<AutomationJob | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      setJob(await fetchAutomationJob(jobId));
-      setError(null);
-    } catch (cause: any) {
-      setError(cause?.message || "작업 상태를 가져오지 못했습니다.");
-    }
-  }, [jobId]);
-
+export type AutomationProgressView = RemoteJobProgressView;
+export function automationProgressView(job: Pick<AutomationJob, "status" | "progress_percent" | "error_message" | "started_at"> | null, processingMessage: string): AutomationProgressView {
+  const status = job?.status || "PENDING", percent = job?.progress_percent ?? 0;
+  if (status === "COMPLETED") return { step: 3, heading: "작업이 완료되었습니다", detail: "결과를 확인할 수 있습니다.", tone: "green" };
+  if (status === "CONFIRM_REQUIRED") return { step: percent >= 75 ? 2 : 1, heading: "결과 확인이 필요합니다", detail: "외부 작업 결과가 확실하지 않아 자동으로 다시 실행하지 않았습니다.", tone: "amber" };
+  if (status === "FAILED") return { step: percent >= 75 ? 2 : job?.started_at ? 1 : 0, heading: "작업 처리에 실패했습니다", detail: job?.error_message || "작업 상태를 확인한 뒤 다시 시도해 주세요.", tone: "red" };
+  if (status === "CANCELLED") return { step: job?.started_at ? (percent >= 75 ? 2 : 1) : 0, heading: "작업이 중단되었습니다", detail: "중단 요청이 완료되었습니다.", tone: "slate" };
+  if (status === "CANCEL_REQUESTED") return { step: 1, heading: "중단 요청을 전달했습니다", detail: "깡통컴에서 현재 작업을 안전하게 정리하고 있습니다.", tone: "amber" };
+  if (status === "RUNNING") return { step: percent >= 75 ? 2 : 1, heading: processingMessage, detail: "처리가 끝나면 자동으로 결과를 확인합니다.", tone: "blue" };
+  return { step: 0, heading: "요청을 깡통컴에 전달하고 있습니다", detail: "작업이 시작되면 진행 상태를 계속 알려드립니다.", tone: "blue" };
+}
+export default function AutomationProgressModal(props: Props) {
+  const [job, setJob] = useState<AutomationJob | null>(null); const [error, setError] = useState<string | null>(null);
+  const refresh = useCallback(async () => { try { setJob(await fetchAutomationJob(props.jobId)); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "작업 상태를 가져오지 못했습니다."); } }, [props.jobId]);
+  useEffect(() => { void refresh(); return subscribeAutomationJob(props.jobId, () => void refresh()); }, [props.jobId, refresh]);
   useEffect(() => {
-    void refresh();
-    return subscribeAutomationJob(jobId, () => void refresh());
-  }, [jobId, refresh]);
-
-  const status = job?.status || "PENDING";
-  const stage = job?.progress_stage || (status === "PENDING" ? "깡통컴 연결 대기 중" : "작업 준비 중");
-  const done = terminal.has(status);
-  const completed = status === "COMPLETED";
-  const confirm = status === "CONFIRM_REQUIRED";
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-base font-bold text-slate-900">{title}</h2>
-            <p className="mt-1 text-xs text-slate-600">{stage}</p>
-          </div>
-          <span className={completed ? "rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700" : confirm ? "rounded bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800" : status === "FAILED" ? "rounded bg-red-100 px-2 py-1 text-xs font-semibold text-red-700" : "rounded bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700"}>{status}</span>
-        </div>
-        <ol className="space-y-2" aria-label="작업 진행 단계">
-          {stages.map((item, index) => {
-            const active = !done && (job?.progress_percent ?? 0) >= (index / Math.max(stages.length, 1)) * 100;
-            return <li key={item} className="flex items-center gap-2 text-sm text-slate-700"><span className={active || completed ? "h-2 w-2 rounded-full bg-blue-600" : "h-2 w-2 rounded-full bg-slate-200"} />{item}</li>;
-          })}
-        </ol>
-        <div className="mt-4 h-2 overflow-hidden rounded bg-slate-100"><div className={completed ? "h-full bg-emerald-500" : confirm ? "h-full bg-amber-500" : status === "FAILED" ? "h-full bg-red-500" : "h-full bg-blue-600"} style={{ width: `${Math.max(job?.progress_percent || 0, done ? 100 : 4)}%` }} /></div>
-        {(error || job?.error_message) && <p className="mt-3 rounded bg-red-50 p-2 text-xs text-red-700">{error || job?.error_message}</p>}
-        {confirm && <p className="mt-3 rounded bg-amber-50 p-2 text-xs text-amber-800">외부 효과가 시작됐을 수 있어 자동 재실행하지 않았습니다. 결과를 확인해 주세요.</p>}
-        {done && <button type="button" onClick={onClose} className="mt-5 w-full rounded-md bg-slate-800 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900">닫기</button>}
-      </div>
-    </div>
-  );
+    if (job && terminal.has(job.status) && props.visible === false) props.onTerminal?.();
+  }, [job, props]);
+  const view = error ? { step: 0, heading: error, detail: "연결 상태를 확인한 뒤 다시 시도해 주세요.", tone: "red" as const } : automationProgressView(job, props.processingMessage);
+  const running = !terminal.has(job?.status || "PENDING");
+  const handleClose = () => {
+    if (terminal.has(job?.status || "PENDING")) {
+      if (props.onTerminal) props.onTerminal();
+      else props.onClose();
+    }
+    else props.onClose();
+  };
+  return props.visible === false ? null : <RemoteJobProgressDialog title={props.title} view={view} running={running} onClose={handleClose} onCancel={props.onCancel} cancelLabel={props.cancelLabel} cancelPending={props.cancelDisabled || job?.status === "CANCEL_REQUESTED"} />;
 }
