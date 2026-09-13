@@ -1,15 +1,14 @@
 import { BounceChecker } from '../email/bounce-checker';
 import { backupDatabase } from '../../scripts/backup-db';
 import { createAdminClient } from '../supabase/admin';
-import { createClient } from '../supabase/server';
-import { getKSTDateString, getKSTISOString } from '../utils/date-utils';
+import { getKSTDateString } from '../utils/date-utils';
 import { K2B_VERIFY_SCHEDULE } from '../constants/k2b-verification';
 import { buildK2BSyncRange, K2B_SYNC_OVERLAP_DAYS } from '../automation/k2b-original-sync';
+import { enqueueAutomationJob, mesScheduledIdempotencyKey, nationalSupportIdempotencyKey } from '../automation/jobs';
+import { forEachAscendingIdPage } from './id-pages';
+import { hasMeasurementJournalForTarget } from '../national-support/automation-contract';
+import { hasNationalSupportApplicationInformation } from '../national-support/eligibility';
 
-const MES_QUEUE_ID = 1;
-const MES_STALE_TIMEOUT_MINUTES = 15;
-const MES_COMPLETION_TIMEOUT_MS = 12 * 60 * 1000;
-const MES_STATUS_POLL_MS = 10_000;
 const KST_CRON_OPTIONS = { timezone: 'Asia/Seoul' };
 
 /**
@@ -20,6 +19,8 @@ export class BackgroundTasks {
     private initialized: boolean = false;
     private mesSyncStatus: 'idle' | 'running' | 'success' | 'error' = 'idle';
     private mesSyncError: string | null = null;
+    private postSyncTimer: ReturnType<typeof setTimeout> | null = null;
+    private postSyncWakeAt: number | null = null;
 
     private constructor() {}
 
@@ -56,6 +57,9 @@ export class BackgroundTasks {
         try {
             const { WorkerDaemon } = require('../automation/worker-daemon');
             WorkerDaemon.getInstance().start();
+            const { LocalAutomationWorker } = require('../automation/local-automation-worker');
+            LocalAutomationWorker.getInstance().start();
+            this.startMesPostSyncWake();
         } catch (workerErr) {
             console.error("[BackgroundTasks] WorkerDaemon 가동 중 오류 발생:", workerErr);
         }
@@ -89,17 +93,23 @@ export class BackgroundTasks {
         // 3. MES 자동 다운로드 스케줄 (오전 11:30, 낮 12:00, 오후 14:00 최종 점검)
         cron.schedule('30 11 * * *', async () => {
             console.log("[BackgroundTasks] 11:30 MES 자동 다운로드 작업을 기동합니다...");
-            await BackgroundTasks.getInstance().runMesDownloadScript(false);
+            await BackgroundTasks.getInstance().runMesDownloadScript('11:30');
         }, KST_CRON_OPTIONS);
 
         cron.schedule('0 12 * * *', async () => {
             console.log("[BackgroundTasks] 12:00 MES 자동 다운로드 작업을 기동합니다...");
-            await BackgroundTasks.getInstance().runMesDownloadScript(false);
+            await BackgroundTasks.getInstance().runMesDownloadScript('12:00');
         }, KST_CRON_OPTIONS);
 
         cron.schedule('0 14 * * *', async () => {
             console.log("[BackgroundTasks] 14:00 최종 MES 자동 다운로드 및 연동 여부 점검을 기동합니다...");
-            await BackgroundTasks.getInstance().runMesDownloadScript(true);
+            await BackgroundTasks.getInstance().runMesDownloadScript('14:00');
+        }, KST_CRON_OPTIONS);
+
+        // Post-sync actions wake on their own durable signal/available_at.
+
+        cron.schedule('0 17 * * *', async () => {
+            await this.enqueueDailyNationalSupportChecks();
         }, KST_CRON_OPTIONS);
 
         // 4. 전일 K2B 실제 결과 검증. 큐 RPC가 업로드와의 활성 작업 충돌 및 날짜 중복을 막는다.
@@ -136,81 +146,107 @@ export class BackgroundTasks {
         }
     }
 
+    private startMesPostSyncWake(): void {
+        const admin = createAdminClient();
+        admin.channel('local-mes-post-sync-checks')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'automation_job_signals', filter: 'job_type=eq.MES_POST_SYNC_CHECK' }, payload => {
+                const signal = payload.new as { status?: string; available_at?: string } | null;
+                if (signal?.status === 'PENDING' && signal.available_at) {
+                    this.scheduleMesPostSyncWake(new Date(signal.available_at));
+                }
+            })
+            .subscribe(status => { if (status === 'SUBSCRIBED') void this.drainMesPostSyncChecks(); });
+    }
+
+    private scheduleMesPostSyncWake(at: Date): void {
+        const time = at.getTime();
+        if (!Number.isFinite(time)) return;
+        if (this.postSyncWakeAt !== null && this.postSyncWakeAt <= time) return;
+        if (this.postSyncTimer) clearTimeout(this.postSyncTimer);
+        this.postSyncWakeAt = time;
+        this.postSyncTimer = setTimeout(() => {
+            this.postSyncTimer = null;
+            this.postSyncWakeAt = null;
+            void this.drainMesPostSyncChecks();
+        }, Math.max(0, Math.min(time - Date.now(), 2_147_483_647)));
+    }
+
+    private async drainMesPostSyncChecks(): Promise<void> {
+        try {
+            const { error } = await createAdminClient().rpc('process_mes_post_sync_checks', { p_limit: 100 });
+            if (error) throw error;
+            const { data, error: pendingError } = await createAdminClient().from('automation_jobs')
+                .select('available_at').eq('job_type', 'MES_POST_SYNC_CHECK').eq('status', 'PENDING')
+                .order('available_at', { ascending: true }).limit(1);
+            if (pendingError) throw pendingError;
+            if (data?.[0]?.available_at) this.scheduleMesPostSyncWake(new Date(data[0].available_at));
+        } catch (error) {
+            console.error('[BackgroundTasks] MES 후속 점검 처리 실패:', error);
+        }
+    }
+
+    /** 17:00 KST: enqueue once only; the Windows Realtime worker performs it. */
+    public async enqueueDailyNationalSupportChecks(): Promise<void> {
+        const admin = createAdminClient();
+        const date = getKSTDateString();
+        const pageSize = 500;
+        let enqueued = 0;
+        let failed = 0;
+        await forEachAscendingIdPage(pageSize, async (lastId, limit) => {
+          const { data, error } = await admin.from('measurement_target_business')
+              .select('id, code, year, period, industrial_accident_number, commencement_number, representative_name, manager_name, manager_mobile, national_support_status')
+              .is('national_support_status', null)
+              .not('code', 'is', null)
+              .not('year', 'is', null)
+              .not('period', 'is', null)
+              .gt('id', lastId).order('id', { ascending: true }).limit(limit);
+          if (error) throw error;
+          return data || [];
+        }, async (target) => {
+            if (String(target.period).includes('(수시)')) return;
+            if (!target.industrial_accident_number || !target.commencement_number || !target.representative_name) return;
+            if (await hasMeasurementJournalForTarget(admin, target)) return;
+            await enqueueAutomationJob(admin, {
+                jobType: 'NATIONAL_SUPPORT',
+                idempotencyKey: nationalSupportIdempotencyKey('scheduled_lookup', String(target.code), target.year, target.period, date),
+                targetKey: `national-support:${target.id}`,
+                requestPayload: {
+                    target_id: target.id, code: target.code, year: target.year, period: target.period,
+                    sanjae: target.industrial_accident_number, commencement: target.commencement_number,
+                    representative: target.representative_name, contact_name: target.manager_name || '', contact_phone: target.manager_mobile || '',
+                    mode: hasNationalSupportApplicationInformation({
+                      industrial_accident_number: target.industrial_accident_number,
+                      commencement_number: target.commencement_number,
+                      representative_name: target.representative_name,
+                      manager_name: target.manager_name,
+                      manager_mobile: target.manager_mobile,
+                    }) ? 'apply_if_missing' : 'lookup_only', scheduled_at: date,
+                },
+            });
+            enqueued += 1;
+        }, (target, error) => {
+            failed += 1;
+            console.error(`[BackgroundTasks] 건강디딤돌 예약 실패 target=${target.id}`, error);
+        });
+        console.log(`[BackgroundTasks] 건강디딤돌 예약 완료 enqueued=${enqueued} failed=${failed}`);
+    }
+
     /**
      * MES 다운로드 파이썬 스크립트 실행
      */
-    public async runMesDownloadScript(isFinalCheck: boolean = false): Promise<boolean> {
-        this.mesSyncStatus = 'running';
-        this.mesSyncError = null;
-
+    public async runMesDownloadScript(slot: '11:30' | '12:00' | '14:00'): Promise<boolean> {
         try {
-            const supabase = await createClient();
-            const timeoutLimit = new Date(
-                Date.now() - MES_STALE_TIMEOUT_MINUTES * 60 * 1000
-            ).toISOString();
-
-            const { error: resetError } = await supabase
-                .from('mes_sync_queue')
-                .update({
-                    status: 'idle',
-                    error_message: MES_STALE_TIMEOUT_MINUTES + '분 초과 자동 작업을 리셋했습니다.',
-                    requested_by: null,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', MES_QUEUE_ID)
-                .in('status', ['pending', 'running'])
-                .lt('updated_at', timeoutLimit);
-
-            if (resetError) {
-                console.warn('[BackgroundTasks] MES 큐 타임아웃 상태 리셋 실패:', resetError.message);
-            }
-
-            const { data: queued, error: queueError } = await supabase
-                .from('mes_sync_queue')
-                .update({
-                    status: 'pending',
-                    error_message: '자동 스케줄에 의해 요청된 MES 동기화입니다.',
-                    requested_by: null,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', MES_QUEUE_ID)
-                .in('status', ['idle', 'success', 'error', 'cancelled'])
-                .select('status')
-                .maybeSingle();
-
-            if (queueError) throw queueError;
-            if (!queued) {
-                throw new Error('다른 MES 동기화가 대기 중이거나 실행 중이어서 자동 요청을 시작하지 못했습니다.');
-            }
-
-            console.log('[BackgroundTasks] 관리자 권한 MES 데몬에 자동 다운로드 요청을 전달했습니다.');
-            const startedAt = Date.now();
-
-            while (Date.now() - startedAt < MES_COMPLETION_TIMEOUT_MS) {
-                await new Promise(resolve => setTimeout(resolve, MES_STATUS_POLL_MS));
-
-                const { data: queueState, error: statusError } = await supabase
-                    .from('mes_sync_queue')
-                    .select('status, error_message')
-                    .eq('id', MES_QUEUE_ID)
-                    .maybeSingle();
-
-                if (statusError) throw statusError;
-                if (queueState?.status === 'success') {
-                    console.log('[BackgroundTasks] MES 자동 다운로드 및 DB 동기화가 완료되었습니다.');
-                    if (isFinalCheck) {
-                        await this.checkAndNotifyUnregisteredBusinesses();
-                    }
-                    this.mesSyncStatus = 'success';
-                    return true;
-                }
-
-                if (['error', 'cancelled'].includes(queueState?.status || '')) {
-                    throw new Error(queueState?.error_message || 'MES 자동 동기화가 ' + queueState?.status + ' 상태로 종료되었습니다.');
-                }
-            }
-
-            throw new Error('MES 자동 동기화 완료 대기 시간이 12분을 초과했습니다.');
+            const supabase = createAdminClient();
+            const kstDate = getKSTDateString();
+            const isFinalCheck = slot === '14:00';
+            const job = await enqueueAutomationJob(supabase, {
+                jobType: 'MES_SYNC',
+                idempotencyKey: mesScheduledIdempotencyKey(slot, kstDate),
+                targetKey: `mes:scheduled:${slot}`,
+                requestPayload: { trigger: 'scheduled', slot, final_check: isFinalCheck, scheduled_date_kst: kstDate },
+            });
+            console.log(`[BackgroundTasks] MES 자동 작업 등록 id=${job.id} slot=${slot}`);
+            return true;
         } catch (error: any) {
             const message = error?.message || String(error);
             console.error('[BackgroundTasks] MES 자동 다운로드 요청 실패:', message);
@@ -220,155 +256,4 @@ export class BackgroundTasks {
         }
     }
 
-    /**
-     * 14:00 최종 미등록 예비조사 업체 감지 및 일지담당자 알림 발송
-     */
-    public async checkAndNotifyUnregisteredBusinesses() {
-        console.log("[BackgroundTasks] 14:00 최종 미등록 예비조사 업체 점검 시작...");
-        const supabase = await createClient();
-        
-        // 당일 날짜 구하기 (KST 기준 YYYY-MM-DD)
-        const kstToday = getKSTISOString().slice(0, 10);
-        
-        // 1. 오늘의 예비조사 목록 조회
-        const { data: todaySurveys, error: surveyError } = await supabase
-            .from("preliminary_survey")
-            .select("code, business_name, year, period")
-            .eq("measurement_date", kstToday);
-            
-        if (surveyError) {
-            console.error("[BackgroundTasks] 예비조사 목록 조회 실패:", surveyError.message);
-            return;
-        }
-        
-        if (!todaySurveys || todaySurveys.length === 0) {
-            console.log("[BackgroundTasks] 오늘 예정된 예비조사 업체 일정이 없습니다.");
-            return;
-        }
-        
-        const validTodaySurveys = todaySurveys.filter(survey => {
-            const rawYear = survey.year;
-            const year = Number(rawYear);
-            const period = String(survey.period || "").trim();
-            return rawYear !== null
-                && rawYear !== undefined
-                && String(rawYear).trim() !== ""
-                && Number.isInteger(year)
-                && year > 0
-                && period !== "";
-        });
-
-        if (validTodaySurveys.length < todaySurveys.length) {
-            console.warn(
-                `[BackgroundTasks] 연도/주기 정보가 없는 오늘 예비조사 ${todaySurveys.length - validTodaySurveys.length}건은 오탐 방지를 위해 MES 미등록 점검에서 제외합니다.`
-            );
-        }
-
-        if (validTodaySurveys.length === 0) {
-            console.error("[BackgroundTasks] 연도와 주기가 확인되는 오늘 예비조사가 없어 MES 등록 여부를 확인할 수 없습니다.");
-            return;
-        }
-
-        const surveyYears = [...new Set(
-            validTodaySurveys.map(survey => Number(survey.year))
-        )];
-        const surveyPeriods = [...new Set(
-            validTodaySurveys.map(survey => String(survey.period).trim())
-        )];
-
-        // 2. 오늘 예비조사와 같은 연도/주기의 측정대상 사업장을 모두 조회
-        // Supabase 기본 조회 한도(통상 1,000건)로 기존 등록분이 누락되지 않도록 페이지 단위로 조회한다.
-        const mbList: Array<{
-            code: string | null;
-            business_name: string | null;
-            year: number | string | null;
-            period: string | null;
-        }> = [];
-        const pageSize = 1000;
-
-        for (let from = 0; ; from += pageSize) {
-            const { data: mbRows, error: mbError } = await supabase
-                .from("measurement_business")
-                .select("code, business_name, year, period")
-                .in("year", surveyYears)
-                .in("period", surveyPeriods)
-                .order("year", { ascending: true })
-                .order("period", { ascending: true })
-                .order("code", { ascending: true })
-                .range(from, from + pageSize - 1);
-
-            if (mbError) {
-                console.error("[BackgroundTasks] 측정대상 사업장 목록 조회 실패:", mbError.message);
-                return;
-            }
-
-            const pageRows = mbRows || [];
-            mbList.push(...pageRows);
-            if (pageRows.length < pageSize) break;
-        }
-
-        const unregisteredNames: string[] = [];
-        
-        for (const survey of validTodaySurveys) {
-            const sCode = String(survey.code || "").trim();
-            const sName = String(survey.business_name || "").trim();
-            const sYear = Number(survey.year);
-            const sPeriod = String(survey.period || "").trim();
-            
-            // 매칭 비교 (3단계 알고리즘 대조)
-            const isRegistered = mbList.some(row => {
-                const rCode = String(row.code || "").trim();
-                const rName = String(row.business_name || "").trim();
-                const rYear = Number(row.year);
-                const rPeriod = String(row.period || "").trim();
-
-                // 해당 예비조사의 연도/주기에 등록된 MES 자료만 인정
-                if (sYear !== rYear || sPeriod !== rPeriod) return false;
-                
-                // 1단계: 코드 매칭
-                if (sCode && rCode && sCode === rCode) return true;
-                // 2단계: 사업장명 매칭
-                if (sName && rName) {
-                    const cleanSName = sName.replace(/\s/g, "").replace(/\(주\)/g, "").replace(/주식회사/g, "");
-                    const cleanRName = rName.replace(/\s/g, "").replace(/\(주\)/g, "").replace(/주식회사/g, "");
-                    if (cleanSName === cleanRName || cleanRName.includes(cleanSName) || cleanSName.includes(cleanRName)) {
-                        return true;
-                    }
-                }
-                return false;
-            });
-            
-            if (!isRegistered) {
-                unregisteredNames.push(sName);
-            }
-        }
-        
-        if (unregisteredNames.length > 0) {
-            console.log(`[BackgroundTasks] 14:00 최종 미등록 업체 감지: ${unregisteredNames.join(", ")}`);
-            
-            // 일지담당자(is_journal_manager = true) 목록 조회
-            const { data: managers } = await supabase
-                .from("users")
-                .select("id")
-                .eq("is_journal_manager", true);
-                
-            const managerIds = (managers || []).map(m => m.id);
-            
-            if (managerIds.length > 0) {
-                const notiMsg = `[MES 미등록 경고] '${unregisteredNames[0]}'${unregisteredNames.length > 1 ? ` 외 ${unregisteredNames.length - 1}개` : ''} 업체가 금일 14:00까지 MES에 등록되지 않았습니다. 기사의 당일 등록 확인이 필요합니다.`;
-                
-                const notis = managerIds.map(mId => ({
-                    user_id: mId,
-                    type: "mes_sync_warning",
-                    message: notiMsg,
-                    is_read: false
-                }));
-                
-                await supabase.from("notifications").insert(notis);
-                console.log("[BackgroundTasks] 일지담당자 대상 최종 미등록 누락 알림 생성 완료.");
-            }
-        } else {
-            console.log("[BackgroundTasks] 오늘 예정된 모든 예비조사 업체가 정상 등록 및 연동 완료되었습니다.");
-        }
-    }
 }

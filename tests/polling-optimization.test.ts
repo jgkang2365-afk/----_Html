@@ -64,37 +64,34 @@ test("national_support stale watchdog은 10분 기준을 유지하고 5분마다
   assert.match(source, /\.lt\('updated_at', staleThreshold\)/);
 });
 
-test("MES idle은 30초지만 실행 중 취소 감지와 timeout 상태 전이는 유지한다", () => {
+test("MES는 Realtime wake-up이며 실행 중 lease·취소·timeout을 유지한다", () => {
   const source = readFileSync("mes_daemon.py", "utf8");
-  const envExample = readFileSync(".env.example", "utf8");
-
-  assert.match(source, /MES_DAEMON_POLL_SECONDS", "30"/);
-  assert.match(envExample, /^MES_DAEMON_POLL_SECONDS=30$/m);
-  assert.doesNotMatch(envExample, /^MES_DAEMON_POLL_SECONDS=5$/m);
-  assert.match(source, /while process\.poll\(\) is None:[\s\S]*is_cancel_requested\(\)[\s\S]*time\.sleep\(1\)/);
+  assert.match(source, /automation_job_signals/);
+  assert.match(source, /wake\.set\(\)/);
+  assert.doesNotMatch(source, /MES_DAEMON_POLL_SECONDS/);
+  assert.match(source, /while process\.poll\(\) is None:[\s\S]*cancel_requested[\s\S]*time\.sleep\(0\.5\)/);
   assert.match(source, /MACRO_TIMEOUT_SECONDS/);
-  assert.match(source, /update_queue\("success"\)/);
-  assert.match(source, /update_queue\("error"/);
-  assert.match(source, /update_queue\("cancelled"/);
-  assert.match(source, /update_queue\("idle"\)/);
+  assert.match(source, /renew_automation_job_lease/);
+  assert.match(source, /status="COMPLETED"/);
+  assert.match(source, /status="CONFIRM_REQUIRED"/);
 });
 
-test("문서 orphan recovery만 5분이며 heartbeat와 Realtime fallback은 유지한다", () => {
+test("문서 common worker는 heartbeat와 Realtime 재연결만 사용하며 5분 orphan polling을 재도입하지 않는다", () => {
   const worker = readFileSync("document_worker.py", "utf8");
   const realtime = readFileSync("document_worker_realtime.py", "utf8");
+  const claim = readFileSync("app/api/document-worker/jobs/claim/route.ts", "utf8");
 
-  assert.match(worker, /DOCUMENT_WORKER_ORPHAN_RECOVERY_SECONDS = 5 \* 60/);
   assert.match(worker, /DOCUMENT_WORKER_HEARTBEAT_SECONDS = 15/);
-  assert.match(worker, /CancelledJobRecoveryMonitor\(client\)/);
+  assert.doesNotMatch(worker, /CancelledJobRecoveryMonitor\(client\)\.start\(\)/);
   assert.match(realtime, /DEFAULT_RECOVERY_POLL_SECONDS = 6 \* 60 \* 60/);
   assert.match(realtime, /event="INSERT"/);
+  assert.match(claim, /reconcile_stale_document_automation_jobs/);
 });
 
-test("MES 자동 작업 완료 확인은 10초이고 종료 상태와 12분 timeout은 유지한다", () => {
+test("MES 예약은 common job을 1회 enqueue하고 완료 polling을 하지 않는다", () => {
   const source = readFileSync("lib/scheduler/background-tasks.ts", "utf8");
 
-  assert.match(source, /MES_STATUS_POLL_MS = 10_000/);
-  assert.match(source, /MES_COMPLETION_TIMEOUT_MS = 12 \* 60 \* 1000/);
-  assert.match(source, /queueState\?\.status === 'success'/);
-  assert.match(source, /\['error', 'cancelled'\]\.includes/);
+  assert.match(source, /enqueueAutomationJob/);
+  assert.match(source, /mesScheduledIdempotencyKey/);
+  assert.doesNotMatch(source, /MES_STATUS_POLL_MS/);
 });

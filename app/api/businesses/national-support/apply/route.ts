@@ -6,7 +6,10 @@ import { getUser } from "@/lib/auth/get-user";
 import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
 import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
-import { classifyNationalSupportQueueError } from "@/lib/national-support/queue-error";
+import { enqueueAutomationJob, nationalSupportIdempotencyKey } from "@/lib/automation/jobs";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { hasMeasurementJournalForTarget, nationalSupportCompatibilityProjection } from "@/lib/national-support/automation-contract";
+import { matchesNationalSupportTargetKey, NATIONAL_SUPPORT_TARGET_KEY_MISMATCH } from "@/lib/national-support/apply-boundaries";
 
 /**
  * 건강디딤돌 자동 신청 API
@@ -27,6 +30,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    const requestId = request.headers.get("Idempotency-Key")?.trim() || String(body.request_id || "").trim() || randomUUID();
     const {
       target_id,
       sanjae,
@@ -34,23 +38,48 @@ export async function POST(request: NextRequest) {
       representative,
       contact_name,
       contact_phone,
-      period,
-      code,
-      year,
+      period: requestedPeriod,
+      code: requestedCode,
+      year: requestedYear,
       mode = "lookup_only",
     } = body;
 
-    const jobMode = mode === "apply_if_missing" || mode === "final_lookup"
+    if (mode === "final_lookup") {
+      return NextResponse.json({
+        error: "최종 결과 조회는 내부 후속 작업으로만 실행할 수 있습니다.",
+        errorCode: "NATIONAL_SUPPORT_FINAL_LOOKUP_INTERNAL_ONLY",
+      }, { status: 400 });
+    }
+
+    const jobMode = mode === "apply_if_missing"
       ? mode
       : "lookup_only";
 
     // 필수 입력값 검증 (담당자명 및 연락처는 결과 조회 시 필수 항목이 아니므로 제외)
-    if (!target_id || !sanjae || !commencement || !representative || !period || !code || !year) {
+    if (!target_id || !sanjae || !commencement || !representative || !requestedPeriod || !requestedCode || !requestedYear) {
       return NextResponse.json(
         { error: "필수 요청 항목이 누락되었습니다." },
         { status: 400 }
       );
     }
+
+    const { data: canonicalTarget, error: targetError } = await createAdminClient()
+      .from("measurement_target_business")
+      .select("id, code, year, period")
+      .eq("id", target_id).maybeSingle();
+    if (targetError) throw targetError;
+    if (!canonicalTarget) {
+      return NextResponse.json({ error: "대상 사업장 정보를 찾을 수 없습니다." }, { status: 404 });
+    }
+    if (!matchesNationalSupportTargetKey(
+      { code: requestedCode, year: requestedYear, period: requestedPeriod }, canonicalTarget,
+    )) {
+      return NextResponse.json({
+        error: "요청한 사업장 코드·연도·주기가 대상 사업장과 일치하지 않습니다.",
+        errorCode: NATIONAL_SUPPORT_TARGET_KEY_MISMATCH,
+      }, { status: 409 });
+    }
+    const { id: canonicalTargetId, code, year, period } = canonicalTarget;
 
     const normalizedSanjae = normalizeElevenDigitNumber(sanjae);
     const normalizedCommencement = normalizeElevenDigitNumber(commencement);
@@ -83,11 +112,23 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
+    // Guard 1: never enqueue an application when the canonical journal key
+    // already exists.  Guard 2 remains inside the local flow at its effect boundary.
+    if (jobMode === "apply_if_missing" && await hasMeasurementJournalForTarget(createAdminClient(), {
+      code: String(code), year: Number(year), period: String(period),
+    })) {
+      return NextResponse.json({
+        success: true,
+        resultCode: "JOURNAL_REGISTERED_SKIP",
+        message: "측정일지가 등록되어 건강디딤돌 신청을 생성하지 않았습니다.",
+      });
+    }
+
     // 중복 전송 방지를 위한 락(Lock) 확인 및 설정
     const { data: currentPlan, error: selectError } = await supabase
       .from("measurement_target_business")
       .select("sync_status, national_support_status")
-      .eq("id", target_id)
+      .eq("id", canonicalTargetId)
       .single();
 
     if (selectError) {
@@ -135,15 +176,14 @@ export async function POST(request: NextRequest) {
       const { error: errTarget } = await supabase
         .from("measurement_target_business")
         .update({
-          sync_status: "성공",
-          sync_error_message: null,
+          ...nationalSupportCompatibilityProjection(dbStatus === "대상" ? "SUPPORT" : "NON_SUPPORT"),
           national_support_status: dbStatus,
           industrial_accident_number: normalizedSanjae,
           commencement_number: normalizedCommencement,
           representative_name: representative || null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", target_id);
+        .eq("id", canonicalTargetId);
 
       if (errTarget) {
         console.error("즉시 동기화 계획 테이블 업데이트 실패:", errTarget);
@@ -154,7 +194,7 @@ export async function POST(request: NextRequest) {
         const { data: targetBusiness } = await supabase
           .from("measurement_target_business")
           .select("business_name")
-          .eq("id", target_id)
+          .eq("id", canonicalTargetId)
           .single();
         
         const bName = targetBusiness?.business_name || "미등록 사업장";
@@ -184,7 +224,7 @@ export async function POST(request: NextRequest) {
 
 
     const jobPayload = {
-      target_id,
+      target_id: canonicalTargetId,
       sanjae: normalizedSanjae,
       commencement: normalizedCommencement,
       representative: normalizeRepresentativeName(representative) || representative,
@@ -197,54 +237,24 @@ export async function POST(request: NextRequest) {
       mode: jobMode,
     };
 
-    // 행 잠금, 조회중 상태 변경, 큐 등록을 PostgreSQL 함수 안의 단일 트랜잭션으로 처리합니다.
-    const { data: queuedJobs, error: queueError } = await supabase.rpc(
-      "enqueue_national_support_job",
-      {
-        p_target_id: Number(target_id),
-        p_job_payload: jobPayload,
-        p_available_at: new Date().toISOString(),
-      },
-    );
-    const queuedJob = Array.isArray(queuedJobs) ? queuedJobs[0] : null;
+    const automationJob = await enqueueAutomationJob(createAdminClient(), {
+      jobType: "NATIONAL_SUPPORT",
+      idempotencyKey: nationalSupportIdempotencyKey(
+        jobMode === "apply_if_missing" ? "apply" : "lookup",
+        String(code), year, period, requestId,
+      ),
+      targetKey: `national-support:${canonicalTargetId}`,
+      requestPayload: jobPayload,
+      requestedBy: Number(user.id),
+    });
 
-    if (queueError || !queuedJob?.job_id) {
-      const dbError = queueError || {
-        code: "RPC_EMPTY_RESULT",
-        message: "enqueue_national_support_job returned no job",
-        details: null,
-        hint: null,
-      };
-      const errorCode = classifyNationalSupportQueueError(dbError);
-      console.error("[NationalSupportQueue] 원자적 락/큐 등록 실패", {
-        correlationId,
-        errorCode,
-        dbError: {
-          code: dbError.code || null,
-          message: dbError.message || null,
-          details: dbError.details || null,
-          hint: dbError.hint || null,
-        },
-        target_id,
-        mode: jobMode,
-        existing_sync_status: currentPlan.sync_status,
-      });
-
-      const status = errorCode === "NATIONAL_SUPPORT_ALREADY_RUNNING"
-        ? 409
-        : errorCode === "NATIONAL_SUPPORT_TARGET_NOT_FOUND"
-          ? 404
-          : 500;
-      return NextResponse.json(
-        {
-          error: status === 409
-            ? "이미 해당 사업장의 조회 작업이 대기 중이거나 진행 중입니다."
-            : "자동 신청 상태를 변경하는 데 실패했습니다.",
-          errorCode,
-          correlationId,
-        },
-        { status },
-      );
+    // The target lane may return another user's or a scheduled active job.
+    // Neither its identifier nor its payload belongs in this response.
+    if (automationJob.requested_by !== Number(user.id)) {
+      return NextResponse.json({
+        error: "다른 건강디딤돌 작업이 진행 중입니다.",
+        errorCode: "NATIONAL_SUPPORT_ALREADY_RUNNING",
+      }, { status: 409 });
     }
 
     return NextResponse.json({
@@ -252,7 +262,7 @@ export async function POST(request: NextRequest) {
       message: jobMode === "apply_if_missing"
         ? "건강디딤돌 조회 및 자동 신청 작업이 백그라운드 작업자에 전달되었습니다."
         : "건강디딤돌 조회 작업이 백그라운드 작업자에 전달되었습니다. 결과는 잠시 후 반영됩니다.",
-      jobId: queuedJob.job_id,
+      jobId: automationJob.id,
     });
 
   } catch (error: any) {

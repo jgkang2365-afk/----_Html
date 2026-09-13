@@ -20,7 +20,9 @@ export function shouldApplyAfterLookup(result: PortalLookupResult) {
 export function shouldRetryFinalLookup(result: PortalLookupResult, attemptCount: number) {
   return (
     (result === "STANDBY" || result === "NO_RESULT") &&
-    attemptCount < FINAL_LOOKUP_MAX_ATTEMPTS
+    // attempt_count is zero-based and denotes the lookup now executing.
+    // 0, 1, 2 are exactly three final lookups when the limit is 3.
+    attemptCount < FINAL_LOOKUP_MAX_ATTEMPTS - 1
   );
 }
 

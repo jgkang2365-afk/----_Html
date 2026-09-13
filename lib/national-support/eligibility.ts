@@ -87,6 +87,7 @@ export function canRequestNationalSupportLookup(input: NationalSupportLookupInpu
 
 export function getNationalSupportDisplayStatus(input: NationalSupportLookupInput) {
   if (isAdHocMeasurement(input.period)) return "비대상";
+  if (input.sync_status === "일지 등록 · 제외") return "일지 등록 · 제외";
   if (COMPLETED_STATUSES.has(input.national_support_status || "")) {
     return input.national_support_status as "대상" | "비대상";
   }

@@ -25,6 +25,7 @@ import { toShortName } from "@/lib/constants/designated-offices";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
 import { isValidOptionalManagerEmail } from "@/lib/business/manager-email";
 import { compareCanonicalTargetBusinesses } from "@/lib/business/target-business-sort";
+import { nationalSupportApplyOutcome } from "@/lib/national-support/apply-boundaries";
 import {
     MEASUREMENT_MAP_CHANNEL,
     MEASUREMENT_MAP_VIEWER_NAME,
@@ -538,7 +539,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
                 const resJson = await res.json();
                 if (res.ok) {
-                    if (resJson.instantSync) {
+                    if (nationalSupportApplyOutcome(resJson) === "excluded") {
+                        setBulkLogs((prev) => [`[제외] ${item.business_name}: 측정일지가 등록되어 건강디딤돌 조회·신청 대상에서 제외`, ...prev]);
+                        setData((prev) => prev.map((d) => d.id === item.id ? { ...d, sync_status: item.sync_status, sync_error_message: item.sync_error_message } : d));
+                    } else if (nationalSupportApplyOutcome(resJson) === "instant") {
                         setBulkSuccessCount((prev) => prev + 1);
                         setBulkLogs((prev) => [`[즉시반영] ${item.business_name}: 기존 결과 매핑 완료`, ...prev]);
                         setData((prev) => prev.map((d) => d.id === item.id ? { ...d, sync_status: "성공", national_support_status: resJson.status } : d));
@@ -569,8 +573,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         }
         await Promise.all(workers);
 
-        setBulkLogs((prev) => [`[요청 완료] 국고 일괄 조회가 모두 대기열에 등록되었습니다. 처리 결과는 목록에 자동 반영됩니다.`, ...prev]);
-        alert("국고 일괄 조회 요청 등록이 완료되었습니다. 깡통컴 처리 결과는 목록에 자동 반영됩니다.");
+        setBulkLogs((prev) => [`[요청 완료] 국고 일괄 조회 요청 처리가 끝났습니다. 제외 항목은 대기열에 등록되지 않았습니다.`, ...prev]);
+        alert("국고 일괄 조회 요청 처리가 끝났습니다. 제외 항목은 작업 대기열에 등록되지 않았습니다.");
         setIsBulkProcessing(false);
         fetchData();
         void refreshCoordinateSummary();
@@ -1049,7 +1053,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     if (!followUpResponse.ok) {
                         throw new Error(followUpResult.error || "건강디딤돌 처리 요청 실패");
                     }
-                    completionMessage += `\n${followUpResult.message || "건강디딤돌 결과조회가 시작되었습니다."}`;
+                    completionMessage += nationalSupportApplyOutcome(followUpResult) === "excluded"
+                        ? "\n측정일지가 등록되어 건강디딤돌 조회·신청 대상에서 제외했습니다."
+                        : `\n${followUpResult.message || "건강디딤돌 결과조회가 시작되었습니다."}`;
                 } catch (followUpError) {
                     completionMessage += `\n건강디딤돌 처리 요청은 실패했습니다. 목록의 조회 버튼으로 재시도할 수 있습니다.\n사유: ${followUpError instanceof Error ? followUpError.message : String(followUpError)}`;
                 }
@@ -1520,7 +1526,10 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 throw new Error(resData.error || "결과 확인 요청 실패");
             }
 
-            if (resData.instantSync) {
+            if (nationalSupportApplyOutcome(resData) === "excluded") {
+                alert("측정일지가 등록되어 건강디딤돌 조회·신청 대상에서 제외했습니다.");
+                fetchData();
+            } else if (nationalSupportApplyOutcome(resData) === "instant") {
                 alert(resData.message || "건강디딤돌 신청결과가 즉시 반영되었습니다.");
                 fetchData();
             } else {

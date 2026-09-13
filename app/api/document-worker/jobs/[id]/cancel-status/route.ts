@@ -17,11 +17,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       { status: 400 }
     );
 
+  const automationJobId = String(body.automation_job_id || "").trim();
+  if (!automationJobId)
+    return NextResponse.json({ error: "공통 automation 작업 ID가 필요합니다." }, { status: 400 });
   const admin = createAdminClient();
-  const { data, error } = await admin.rpc("renew_document_generation_job_lease", {
-    p_job_id: params.id,
-    p_worker_id: workerId,
-    p_worker_lease_id: workerLeaseId,
+  const { data, error } = await admin.rpc("renew_document_automation_job_lease", {
+    p_legacy_job_id: params.id, p_automation_job_id: automationJobId,
+    p_worker_id: workerId, p_worker_lease_id: workerLeaseId,
     p_result_files: Array.isArray(body.result_files) ? body.result_files : null,
   });
   if (error) return NextResponse.json({ error: "Worker lease 갱신 실패" }, { status: 500 });
