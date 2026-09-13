@@ -18,6 +18,37 @@ interface DashboardClientProps {
     } | null;
 }
 
+type HiddenMesEscapeState = {
+    mesJobId: string | null;
+    showMesProgress: boolean;
+    mesCancelPending: boolean;
+    cancellationInFlight: boolean;
+};
+
+/**
+ * The modal owns Escape while it is visible. Once the user closes only that
+ * view, this preserves the single cancellation path for the still-active job.
+ * A hidden terminal modal invokes onTerminal and clears mesJobId first.
+ */
+export function handleHiddenMesEscape(
+    event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">,
+    state: HiddenMesEscapeState,
+    onCancel: () => void | Promise<void>,
+) {
+    if (
+        event.key !== "Escape" ||
+        !state.mesJobId ||
+        state.showMesProgress ||
+        state.mesCancelPending ||
+        state.cancellationInFlight
+    ) return false;
+
+    event.preventDefault();
+    event.stopPropagation();
+    void onCancel();
+    return true;
+}
+
 export const DashboardClient = ({ user }: DashboardClientProps) => {
     // 서울 시간대(Asia/Seoul) 기준으로 현재 년도 가져오기
     const getCurrentYear = () => {
@@ -90,6 +121,21 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
             mesCancellationInFlightRef.current = false;
         }
     }, [mesJobId, mesCancelPending]);
+
+    useEffect(() => {
+        if (!mesJobId || showMesProgress || mesCancelPending) return;
+
+        const onKeyDown = (event: KeyboardEvent) => {
+            handleHiddenMesEscape(event, {
+                mesJobId,
+                showMesProgress,
+                mesCancelPending,
+                cancellationInFlight: mesCancellationInFlightRef.current,
+            }, handleCancelMesSync);
+        };
+        window.addEventListener("keydown", onKeyDown, true);
+        return () => window.removeEventListener("keydown", onKeyDown, true);
+    }, [handleCancelMesSync, mesCancelPending, mesJobId, showMesProgress]);
 
     // 년도 옵션 생성
     const currentYear = getCurrentYear();

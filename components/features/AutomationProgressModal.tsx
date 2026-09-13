@@ -44,6 +44,18 @@ export function nationalSupportProgressDetails(job: Pick<AutomationJob, "id" | "
 }
 export const mesProgressDetails = nationalSupportProgressDetails;
 
+export function handleVisibleAutomationEscape(
+  event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">,
+  state: { visible: boolean | undefined; running: boolean; cancelDisabled: boolean | undefined },
+  onCancel: (() => void | Promise<void>) | undefined,
+) {
+  if (event.key !== "Escape" || !state.visible || !state.running || !onCancel || state.cancelDisabled) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  void onCancel();
+  return true;
+}
+
 export function mesProgressView(job: Pick<AutomationJob, "status" | "progress_percent" | "effect_started_at"> | null, processingMessage: string): AutomationProgressView {
   if (job?.status === "CONFIRM_REQUIRED" || (job?.status === "FAILED" && job.effect_started_at)) {
     return {
@@ -77,10 +89,11 @@ export default function AutomationProgressModal(props: Props) {
   useEffect(() => {
     if (!props.visible || !running || !cancelAction || props.cancelDisabled) return;
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      void cancelAction();
+      handleVisibleAutomationEscape(event, {
+        visible: props.visible,
+        running,
+        cancelDisabled: props.cancelDisabled,
+      }, cancelAction);
     };
     window.addEventListener("keydown", handleEscape, true);
     return () => window.removeEventListener("keydown", handleEscape, true);

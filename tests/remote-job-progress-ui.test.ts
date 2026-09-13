@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { handleHiddenMesEscape } from "../components/features/DashboardClient";
 
 const shell = readFileSync("components/features/RemoteJobProgressDialog.tsx", "utf8");
 const health = readFileSync("components/features/MeasurementTargetBusinessManagement.tsx", "utf8");
@@ -40,6 +41,58 @@ test("보고서 처리 취소 요청 중에는 공통 모달과 상단 중단 �
   assert.match(report, /cancelPending=\{activeJob\.status === 'cancel_requested'\}/);
   assert.match(report, /disabled=\{activeJob\.status === 'cancel_requested'\}/);
   assert.match(report, /current\.status === 'cancel_requested' && status !== 'cancel_requested'/);
+});
+
+function escapeEvent() {
+  let prevented = 0;
+  let stopped = 0;
+  return {
+    event: {
+      key: "Escape",
+      preventDefault: () => { prevented += 1; },
+      stopPropagation: () => { stopped += 1; },
+    },
+    calls: () => ({ prevented, stopped }),
+  };
+}
+
+test("visible modal ESC는 Dashboard fallback을 건너뛰고 modal handler만 담당한다", () => {
+  const { event, calls } = escapeEvent();
+  let cancelled = 0;
+  assert.equal(handleHiddenMesEscape(event, { mesJobId: "job-1", showMesProgress: true, mesCancelPending: false, cancellationInFlight: false }, () => { cancelled += 1; }), false);
+  assert.equal(cancelled, 0);
+  assert.deepEqual(calls(), { prevented: 0, stopped: 0 });
+});
+
+test("X로 hidden 된 RUNNING MES는 ESC fallback으로 한 번만 취소한다", () => {
+  const { event, calls } = escapeEvent();
+  let cancelled = 0;
+  const state = { mesJobId: "job-1", showMesProgress: false, mesCancelPending: false, cancellationInFlight: false };
+  assert.equal(handleHiddenMesEscape(event, state, () => { cancelled += 1; }), true);
+  assert.equal(cancelled, 1);
+  assert.deepEqual(calls(), { prevented: 1, stopped: 1 });
+  assert.equal(state.mesJobId, "job-1");
+});
+
+test("중단 요청 중인 hidden MES는 ESC fallback을 다시 호출하지 않는다", () => {
+  for (const state of [
+    { mesJobId: "job-1", showMesProgress: false, mesCancelPending: true, cancellationInFlight: false },
+    { mesJobId: "job-1", showMesProgress: false, mesCancelPending: false, cancellationInFlight: true },
+  ]) {
+    const { event, calls } = escapeEvent();
+    let cancelled = 0;
+    assert.equal(handleHiddenMesEscape(event, state, () => { cancelled += 1; }), false);
+    assert.equal(cancelled, 0);
+    assert.deepEqual(calls(), { prevented: 0, stopped: 0 });
+  }
+});
+
+test("terminal로 정리되어 job identity가 없는 상태에서는 ESC가 취소하지 않는다", () => {
+  const { event, calls } = escapeEvent();
+  let cancelled = 0;
+  assert.equal(handleHiddenMesEscape(event, { mesJobId: null, showMesProgress: false, mesCancelPending: false, cancellationInFlight: false }, () => { cancelled += 1; }), false);
+  assert.equal(cancelled, 0);
+  assert.deepEqual(calls(), { prevented: 0, stopped: 0 });
 });
 
 test("공통 진행 모달은 본문만 스크롤하고 중단 요청 버튼과 상세는 안전하게 고정한다", () => {
