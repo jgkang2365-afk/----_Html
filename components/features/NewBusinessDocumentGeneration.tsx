@@ -329,9 +329,12 @@ export function NewBusinessDocumentGeneration({
         {showProgress && context?.automationJob?.id && (
           <AutomationProgressModal
             jobId={context.automationJob.id}
-            title="문서 생성 진행"
-            stages={["요청 전달", "문서 생성", "파일 확인", "완료"]}
+            title="문서를 생성하고 있습니다"
+            processingMessage="깡통컴에서 문서를 생성 중입니다"
             onClose={() => setShowProgress(false)}
+            onCancel={requestCancellation}
+            cancelLabel="생성 중단"
+            cancelDisabled={cancelling || isCancellationRequested}
           />
         )}
       <div className="flex items-center gap-2">
@@ -367,14 +370,7 @@ export function NewBusinessDocumentGeneration({
           </Button>
         )}
         {isRunning && !isCancellationRequested && (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={cancelling}
-            onClick={() => void requestCancellation()}
-            className="whitespace-nowrap"
-          >
+          <Button type="button" variant="secondary" size="sm" disabled={cancelling} onClick={() => void requestCancellation()} className="whitespace-nowrap">
             {cancelling && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
             {cancelling ? "취소 요청 중..." : "생성 중단"}
           </Button>

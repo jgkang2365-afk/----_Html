@@ -60,14 +60,16 @@ test("취소 요청은 Realtime terminal 갱신을 유지하면서 생성 spinne
   assert.match(component, /문서 생성이 취소되었습니다\./);
 });
 
-test("ESC와 생성 중단 버튼은 중복 방지된 동일 취소 API 함수를 사용한다", () => {
+test("ESC와 공통 진행 모달의 생성 중단은 중복 방지된 동일 취소 API 함수를 사용한다", () => {
   assert.match(component, /const requestCancellation = useCallback/);
   assert.match(component, /cancellationRequestInFlight\.current/);
   assert.match(component, /event\.key !== "Escape"/);
   assert.match(component, /event\.preventDefault\(\)/);
   assert.match(component, /event\.stopPropagation\(\)/);
   assert.match(component, /void requestCancellation\(\)/);
-  assert.match(component, /\{cancelling \? "취소 요청 중\.\.\." : "생성 중단"\}/);
+  assert.match(component, /onCancel=\{requestCancellation\}/);
+  assert.match(component, /cancelLabel="생성 중단"/);
+  assert.match(component, /cancelDisabled=\{cancelling \|\| isCancellationRequested\}/);
   assert.match(component, /\/api\/document-generation\/jobs\/\$\{jobId\}\/cancel/);
 });
 
