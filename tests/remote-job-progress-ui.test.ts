@@ -42,6 +42,14 @@ test("보고서 처리 취소 요청 중에는 공통 모달과 상단 중단 �
   assert.match(report, /current\.status === 'cancel_requested' && status !== 'cancel_requested'/);
 });
 
+test("공통 진행 모달은 본문만 스크롤하고 중단 요청 버튼과 상세는 안전하게 고정한다", () => {
+  assert.match(shell, /max-h-\[90dvh\].*flex-col/);
+  assert.match(shell, /min-h-0 overflow-y-auto/);
+  assert.match(shell, /max-h-48 gap-2 overflow-y-auto/);
+  assert.match(shell, /disabled=\{cancelPending\}/);
+  assert.match(shell, /cancelPending \? "중단 요청 중\.\.\."/);
+});
+
 test("K2B 재검증도 등록 직후부터 기존 작업 상태 모니터를 사용한다", () => {
   assert.match(report, /monitorJob\(body\.jobId, 'k2b_verify'\)/);
   assert.match(report, /monitorJob\(jobId, 'k2b_verify'\)/);
