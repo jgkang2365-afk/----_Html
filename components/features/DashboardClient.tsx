@@ -18,6 +18,37 @@ interface DashboardClientProps {
     } | null;
 }
 
+type HiddenMesEscapeState = {
+    mesJobId: string | null;
+    showMesProgress: boolean;
+    mesCancelPending: boolean;
+    cancellationInFlight: boolean;
+};
+
+/**
+ * The modal owns Escape while it is visible. Once the user closes only that
+ * view, this preserves the single cancellation path for the still-active job.
+ * A hidden terminal modal invokes onTerminal and clears mesJobId first.
+ */
+export function handleHiddenMesEscape(
+    event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">,
+    state: HiddenMesEscapeState,
+    onCancel: () => void | Promise<void>,
+) {
+    if (
+        event.key !== "Escape" ||
+        !state.mesJobId ||
+        state.showMesProgress ||
+        state.mesCancelPending ||
+        state.cancellationInFlight
+    ) return false;
+
+    event.preventDefault();
+    event.stopPropagation();
+    void onCancel();
+    return true;
+}
+
 export const DashboardClient = ({ user }: DashboardClientProps) => {
     // 서울 시간대(Asia/Seoul) 기준으로 현재 년도 가져오기
     const getCurrentYear = () => {
@@ -29,7 +60,9 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
     const [syncRefreshKey, setSyncRefreshKey] = useState(0);
     const [mesJobId, setMesJobId] = useState<string | null>(null);
     const [showMesProgress, setShowMesProgress] = useState(false);
+    const [mesCancelPending, setMesCancelPending] = useState(false);
     const mesRequestIdRef = useRef<string | null>(null);
+    const mesCancellationInFlightRef = useRef(false);
     const isSyncing = Boolean(mesJobId);
 
     // 필터 상태 (Dashboard로 전달)
@@ -67,32 +100,43 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
     };
 
     const handleCancelMesSync = useCallback(async () => {
-        if (!mesJobId) return;
+        if (!mesJobId || mesCancelPending || mesCancellationInFlightRef.current) return;
         if (!confirm('진행 중인 MES 동기화를 중단하시겠습니까?\n현재 실행 중인 MES/Excel 작업이 종료됩니다.')) return;
 
+        mesCancellationInFlightRef.current = true;
+        setMesCancelPending(true);
         try {
             const res = await fetch(`/api/automation-jobs/${mesJobId}`, { method: 'DELETE' });
             const data = await res.json();
             if (!res.ok || !data.job) {
                 alert(data.error || '중단 요청을 전달하지 못했습니다.');
+                setMesCancelPending(false);
+                mesCancellationInFlightRef.current = false;
             } else {
                 alert('중단 요청을 사내 PC에 전달했습니다. 실행 중인 단계가 정리되는 대로 종료됩니다.');
             }
         } catch (error: any) {
             alert(error.message || '중단 요청 중 오류가 발생했습니다.');
+            setMesCancelPending(false);
+            mesCancellationInFlightRef.current = false;
         }
-    }, [mesJobId]);
+    }, [mesJobId, mesCancelPending]);
 
     useEffect(() => {
+        if (!mesJobId || showMesProgress || mesCancelPending) return;
+
         const onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape' && mesJobId) {
-                event.preventDefault();
-                handleCancelMesSync();
-            }
+            handleHiddenMesEscape(event, {
+                mesJobId,
+                showMesProgress,
+                mesCancelPending,
+                cancellationInFlight: mesCancellationInFlightRef.current,
+            }, handleCancelMesSync);
         };
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
-    }, [mesJobId, handleCancelMesSync]);
+        window.addEventListener("keydown", onKeyDown, true);
+        return () => window.removeEventListener("keydown", onKeyDown, true);
+    }, [handleCancelMesSync, mesCancelPending, mesJobId, showMesProgress]);
+
     // 년도 옵션 생성
     const currentYear = getCurrentYear();
     const yearOptions = Array.from({ length: 6 }, (_, i) => {
@@ -233,11 +277,13 @@ export const DashboardClient = ({ user }: DashboardClientProps) => {
                     jobId={mesJobId}
                     title="MES 동기화를 진행하고 있습니다"
                     processingMessage="깡통컴에서 MES 동기화를 처리 중입니다"
+                    mes
                     visible={showMesProgress}
                     onCancel={handleCancelMesSync}
                     cancelLabel="작업 중단"
+                    cancelDisabled={mesCancelPending}
                     onClose={() => setShowMesProgress(false)}
-                    onTerminal={() => { setMesJobId(null); setShowMesProgress(false); mesRequestIdRef.current = null; setSyncRefreshKey((value) => value + 1); }}
+                    onTerminal={() => { setMesJobId(null); setShowMesProgress(false); setMesCancelPending(false); mesCancellationInFlightRef.current = false; mesRequestIdRef.current = null; setSyncRefreshKey((value) => value + 1); }}
                 />
             )}
         </div>

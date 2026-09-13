@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { automationProgressView } from "../components/features/AutomationProgressModal";
+import { automationProgressView, handleVisibleAutomationEscape, mesProgressDetails, mesProgressView } from "../components/features/AutomationProgressModal";
 
 const processingMessage = "깡통컴에서 문서를 생성 중입니다";
 
@@ -31,4 +31,37 @@ test("terminal 결과는 열린 진행 모달에 남고, 닫힌 진행 화면만
   assert.match(component, /const handleClose = \(\) => \{/);
   assert.match(component, /if \(props\.onTerminal\) props\.onTerminal\(\);/);
   assert.match(component, /else props\.onClose\(\);/);
+});
+
+test("MES 실패와 확인 필요는 traceback 대신 사용자 메시지와 구조화 상세를 사용한다", () => {
+  const rawTrace = "Traceback (most recent call last): C:\\Users\\USER\\mes_download.py chromedriver!GetHandleVerifier";
+  const failed = mesProgressView({ status: "FAILED", progress_percent: 25, effect_started_at: null, error_message: rawTrace } as any, processingMessage);
+  assert.equal(failed.heading, "MES 자동화 실행에 실패했습니다");
+  assert.equal(failed.detail.includes("Traceback"), false);
+  assert.equal(failed.detail.includes("C:\\Users"), false);
+  const uncertain = mesProgressView({ status: "FAILED", progress_percent: 80, effect_started_at: "2026-09-13T00:00:00Z", error_message: rawTrace } as any, processingMessage);
+  assert.equal(uncertain.heading, "MES 동기화 결과 확인이 필요합니다");
+  assert.equal(uncertain.detail.includes("시작되지 않았습니다"), false);
+  assert.deepEqual(mesProgressDetails({ id: "job-1", status: "FAILED", progress_stage: "MES_LOGIN", error_code: rawTrace, finished_at: null, updated_at: null } as any).map(({ label }) => label), ["작업 ID", "작업 단계"]);
+  const component = readFileSync("components/features/AutomationProgressModal.tsx", "utf8");
+  assert.match(component, /export function mesProgressView/);
+  assert.match(component, /props\.nationalSupport \|\| props\.mes \? mesProgressDetails\(job\) : \[\]/);
+  assert.match(component, /MES 자동화 실행에 실패했습니다/);
+  assert.match(component, /MES 동기화 결과 확인이 필요합니다/);
+  assert.doesNotMatch(component, /props\.mes.*error_message/);
+});
+
+test("실행 중 ESC만 기존 취소 handler를 한 번 연결하고 terminal에는 취소 action을 넘기지 않는다", () => {
+  let cancelled = 0;
+  const visibleEvent = { key: "Escape", preventDefault() {}, stopPropagation() {} };
+  assert.equal(handleVisibleAutomationEscape(visibleEvent, { visible: true, running: true, cancelDisabled: false }, () => { cancelled += 1; }), true);
+  assert.equal(cancelled, 1);
+  assert.equal(handleVisibleAutomationEscape(visibleEvent, { visible: true, running: false, cancelDisabled: false }, () => { cancelled += 1; }), false);
+  assert.equal(cancelled, 1);
+  const component = readFileSync("components/features/AutomationProgressModal.tsx", "utf8");
+  assert.match(component, /const cancelAction = running \? props\.onCancel : undefined/);
+  assert.match(component, /if \(!props\.visible \|\| !running \|\| !cancelAction \|\| props\.cancelDisabled\) return/);
+  assert.match(component, /window\.addEventListener\("keydown", handleEscape, true\)/);
+  assert.match(component, /onCancel=\{cancelAction\}/);
+  assert.match(component, /\^\[A-Z\]\[A-Z0-9_\]\{1,63\}\$/);
 });

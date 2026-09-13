@@ -4,7 +4,7 @@ import { fetchAutomationJob, subscribeAutomationJob } from "@/lib/automation/job
 import type { AutomationJob } from "@/lib/automation/jobs";
 import RemoteJobProgressDialog, { type RemoteJobProgressDetail, type RemoteJobProgressView } from "@/components/features/RemoteJobProgressDialog";
 
-type Props = { jobId: string; title: string; processingMessage: string; nationalSupport?: boolean; visible?: boolean; onClose: () => void; onTerminal?: () => void; onCancel?: () => void | Promise<void>; cancelLabel?: string; cancelDisabled?: boolean };
+type Props = { jobId: string; title: string; processingMessage: string; nationalSupport?: boolean; mes?: boolean; visible?: boolean; onClose: () => void; onTerminal?: () => void; onCancel?: () => void | Promise<void>; cancelLabel?: string; cancelDisabled?: boolean };
 const terminal = new Set(["COMPLETED", "FAILED", "CANCELLED", "CONFIRM_REQUIRED"]);
 export type AutomationProgressView = RemoteJobProgressView;
 export function automationProgressView(job: (Pick<AutomationJob, "status" | "progress_percent"> & Partial<Pick<AutomationJob, "error_message" | "started_at">>) | null, processingMessage: string): AutomationProgressView {
@@ -39,9 +39,43 @@ export function nationalSupportProgressDetails(job: Pick<AutomationJob, "id" | "
   const details: RemoteJobProgressDetail[] = [{ label: "작업 ID", value: job.id }];
   if (job.finished_at || job.updated_at) details.unshift({ label: "발생 시각", value: job.finished_at || job.updated_at });
   if (job.progress_stage) details.push({ label: "작업 단계", value: job.progress_stage });
-  if (job.error_code) details.push({ label: "오류 코드", value: job.error_code });
+  if (job.error_code && /^[A-Z][A-Z0-9_]{1,63}$/.test(job.error_code)) details.push({ label: "오류 코드", value: job.error_code });
   return details;
 }
+export const mesProgressDetails = nationalSupportProgressDetails;
+
+export function handleVisibleAutomationEscape(
+  event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">,
+  state: { visible: boolean | undefined; running: boolean; cancelDisabled: boolean | undefined },
+  onCancel: (() => void | Promise<void>) | undefined,
+) {
+  if (event.key !== "Escape" || !state.visible || !state.running || !onCancel || state.cancelDisabled) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  void onCancel();
+  return true;
+}
+
+export function mesProgressView(job: Pick<AutomationJob, "status" | "progress_percent" | "effect_started_at"> | null, processingMessage: string): AutomationProgressView {
+  if (job?.status === "CONFIRM_REQUIRED" || (job?.status === "FAILED" && job.effect_started_at)) {
+    return {
+      step: job?.progress_percent >= 75 ? 2 : 1,
+      heading: "MES 동기화 결과 확인이 필요합니다",
+      detail: "데이터 반영이 시작된 이후 작업 상태를 확정하지 못했습니다. 자동으로 다시 실행하지 않았습니다. 기존 결과를 확인해 주세요.",
+      tone: "amber",
+    };
+  }
+  if (job?.status === "FAILED") {
+    return {
+      step: job.progress_percent >= 75 ? 2 : 1,
+      heading: "MES 자동화 실행에 실패했습니다",
+      detail: "MES 화면 제어 과정에서 문제가 발생했습니다. 데이터 반영은 시작되지 않았습니다. MES 프로그램 상태를 확인한 뒤 다시 시도해 주세요.",
+      tone: "red",
+    };
+  }
+  return automationProgressView(job, processingMessage);
+}
+
 export default function AutomationProgressModal(props: Props) {
   const [job, setJob] = useState<AutomationJob | null>(null); const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => { try { setJob(await fetchAutomationJob(props.jobId)); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "작업 상태를 가져오지 못했습니다."); } }, [props.jobId]);
@@ -49,8 +83,21 @@ export default function AutomationProgressModal(props: Props) {
   useEffect(() => {
     if (job && terminal.has(job.status) && props.visible === false) props.onTerminal?.();
   }, [job, props]);
-  const view = error ? { step: 0, heading: props.nationalSupport ? "건강디딤돌 작업 상태를 가져오지 못했습니다" : error, detail: "잠시 후 다시 시도해 주세요.", tone: "red" as const } : props.nationalSupport ? nationalSupportProgressView(job, props.processingMessage) : automationProgressView(job, props.processingMessage);
+  const view = error ? { step: 0, heading: props.nationalSupport ? "건강디딤돌 작업 상태를 가져오지 못했습니다" : props.mes ? "MES 작업 상태를 가져오지 못했습니다" : error, detail: "잠시 후 다시 시도해 주세요.", tone: "red" as const } : props.nationalSupport ? nationalSupportProgressView(job, props.processingMessage) : props.mes ? mesProgressView(job, props.processingMessage) : automationProgressView(job, props.processingMessage);
   const running = !terminal.has(job?.status || "PENDING");
+  const cancelAction = running ? props.onCancel : undefined;
+  useEffect(() => {
+    if (!props.visible || !running || !cancelAction || props.cancelDisabled) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      handleVisibleAutomationEscape(event, {
+        visible: props.visible,
+        running,
+        cancelDisabled: props.cancelDisabled,
+      }, cancelAction);
+    };
+    window.addEventListener("keydown", handleEscape, true);
+    return () => window.removeEventListener("keydown", handleEscape, true);
+  }, [cancelAction, props.cancelDisabled, props.visible, running]);
   const handleClose = () => {
     if (terminal.has(job?.status || "PENDING")) {
       if (props.onTerminal) props.onTerminal();
@@ -58,5 +105,5 @@ export default function AutomationProgressModal(props: Props) {
     }
     else props.onClose();
   };
-  return props.visible === false ? null : <RemoteJobProgressDialog title={props.title} view={view} running={running} onClose={handleClose} onCancel={props.onCancel} cancelLabel={props.cancelLabel} cancelPending={props.cancelDisabled || job?.status === "CANCEL_REQUESTED"} details={props.nationalSupport ? nationalSupportProgressDetails(job) : []} />;
+  return props.visible === false ? null : <RemoteJobProgressDialog title={props.title} view={view} running={running} onClose={handleClose} onCancel={cancelAction} cancelLabel={props.cancelLabel} cancelPending={props.cancelDisabled || job?.status === "CANCEL_REQUESTED"} details={props.nationalSupport || props.mes ? mesProgressDetails(job) : []} />;
 }
