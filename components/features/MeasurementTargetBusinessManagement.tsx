@@ -1769,7 +1769,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     return (
         <>
-        {nationalSupportJob && <AutomationProgressModal jobId={nationalSupportJob.id} title="건강디딤돌 작업을 처리하고 있습니다" processingMessage={nationalSupportJob.applying ? "깡통컴에서 건강디딤돌 조회·신청을 처리 중입니다" : "깡통컴에서 건강디딤돌 조회를 처리 중입니다"} onClose={() => setNationalSupportJob(null)} />}
+        {nationalSupportJob && <AutomationProgressModal jobId={nationalSupportJob.id} title="건강디딤돌 작업을 처리하고 있습니다" processingMessage={nationalSupportJob.applying ? "깡통컴에서 건강디딤돌 조회·신청을 처리 중입니다" : "깡통컴에서 건강디딤돌 조회를 처리 중입니다"} nationalSupport onClose={() => setNationalSupportJob(null)} />}
         <div className="p-4 w-full min-w-[1400px]">
             {/* Sticky Container for Filter & Table Header */}
             <div className="sticky top-16 lg:top-[113px] z-40 space-y-4 bg-gray-50/95 backdrop-blur">
