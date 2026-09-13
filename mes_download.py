@@ -26,28 +26,6 @@ from dotenv import load_dotenv
 import requests
 
 # ==========================================
-# 0. 관리자 권한 확인 및 자동 승격 (성공 케이스 대조 반영)
-# ==========================================
-def is_admin():
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
-
-# 비대화형(백그라운드) 실행 여부 감지 (표준 입력이 터미널에 연결되어 있는지 확인)
-is_interactive = sys.stdin is not None and sys.stdin.isatty()
-
-def ensure_admin(allow_elevation: bool = True) -> None:
-    if is_admin():
-        return
-    if not allow_elevation or not is_interactive:
-        raise RuntimeError("MES_ADMIN_REQUIRED")
-    # 관리자 권한이 아니면 권한 상승 후 재실행
-    print("[-] 관리자 권한으로 재실행을 시도합니다...")
-    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-    raise SystemExit(0)
-
-# ==========================================
 # 0-1. 전역 ESC 키 감시 및 비상 종료 훅 (오토핫키 Esc::ExitApp 매칭)
 # ==========================================
 def monitor_esc():
@@ -152,8 +130,6 @@ def start_mes_and_login(read_only: bool = False):
 
 def read_only_smoke() -> None:
     """Verify Login -> newly-created main window -> owned-process cleanup only."""
-    # A verification command must never trigger a surprise UAC prompt.
-    ensure_admin(allow_elevation=False)
     if not PASSWORD:
         raise RuntimeError("MES_PASSWORD_MISSING")
     try:
@@ -447,7 +423,6 @@ def convert_and_copy_excel_files(filenames):
 # MAIN AUTOMATION PROCESS
 # ==========================================
 def main():
-    ensure_admin()
     require_runtime_credentials()
 
     # ESC 키 전역 감시 스레드 구동 (비상 종료 훅)

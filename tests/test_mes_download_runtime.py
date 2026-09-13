@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import mes_download
@@ -57,12 +58,16 @@ class MesDownloadRuntimeTest(unittest.TestCase):
     def test_read_only_smoke_cleans_up_after_main_window_verification(self):
         main = Mock(handle=99)
         main.process_id.return_value = 4321
-        with patch("mes_download.ensure_admin"), \
-             patch("mes_download.PASSWORD", "secret"), \
+        with patch("mes_download.PASSWORD", "secret"), \
              patch("mes_download.start_mes_and_login", return_value=main), \
              patch("mes_download.cleanup_owned_mes") as cleanup:
             mes_download.read_only_smoke()
         cleanup.assert_called_once()
+
+    def test_mes_execution_has_no_windows_admin_preflight_or_uac_elevation(self):
+        source = Path("mes_download.py").read_text(encoding="utf-8")
+        for forbidden in ("is_admin", "ensure_admin", "MES_ADMIN_REQUIRED", "ShellExecuteW", '"runas"'):
+            self.assertNotIn(forbidden, source)
 
 
 if __name__ == "__main__":

@@ -273,6 +273,18 @@ test("MES manual and scheduled requests use one active execution lane", () => {
   assert.match(dashboard, /mesRequestIdRef\.current = null/);
 });
 
+test("MES 수동 요청은 브라우저 장치나 Windows 관리자 상태와 무관하게 job만 생성한다", () => {
+  const dashboard = fs.readFileSync(path.join(process.cwd(), "components/features/DashboardClient.tsx"), "utf8");
+  const route = fs.readFileSync(path.join(process.cwd(), "app/api/cron/mes-trigger/route.ts"), "utf8");
+  const worker = fs.readFileSync(path.join(process.cwd(), "mes_daemon.py"), "utf8");
+  assert.match(dashboard, /fetch\("\/api\/cron\/mes-trigger"/);
+  assert.match(route, /jobType: "MES_SYNC"/);
+  assert.match(route, /requestPayload: \{ trigger: "manual", requested_at:/);
+  assert.doesNotMatch(route, /device|hostname|is_admin|administrator|windows.*admin/i);
+  assert.match(worker, /\[MES_JOB_TYPE\]/);
+  assert.match(worker, /str\(script_path\)/);
+});
+
 test("14:00 MES post-sync action is enqueued once by the verified terminal transition", () => {
   const migration = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/20260911025729_automation_jobs_common_v1.sql"), "utf8");
   assert.match(migration, /enqueue_mes_final_post_sync_check/);
