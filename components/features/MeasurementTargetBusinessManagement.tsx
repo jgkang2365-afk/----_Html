@@ -61,8 +61,11 @@ import {
     buildInlineMeasurementDateUpdates,
     buildTargetBusinessEditPatch,
     buildTargetBusinessSaveValues,
+    EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT,
     getTargetBusinessTypeLabel,
     isProcessChangedDefaultCategory,
+    ManualNationalSupportIntent,
+    resolveManualNationalSupportStatus,
     serializeTargetBusinessEditValues,
     statusForMeasurementDays,
     TargetBusinessFormValues,
@@ -809,6 +812,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     const [editingItem, setEditingItem] = useState<BusinessEntry | null>(null);
     const [editForm, setEditForm] = useState<Partial<BusinessEntry>>({});
+    const [editManualNationalSupportIntent, setEditManualNationalSupportIntent] =
+        useState<ManualNationalSupportIntent>(EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT);
     const [editMeasurementDays, setEditMeasurementDays] = useState<MeasurementDayFormWithUiKey[]>(
         () => [createEmptyMeasurementDayForm()],
     );
@@ -822,6 +827,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         manager_email: "",
         is_registered_text: "미실시",
     });
+    const [addManualNationalSupportIntent, setAddManualNationalSupportIntent] =
+        useState<ManualNationalSupportIntent>(EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT);
     const [addMeasurementDays, setAddMeasurementDays] = useState<MeasurementDayFormWithUiKey[]>(
         () => [createEmptyMeasurementDayForm()],
     );
@@ -933,6 +940,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             notes: "",
         });
         setAddMeasurementDays([createEmptyMeasurementDayForm()]);
+        setAddManualNationalSupportIntent(EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT);
         setBusinessInfoQuery("");
         setBusinessInfoResults([]);
         setSelectedBusinessInfo(null);
@@ -950,6 +958,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const closeAddModal = () => {
         setIsAddModalOpen(false);
         resetAddForm();
+    };
+
+    const closeEditModal = () => {
+        setIsEditModalOpen(false);
+        setEditManualNationalSupportIntent(EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT);
     };
 
     const handleBusinessInfoSearch = async () => {
@@ -1017,10 +1030,16 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             return;
         }
 
+        const manualNationalSupportStatus = isAdmin
+            ? resolveManualNationalSupportStatus(addManualNationalSupportIntent)
+            : null;
         const createPayload = {
             code: addForm.code,
             year: addForm.year,
             ...buildTargetBusinessSaveValues(addForm, addMeasurementDays),
+            ...(manualNationalSupportStatus
+                ? { national_support_status: manualNationalSupportStatus }
+                : {}),
         };
 
         try {
@@ -1067,8 +1086,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             }
 
             alert(completionMessage);
-            setIsAddModalOpen(false);
-            resetAddForm();
+            closeAddModal();
             fetchData();
 
             if (createResult.newBusinessCodeCreated && createResult.data) {
@@ -1374,6 +1392,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         };
 
         setEditForm(initialForm);
+        setEditManualNationalSupportIntent(EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT);
         editInitialStateRef.current = { form: initialForm, days: sourceDays };
         setEditMeasurementDays(withMeasurementDayUiKeys(initialDays));
         setIsEditModalOpen(true);
@@ -1454,18 +1473,40 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 }),
                 measurementDays,
             );
-            if (Object.keys(updatesToSave).length === 0) {
-                setIsEditModalOpen(false);
+            const manualNationalSupportStatus = isAdmin
+                ? resolveManualNationalSupportStatus(editManualNationalSupportIntent)
+                : null;
+            if (Object.keys(updatesToSave).length === 0 && !manualNationalSupportStatus) {
+                closeEditModal();
                 return;
             }
 
             // 저장이 성공(Resolve)한 후에만 모달을 닫음
-            await saveChanges(
-                editingItem.code,
-                updatesToSave as Partial<BusinessEntry>,
-                editingItem,
-            );
-            setIsEditModalOpen(false);
+            if (Object.keys(updatesToSave).length > 0) {
+                await saveChanges(
+                    editingItem.code,
+                    updatesToSave as Partial<BusinessEntry>,
+                    editingItem,
+                );
+            }
+            if (manualNationalSupportStatus) {
+                const manualResponse = await fetch("/api/businesses/national-support/manual-status", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        id: editingItem.id,
+                        code: editingItem.code,
+                        year: editingItem.year,
+                        period: editingItem.period,
+                        national_support_status: manualNationalSupportStatus,
+                    }),
+                });
+                if (!manualResponse.ok) {
+                    const errData = await manualResponse.json();
+                    throw new Error(errData.error || "국고지원 수동 확정에 실패했습니다.");
+                }
+            }
+            closeEditModal();
 
             // 저장 단계에서는 조회하지 않습니다. 목록의 파란 새로고침 버튼을 눌렀을 때만
             // 건강디딤돌 신청결과 DB 확인 → 공단 조회 순서로 진행합니다.
@@ -1562,25 +1603,6 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
         try {
             const cleanUpdates = serializeTargetBusinessEditValues(updates);
-
-            if (cleanUpdates.national_support_status !== undefined) {
-                const manualResponse = await fetch("/api/businesses/national-support/manual-status", {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        id: identity?.id,
-                        code,
-                        year: targetYear,
-                        period: targetPeriod,
-                        national_support_status: cleanUpdates.national_support_status,
-                    }),
-                });
-                if (!manualResponse.ok) {
-                    const errData = await manualResponse.json();
-                    throw new Error(errData.error || "국고지원 수동 확정에 실패했습니다.");
-                }
-                delete (cleanUpdates as any).national_support_status;
-            }
 
             // 1. Optimistic Update (UI 먼저 반영)
             const optimisticUpdates = { ...updates };
@@ -1740,7 +1762,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             }
 
             alert("삭제되었습니다.");
-            setIsEditModalOpen(false);
+            closeEditModal();
             fetchData(); // Refresh list
         } catch (e: any) {
             console.error("Delete Error:", e);
@@ -2279,7 +2301,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
             <Modal
                 isOpen={isEditModalOpen}
-                onClose={() => setIsEditModalOpen(false)}
+                onClose={closeEditModal}
                 title="사업장 상세 정보 수정"
                 size="lg"
                 headerActions={
@@ -2308,6 +2330,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         measurementDays={editMeasurementDays}
                         blockedKeys={measurementScheduleBlockedKeys}
                         isAdmin={isAdmin}
+                        manualNationalSupportIntent={editManualNationalSupportIntent}
+                        onManualNationalSupportIntentChange={setEditManualNationalSupportIntent}
                         onMeasurementDaysChange={updateMeasurementDays}
                         onBusinessCategoryChange={(businessCategory) => setEditForm(previous => ({
                             ...previous,
@@ -2319,7 +2343,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             삭제
                         </Button>
                         <div className="flex gap-2">
-                            <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>취소</Button>
+                            <Button variant="secondary" onClick={closeEditModal}>취소</Button>
                             <Button variant="primary" onClick={handleSaveEdit}>저장</Button>
                         </div>
                     </div>
@@ -2417,6 +2441,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             measurementDays={addMeasurementDays}
                             blockedKeys={measurementScheduleBlockedKeys}
                             isAdmin={isAdmin}
+                            manualNationalSupportIntent={addManualNationalSupportIntent}
+                            onManualNationalSupportIntentChange={setAddManualNationalSupportIntent}
                             onMeasurementDaysChange={updateAddMeasurementDays}
                             onYearChange={(year) => {
                                 setAddForm(previous => ({ ...previous, year }));

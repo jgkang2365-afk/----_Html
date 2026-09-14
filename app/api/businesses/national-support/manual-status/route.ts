@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getUser } from "@/lib/auth/get-user";
 
 /** 관리자 내부 상태 확정 전용. 신청 레코드·자동화 큐·외부 신청을 생성하지 않는다. */
@@ -12,7 +12,9 @@ export async function PATCH(request: NextRequest) {
   if (national_support_status !== "대상" && national_support_status !== "비대상") {
     return NextResponse.json({ error: "국고지원 상태는 대상 또는 비대상만 가능합니다." }, { status: 400 });
   }
-  const supabase = await createClient();
+  // RPC 자체는 public/authenticated에서 revoke되어 있으므로, 이미 확인한
+  // 서버 관리자 권한 경계 뒤에만 service-role client로 호출한다.
+  const supabase = createAdminClient();
   let targetId = id;
   if (!targetId && code && year && period) {
     const { data: target, error } = await supabase.from("measurement_target_business")

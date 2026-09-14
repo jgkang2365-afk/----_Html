@@ -135,10 +135,13 @@ export class LocalAutomationWorker {
     try {
       const admin = createAdminClient();
       const { data: target, error } = await admin.from("measurement_target_business")
-        .select("business_name").eq("id", payload.target_id).single();
+        .select("business_name, representative_name").eq("id", payload.target_id).single();
       if (error) throw error;
+      const { data: businessInfo, error: businessInfoError } = await admin.from("business_info")
+        .select("representative_name").eq("code", payload.code).maybeSingle();
+      if (businessInfoError) throw businessInfoError;
       await syncToMasterTables(admin, payload.code, Number(payload.year), payload.period,
-        target?.business_name || "미등록 사업장", payload.representative || null,
+        target?.business_name || "미등록 사업장", businessInfo?.representative_name || target?.representative_name || null,
         payload.sanjae || null, payload.commencement || null,
         { updateBusinessInfo: false });
     } catch (error) {

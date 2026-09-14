@@ -64,6 +64,37 @@ export interface TargetBusinessFormValues {
   sync_error_message?: string | null;
 }
 
+/**
+ * 관리자 수동 국고지원 수정은 사업장 form 데이터가 아닌, 이번 저장의 UI 의도다.
+ * OFF 전환과 모달 재진입에서 draft를 함께 비우도록 한 곳에서 상태 전이를 정의한다.
+ */
+export type ManualNationalSupportStatus = "대상" | "비대상";
+
+export interface ManualNationalSupportIntent {
+  enabled: boolean;
+  draft: ManualNationalSupportStatus | null;
+}
+
+export const EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT: ManualNationalSupportIntent = {
+  enabled: false,
+  draft: null,
+};
+
+export function toggleManualNationalSupportIntent(
+  intent: ManualNationalSupportIntent,
+  enabled: boolean
+): ManualNationalSupportIntent {
+  return enabled
+    ? { enabled: true, draft: intent.draft }
+    : EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT;
+}
+
+export function resolveManualNationalSupportStatus(
+  intent: ManualNationalSupportIntent
+): ManualNationalSupportStatus | null {
+  return intent.enabled ? intent.draft : null;
+}
+
 const CREATE_TARGET_BUSINESS_FIELDS = [
   "period",
   "business_name",
@@ -97,7 +128,6 @@ const CREATE_TARGET_BUSINESS_FIELDS = [
   "link_measurer_id",
   "collaborators",
   "daily_staff",
-  "national_support_status",
 ] as const;
 
 export type SerializedTargetBusinessForm = Partial<
@@ -119,7 +149,6 @@ const EDITABLE_TARGET_BUSINESS_FIELDS = [
   "commencement_number",
   "representative_name",
   "national_support_representative_name",
-  "national_support_status",
   "manager_name",
   "manager_mobile",
   "manager_email",

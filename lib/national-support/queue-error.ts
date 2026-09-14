@@ -7,6 +7,8 @@ export const NATIONAL_SUPPORT_SYNC_STATUSES = [
   "신청완료대기",
   "비대상대기",
   "수동확인필요",
+  "수동확정",
+  "일지 등록 · 제외",
   "성공",
   "실패",
   "대기",

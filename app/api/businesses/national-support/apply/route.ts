@@ -91,6 +91,9 @@ export async function POST(request: NextRequest) {
       businessInfo?.national_support_representative_name,
       businessInfo?.representative_name || canonicalTarget.representative_name || representative,
     );
+    // 건강디딤돌 신청 대표자는 전용 override일 뿐, master 대표자 projection에
+    // 전달할 값이 아니다. 기존 기본 대표자를 그대로 유지한다.
+    const canonicalRepresentative = businessInfo?.representative_name || canonicalTarget.representative_name || null;
     if (!effectiveRepresentative) {
       return NextResponse.json({ error: "신청 대표자 정보가 없습니다." }, { status: 400 });
     }
@@ -218,7 +221,7 @@ export async function POST(request: NextRequest) {
           Number(year),
           period,
           bName,
-          effectiveRepresentative,
+          canonicalRepresentative,
           normalizedSanjae,
           normalizedCommencement,
           { updateBusinessInfo: false },

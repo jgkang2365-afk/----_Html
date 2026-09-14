@@ -5,38 +5,106 @@ ALTER TABLE public.business_info
 ALTER TABLE public.national_support_application
   ADD COLUMN IF NOT EXISTS representative_name text NULL;
 
-CREATE OR REPLACE FUNCTION public.snapshot_national_support_representative()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
+-- 수동 확정 RPC가 쓰는 상태를 기존 queue 상태 제약에도 허용한다.
+DO $$
+DECLARE
+  constraint_record RECORD;
 BEGIN
-  -- 자동화 job payload가 존재하면 master의 현재값이 아닌 실제 실행 입력을 snapshot한다.
-  SELECT NULLIF(aj.request_payload->>'representative', '')
-    INTO NEW.representative_name
-    FROM public.automation_jobs aj
-   WHERE aj.job_type = 'NATIONAL_SUPPORT'
-     AND aj.status = 'COMPLETED'
-     AND aj.request_payload->>'code' = NEW.code
-     AND aj.request_payload->>'year' = NEW.year::text
-     AND aj.request_payload->>'period' = NEW.period
-   ORDER BY aj.updated_at DESC
-   LIMIT 1;
-  IF NEW.representative_name IS NULL THEN
-    SELECT COALESCE(bi.national_support_representative_name, mtb.representative_name)
-      INTO NEW.representative_name
-      FROM public.measurement_target_business mtb
-      LEFT JOIN public.business_info bi ON bi.code = mtb.code
-     WHERE mtb.code = NEW.code AND mtb.year = NEW.year AND mtb.period = NEW.period
-     LIMIT 1;
-  END IF;
-  RETURN NEW;
-END;
-$$;
+  FOR constraint_record IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'public.measurement_target_business'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%sync_status%'
+  LOOP
+    EXECUTE format(
+      'ALTER TABLE public.measurement_target_business DROP CONSTRAINT %I',
+      constraint_record.conname
+    );
+  END LOOP;
+END $$;
+
+ALTER TABLE public.measurement_target_business
+  ADD CONSTRAINT measurement_target_business_sync_status_check
+  CHECK (
+    sync_status IS NULL OR sync_status IN (
+      '정보부족', '조회대기', '조회중', '확인대기', '신청중',
+      '신청완료대기', '비대상대기', '수동확인필요', '수동확정', '일지 등록 · 제외',
+      '성공', '실패', '대기'
+    )
+  );
 
 DROP TRIGGER IF EXISTS national_support_application_representative_snapshot ON public.national_support_application;
-CREATE TRIGGER national_support_application_representative_snapshot
-  BEFORE INSERT ON public.national_support_application
-  FOR EACH ROW EXECUTE FUNCTION public.snapshot_national_support_representative();
+DROP FUNCTION IF EXISTS public.snapshot_national_support_representative();
+
+-- 대표자 snapshot은 실제 NATIONAL_SUPPORT job의 terminal projection에서만
+-- 확정한다. 수동 상태 placeholder는 execution이 아니므로 NULL을 유지한다.
+CREATE OR REPLACE FUNCTION public.complete_national_support_automation_job(
+  p_job_id UUID, p_worker_id TEXT, p_status TEXT, p_result_code TEXT,
+  p_result_payload JSONB, p_error_code TEXT, p_error_message TEXT,
+  p_target_id BIGINT, p_sync_status TEXT, p_sync_error_message TEXT,
+  p_effect_confirmed BOOLEAN DEFAULT FALSE
+) RETURNS public.automation_jobs
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE completed public.automation_jobs;
+DECLARE final_support_status TEXT;
+DECLARE final_application_status TEXT;
+BEGIN
+  IF p_status IS NULL OR p_status NOT IN ('COMPLETED','FAILED','CONFIRM_REQUIRED') OR
+     p_sync_status IS NULL OR p_sync_status NOT IN ('성공','일지 등록 · 제외','조회대기','비대상대기','확인대기','신청완료대기','수동확인필요','실패') THEN
+    RAISE EXCEPTION 'NATIONAL_SUPPORT_TERMINAL_ARGUMENT_INVALID';
+  END IF;
+  final_support_status := CASE p_result_code WHEN 'SUPPORT' THEN '대상'
+    WHEN 'NON_SUPPORT' THEN '비대상' ELSE NULL END;
+  final_application_status := CASE p_result_code WHEN 'SUPPORT' THEN '○'
+    WHEN 'NON_SUPPORT' THEN '신청취소' ELSE NULL END;
+  IF final_support_status IS NOT NULL AND (p_status <> 'COMPLETED' OR p_sync_status <> '성공') THEN
+    RAISE EXCEPTION 'NATIONAL_SUPPORT_FINAL_STATUS_INVALID';
+  END IF;
+  UPDATE public.automation_jobs job SET status=p_status,
+    result_code=p_result_code, result_payload=p_result_payload,
+    error_code=p_error_code, error_message=p_error_message,
+    progress_stage=CASE p_status WHEN 'FAILED' THEN '조회 실패'
+      WHEN 'CONFIRM_REQUIRED' THEN '외부 효과 확인 필요' ELSE '결과 확인' END,
+    progress_percent=100, finished_at=CURRENT_TIMESTAMP,
+    effect_confirmed_at=CASE WHEN p_effect_confirmed THEN CURRENT_TIMESTAMP ELSE job.effect_confirmed_at END,
+    updated_at=CURRENT_TIMESTAMP
+  WHERE job.id=p_job_id AND job.job_type='NATIONAL_SUPPORT'
+    AND job.worker_id=p_worker_id AND job.status='RUNNING'
+    AND job.request_payload->>'target_id'=p_target_id::text
+  RETURNING job.* INTO completed;
+  IF NOT FOUND THEN RAISE EXCEPTION 'NATIONAL_SUPPORT_TERMINAL_NOT_OWNED'; END IF;
+  UPDATE public.measurement_target_business target
+  SET sync_status=p_sync_status, sync_error_message=p_sync_error_message,
+    national_support_status=coalesce(final_support_status,target.national_support_status),
+    updated_at=CURRENT_TIMESTAMP
+  WHERE target.id=p_target_id AND (
+    final_support_status IS NULL OR (
+      target.code=completed.request_payload->>'code'
+      AND target.year=(completed.request_payload->>'year')::INTEGER
+      AND target.period=completed.request_payload->>'period'
+    ));
+  IF NOT FOUND THEN RAISE EXCEPTION 'NATIONAL_SUPPORT_TARGET_NOT_FOUND'; END IF;
+  IF final_support_status IS NOT NULL THEN
+    INSERT INTO public.national_support_application (
+      code, year, period, application_status, result, national_support_status, representative_name
+    ) VALUES (
+      completed.request_payload->>'code', (completed.request_payload->>'year')::INTEGER,
+      completed.request_payload->>'period', final_application_status,
+      final_support_status, final_support_status,
+      NULLIF(completed.request_payload->>'representative', '')
+    ) ON CONFLICT (code, year, period) DO UPDATE SET
+      application_status=EXCLUDED.application_status, result=EXCLUDED.result,
+      national_support_status=EXCLUDED.national_support_status,
+      representative_name=EXCLUDED.representative_name,
+      updated_at=CURRENT_TIMESTAMP;
+    UPDATE public.measurement_journal SET national_support_status=final_support_status
+    WHERE code=completed.request_payload->>'code'
+      AND measurement_year=(completed.request_payload->>'year')::INTEGER
+      AND measurement_period=completed.request_payload->>'period';
+  END IF;
+  RETURN completed;
+END $$;
 
 CREATE OR REPLACE FUNCTION public.sync_manual_national_support_application()
 RETURNS trigger
@@ -85,3 +153,8 @@ BEGIN
   RETURN target;
 END;
 $$;
+
+-- 서버의 service role만 이 내부 상태 변경 RPC를 실행할 수 있다. API의
+-- 관리자 세션 검증을 우회한 PostgREST 직접 호출은 허용하지 않는다.
+REVOKE ALL ON FUNCTION public.set_manual_national_support_status(bigint, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.set_manual_national_support_status(bigint, text) TO service_role;

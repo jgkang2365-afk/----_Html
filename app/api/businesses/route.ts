@@ -1318,7 +1318,12 @@ export async function POST(request: NextRequest) {
       parsedTotalEmployees !== null && Number.isFinite(parsedTotalEmployees)
         ? parsedTotalEmployees
         : null;
-    let initialSupportState = getInitialNationalSupportState({
+    let initialSupportState: {
+      nationalSupportStatus: string | null;
+      syncStatus: string;
+      shouldQueueLookup: boolean;
+      shouldAutoApply: boolean;
+    } = getInitialNationalSupportState({
       period,
       industrial_accident_number: industrialAccidentNumber,
       commencement_number: commencementNumber,

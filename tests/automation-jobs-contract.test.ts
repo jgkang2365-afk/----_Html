@@ -420,6 +420,20 @@ test("건강디딤돌 종료와 호환 표시값은 소유권 경계에서 원�
   assert.doesNotMatch(worker, /projectCompatibility|projectFailure/);
 });
 
+test("건강디딤돌 완료 projection은 신청 대표자를 기본 대표자 projection과 분리한다", () => {
+  const representativeMigration = fs.readFileSync(
+    path.join(process.cwd(), "supabase/migrations/20260915090000_add_national_support_representative.sql"), "utf8",
+  );
+  const applyRoute = fs.readFileSync(
+    path.join(process.cwd(), "app/api/businesses/national-support/apply/route.ts"), "utf8",
+  );
+  const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/local-automation-worker.ts"), "utf8");
+  assert.match(applyRoute, /const canonicalRepresentative = businessInfo\?\.representative_name \|\| canonicalTarget\.representative_name \|\| null/);
+  assert.match(applyRoute, /bName,\s*canonicalRepresentative,/);
+  assert.match(worker, /businessInfo\?\.representative_name \|\| target\?\.representative_name \|\| null/);
+  assert.match(representativeMigration, /representative_name=EXCLUDED\.representative_name/);
+});
+
 test("건강디딤돌 final_lookup은 parent effect lineage를 보존한다", () => {
   const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/local-automation-worker.ts"), "utf8");
   const nationalSupport = fs.readFileSync(path.join(process.cwd(), "lib/automation/national-support-worker.ts"), "utf8");

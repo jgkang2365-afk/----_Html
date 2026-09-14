@@ -19,11 +19,7 @@ export async function saveNationalSupportRepresentativeOverride(
   if (updateError) throw updateError;
   if (existing) return override;
 
-  const { error } = await supabase.from("business_info").insert({
-    code: params.code,
-    business_name: params.businessName,
-    ...updates,
-  });
-  if (error) throw error;
-  return override;
+  // 신청 대표자 override는 이미 존재하는 master의 부가 정보다. 이 값 하나만
+  // 저장하려고 필수 정보가 빠진 synthetic business_info 행을 만들면 안 된다.
+  throw new Error(`NATIONAL_SUPPORT_BUSINESS_INFO_NOT_FOUND:${params.code}`);
 }

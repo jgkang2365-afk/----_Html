@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { syncNationalSupportToBusiness } from "@/lib/sync/national-support";
+import { resolveNationalSupportRepresentative } from "@/lib/national-support/representative";
 
 /**
  * 건강디딤돌 신청결과 등록 API
@@ -249,12 +250,17 @@ export async function GET(request: NextRequest) {
           // 3-1. business_info 조회 (대표자명 마스터)
           const { data: bInfos } = await supabase
             .from("business_info")
-            .select("code, representative_name")
+            .select("code, representative_name, national_support_representative_name")
             .in("code", codes);
-          const bInfoMap = new Map<string, string>();
+          const bInfoMap = new Map<string, { representativeName: string | null; nationalSupportRepresentativeName: string | null }>();
           if (bInfos) {
             bInfos.forEach((bi: any) => {
-              if (bi.representative_name) bInfoMap.set(bi.code, bi.representative_name);
+              if (bi.code) {
+                bInfoMap.set(bi.code, {
+                  representativeName: bi.representative_name || null,
+                  nationalSupportRepresentativeName: bi.national_support_representative_name || null,
+                });
+              }
             });
           }
 
@@ -294,7 +300,11 @@ export async function GET(request: NextRequest) {
               
               // 3단계 결합 우선순위 정의 (1. 계획 테이블값 -> 2. 실적 마스터값 -> 3. 기본정보 마스터값)
               const mbFallback = mbMap.get(tb.code) || { representative_name: null, industrial_accident_number: null, commencement_number: null };
-              const biRepName = bInfoMap.get(tb.code) || null;
+              const biInfo = bInfoMap.get(tb.code);
+              const biRepName = resolveNationalSupportRepresentative(
+                biInfo?.nationalSupportRepresentativeName,
+                biInfo?.representativeName,
+              );
 
               const payload = {
                 representative_name: tb.representative_name || mbFallback.representative_name || biRepName || null,
@@ -316,7 +326,11 @@ export async function GET(request: NextRequest) {
           codes.forEach((code: string) => {
             if (!targetBusinessMap.has(code)) {
               const mbFallback = mbMap.get(code) || { representative_name: null, industrial_accident_number: null, commencement_number: null };
-              const biRepName = bInfoMap.get(code) || null;
+              const biInfo = bInfoMap.get(code);
+              const biRepName = resolveNationalSupportRepresentative(
+                biInfo?.nationalSupportRepresentativeName,
+                biInfo?.representativeName,
+              );
               targetBusinessMap.set(code, {
                 representative_name: mbFallback.representative_name || biRepName || null,
                 industrial_accident_number: mbFallback.industrial_accident_number || null,

@@ -12,8 +12,11 @@ import {
   swapMeasurerForMeasurementDateTransition,
 } from "@/lib/business/measurement-day-form";
 import {
+  EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT,
+  ManualNationalSupportIntent,
   TARGET_BUSINESS_TYPE_OPTIONS,
   TargetBusinessFormValues,
+  toggleManualNationalSupportIntent,
 } from "@/lib/business/target-business-form";
 import { isMeasurementStaffUnavailable } from "@/lib/business/measurement-day-availability";
 import { formatBusinessNumber } from "@/lib/utils/business-number";
@@ -47,6 +50,8 @@ interface MeasurementTargetBusinessFormSectionsProps {
   onBusinessCategoryChange?: (businessCategory: string) => void;
   onProcessChangedTouched?: () => void;
   isAdmin?: boolean;
+  manualNationalSupportIntent?: ManualNationalSupportIntent;
+  onManualNationalSupportIntentChange?: (intent: ManualNationalSupportIntent) => void;
 }
 
 type JurisdictionPreviewStatus =
@@ -217,9 +222,10 @@ export const MeasurementTargetBusinessFormSections: React.FC<
   onBusinessCategoryChange,
   onProcessChangedTouched,
   isAdmin = false,
+  manualNationalSupportIntent = EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT,
+  onManualNationalSupportIntentChange,
 }) => {
   const isCreate = mode === "create";
-  const [manualNationalSupport, setManualNationalSupport] = React.useState(false);
   const [jurisdictionPreviewStatus, setJurisdictionPreviewStatus] =
     React.useState<JurisdictionPreviewStatus>("idle");
   const previewRequestSequence = React.useRef(0);
@@ -547,11 +553,20 @@ export const MeasurementTargetBusinessFormSections: React.FC<
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">국고지원여부</label>
             <div className="flex min-h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
-              {manualNationalSupport ? (
+              {manualNationalSupportIntent.enabled ? (
                 <Select
-                  value={value.national_support_status || ""}
-                  onChange={(event) => onChange({ national_support_status: event.target.value })}
-                  options={[{ value: "대상", label: "대상" }, { value: "비대상", label: "비대상" }]}
+                  value={manualNationalSupportIntent.draft || ""}
+                  onChange={(event) => onManualNationalSupportIntentChange?.({
+                    enabled: true,
+                    draft: event.target.value === "대상" || event.target.value === "비대상"
+                      ? event.target.value
+                      : null,
+                  })}
+                  options={[
+                    { value: "", label: "선택" },
+                    { value: "대상", label: "대상" },
+                    { value: "비대상", label: "비대상" },
+                  ]}
                 />
               ) : (isCreate
                 ? value.period?.includes("(수시)")
@@ -581,12 +596,11 @@ export const MeasurementTargetBusinessFormSections: React.FC<
               <label className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
                 <input
                   type="checkbox"
-                  checked={manualNationalSupport}
+                  checked={manualNationalSupportIntent.enabled}
                   onChange={(event) => {
-                    setManualNationalSupport(event.target.checked);
-                    if (event.target.checked && value.national_support_status !== "대상" && value.national_support_status !== "비대상") {
-                      onChange({ national_support_status: "대상" });
-                    }
+                    onManualNationalSupportIntentChange?.(
+                      toggleManualNationalSupportIntent(manualNationalSupportIntent, event.target.checked)
+                    );
                   }}
                 />
                 관리자 수정
