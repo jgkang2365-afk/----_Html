@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
-import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
+import { normalizeContactName } from "@/lib/utils/data-utils";
+import { resolveNationalSupportRepresentative } from "@/lib/national-support/representative";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
 import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
 import { enqueueAutomationJob, nationalSupportIdempotencyKey } from "@/lib/automation/jobs";
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     const { data: canonicalTarget, error: targetError } = await createAdminClient()
       .from("measurement_target_business")
-      .select("id, code, year, period")
+      .select("id, code, year, period, representative_name")
       .eq("id", target_id).maybeSingle();
     if (targetError) throw targetError;
     if (!canonicalTarget) {
@@ -80,6 +81,19 @@ export async function POST(request: NextRequest) {
       }, { status: 409 });
     }
     const { id: canonicalTargetId, code, year, period } = canonicalTarget;
+    const { data: businessInfo, error: businessInfoError } = await createAdminClient()
+      .from("business_info")
+      .select("representative_name, national_support_representative_name")
+      .eq("code", code)
+      .maybeSingle();
+    if (businessInfoError) throw businessInfoError;
+    const effectiveRepresentative = resolveNationalSupportRepresentative(
+      businessInfo?.national_support_representative_name,
+      businessInfo?.representative_name || canonicalTarget.representative_name || representative,
+    );
+    if (!effectiveRepresentative) {
+      return NextResponse.json({ error: "신청 대표자 정보가 없습니다." }, { status: 400 });
+    }
 
     const normalizedSanjae = normalizeElevenDigitNumber(sanjae);
     const normalizedCommencement = normalizeElevenDigitNumber(commencement);
@@ -100,7 +114,7 @@ export async function POST(request: NextRequest) {
     if (jobMode === "apply_if_missing" && !hasNationalSupportApplicationInformation({
       industrial_accident_number: normalizedSanjae,
       commencement_number: normalizedCommencement,
-      representative_name: representative,
+      representative_name: effectiveRepresentative,
       manager_name: contact_name,
       manager_mobile: contact_phone,
     })) {
@@ -180,7 +194,6 @@ export async function POST(request: NextRequest) {
           national_support_status: dbStatus,
           industrial_accident_number: normalizedSanjae,
           commencement_number: normalizedCommencement,
-          representative_name: representative || null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", canonicalTargetId);
@@ -205,7 +218,7 @@ export async function POST(request: NextRequest) {
           Number(year),
           period,
           bName,
-          representative || null,
+          effectiveRepresentative,
           normalizedSanjae,
           normalizedCommencement,
           { updateBusinessInfo: false },
@@ -227,7 +240,7 @@ export async function POST(request: NextRequest) {
       target_id: canonicalTargetId,
       sanjae: normalizedSanjae,
       commencement: normalizedCommencement,
-      representative: normalizeRepresentativeName(representative) || representative,
+      representative: effectiveRepresentative,
       contact_name: normalizeContactName(contact_name) || "",
       contact_phone: contact_phone || "",
       period,

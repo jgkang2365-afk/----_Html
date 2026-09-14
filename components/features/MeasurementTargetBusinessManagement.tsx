@@ -120,6 +120,7 @@ interface BusinessEntry {
     link_measurer_id?: number | null; // 예·측 ID (예비조사자이면서 전체 측정기간 중 최소 하루 실제 측정에 참여)
     collaborators?: string | null; // 협력자 목록 (쉼표 구분)
     representative_name?: string | null; // 대표자명
+    national_support_representative_name?: string | null;
     industrial_accident_number?: string | null; // 산재관리번호
     commencement_number?: string | null; // 사업개시번호
     invoice_email?: string | null;
@@ -1042,7 +1043,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             target_id: createResult.data.id,
                             sanjae: addForm.sanjae,
                             commencement: addForm.commencement,
-                            representative: addForm.representative_name,
+                            representative: addForm.national_support_representative_name || addForm.representative_name,
                             contact_name: addForm.manager_name || "",
                             contact_phone: addForm.manager_mobile || "",
                             period: addForm.period,
@@ -1483,7 +1484,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
         const sanjaeVal = item.industrial_accident_number || item.sanjae;
         const commencementVal = item.commencement_number || item.commencement;
-        const representativeVal = item.representative_name;
+        const representativeVal = item.national_support_representative_name || item.representative_name;
 
         if (!canRequestNationalSupportLookup({
             ...item,
@@ -1561,6 +1562,25 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
         try {
             const cleanUpdates = serializeTargetBusinessEditValues(updates);
+
+            if (cleanUpdates.national_support_status !== undefined) {
+                const manualResponse = await fetch("/api/businesses/national-support/manual-status", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        id: identity?.id,
+                        code,
+                        year: targetYear,
+                        period: targetPeriod,
+                        national_support_status: cleanUpdates.national_support_status,
+                    }),
+                });
+                if (!manualResponse.ok) {
+                    const errData = await manualResponse.json();
+                    throw new Error(errData.error || "국고지원 수동 확정에 실패했습니다.");
+                }
+                delete (cleanUpdates as any).national_support_status;
+            }
 
             // 1. Optimistic Update (UI 먼저 반영)
             const optimisticUpdates = { ...updates };
@@ -2287,6 +2307,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         measurers={measurers}
                         measurementDays={editMeasurementDays}
                         blockedKeys={measurementScheduleBlockedKeys}
+                        isAdmin={isAdmin}
                         onMeasurementDaysChange={updateMeasurementDays}
                         onBusinessCategoryChange={(businessCategory) => setEditForm(previous => ({
                             ...previous,
@@ -2395,6 +2416,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                             measurers={measurers}
                             measurementDays={addMeasurementDays}
                             blockedKeys={measurementScheduleBlockedKeys}
+                            isAdmin={isAdmin}
                             onMeasurementDaysChange={updateAddMeasurementDays}
                             onYearChange={(year) => {
                                 setAddForm(previous => ({ ...previous, year }));

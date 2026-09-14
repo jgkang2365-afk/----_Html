@@ -28,6 +28,7 @@ import {
 } from "@/lib/business-coordinates/service";
 import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
+import { saveNationalSupportRepresentativeOverride } from "@/lib/national-support/representative-storage";
 import {
   hasNationalSupportLookupInformation,
   getInitialNationalSupportState,
@@ -288,7 +289,7 @@ export async function GET(request: NextRequest) {
     // 3순위 보완: 사업장정보(business_info)에만 있는 기본 사업자등록번호와 대표전화
     const { data: businessInfoData } = await supabase
       .from("business_info")
-      .select("code, business_number, phone, fax, invoice_email, latitude, longitude, geocoded_address, geocoded_source_address, geocoding_status, geocoding_error, geocoded_at, geocode_provider, coordinate_locked")
+      .select("code, business_number, phone, fax, invoice_email, latitude, longitude, geocoded_address, geocoded_source_address, geocoding_status, geocoding_error, geocoded_at, geocode_provider, coordinate_locked, national_support_representative_name")
       .in("code", codes);
 
     // Map: Code -> Latest Info (Business)
@@ -426,6 +427,7 @@ export async function GET(request: NextRequest) {
         business_category: /^\d+$/.test(String(businessCategory)) ? `⚠️ 수정필요(${businessCategory})` : businessCategory,
         national_support_status: nationalSupportStatus,
         representative_name: representativeName,
+        national_support_representative_name: basicInfo?.national_support_representative_name || null,
         industrial_accident_number: industrialAccidentNumber,
         commencement_number: commencementNumber,
         // 좌표는 business_info 기본 위치를 우선 사용하고 대상 테이블은 배포 호환 fallback으로만 사용한다.
@@ -572,6 +574,7 @@ export async function PATCH(request: NextRequest) {
       "coordinate_locked", "geocoding_method",
       "business_type", "process_changed"
     ]);
+    const requestedNationalSupportRepresentative = updates.national_support_representative_name;
     const updatePayload: any = Object.fromEntries(
       Object.entries(updates).filter(([key]) => allowedUpdateColumns.has(key))
     );
@@ -674,6 +677,15 @@ export async function PATCH(request: NextRequest) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, "national_support_representative_name") && code) {
+      await saveNationalSupportRepresentativeOverride(supabase, {
+        code: String(code),
+        businessName: String(updatedData.business_name || businessNameForNote),
+        representativeName: updatedData.representative_name,
+        override: requestedNationalSupportRepresentative,
+      });
     }
 
     let geocodeResult = null;
@@ -1306,7 +1318,7 @@ export async function POST(request: NextRequest) {
       parsedTotalEmployees !== null && Number.isFinite(parsedTotalEmployees)
         ? parsedTotalEmployees
         : null;
-    const initialSupportState = getInitialNationalSupportState({
+    let initialSupportState = getInitialNationalSupportState({
       period,
       industrial_accident_number: industrialAccidentNumber,
       commencement_number: commencementNumber,
@@ -1314,6 +1326,22 @@ export async function POST(request: NextRequest) {
       manager_name,
       manager_mobile,
     });
+    if (Object.prototype.hasOwnProperty.call(body, "national_support_status")) {
+      const requestedManualStatus = body.national_support_status;
+      const session = await getSession();
+      if (session?.role !== "관리자") {
+        return NextResponse.json({ error: "관리자만 국고지원을 수동 확정할 수 있습니다." }, { status: 403 });
+      }
+      if (requestedManualStatus !== "대상" && requestedManualStatus !== "비대상") {
+        return NextResponse.json({ error: "국고지원 상태는 대상 또는 비대상만 가능합니다." }, { status: 400 });
+      }
+      initialSupportState = {
+        nationalSupportStatus: requestedManualStatus,
+        syncStatus: "수동확정",
+        shouldQueueLookup: false,
+        shouldAutoApply: false,
+      };
+    }
     if (!isNullableBusinessType(business_type ?? null)) {
       return NextResponse.json({ error: "business_type 값이 올바르지 않습니다." }, { status: 400 });
     }
@@ -1394,6 +1422,15 @@ export async function POST(request: NextRequest) {
         );
       }
       throw new Error(`Target Insert Error: ${insertError.message}`);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, "national_support_representative_name")) {
+      await saveNationalSupportRepresentativeOverride(supabase, {
+        code: String(code),
+        businessName: String(business_name),
+        representativeName: representative_name,
+        override: body.national_support_representative_name,
+      });
     }
 
     try {

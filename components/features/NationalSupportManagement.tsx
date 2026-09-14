@@ -408,7 +408,7 @@ export const NationalSupportManagement: React.FC = () => {
               <TableRow>
                 <TableHead className="!text-left !pl-2.5 font-bold py-4 text-black text-sm w-[70px]">코드</TableHead>
                 <TableHead className="w-[300px] text-black">사업장명</TableHead>
-                <TableHead className="w-[80px] text-black !text-right !pr-4">대표자</TableHead>
+                <TableHead className="w-[80px] text-black !text-right !pr-4">신청 대표자</TableHead>
                 <TableHead className="w-[110px] text-black">산재관리번호</TableHead>
                 <TableHead className="w-[110px] text-black">사업개시번호</TableHead>
                 <TableHead className="w-[180px] text-black">주소</TableHead>
@@ -423,16 +423,7 @@ export const NationalSupportManagement: React.FC = () => {
             </TableHeader>
             <TableBody>
               {filteredEntries.map((entry) => {
-                // 대표자명 실시간 1인 정규화 헬퍼 (조회용 명의 시각화 보조)
-                const getQueryName = (name: string | null | undefined) => {
-                  if (!name) return "";
-                  let clean = name.trim();
-                  if (clean.includes(",")) clean = clean.split(",")[0].trim();
-                  clean = clean.replace(/외\s*\d*\s*(명|인)/g, "").trim();
-                  clean = clean.replace(/외$/g, "").trim();
-                  return clean;
-                };
-                const queryName = getQueryName(entry.representative_name);
+                const queryName = entry.representative_name?.trim() || "";
 
                 return (
                   <TableRow key={entry.id} className="hover:bg-blue-50/40 group relative growable-row transition-colors">
@@ -444,11 +435,6 @@ export const NationalSupportManagement: React.FC = () => {
                     <TableCell className="font-medium align-middle truncate max-w-[300px] w-[300px]" title={entry.business_name || ""}>{entry.business_name || "-"}</TableCell>
                     <TableCell className="align-middle w-[80px] !text-right !pr-4" title={entry.representative_name || ""}>
                       <span className="font-medium">{entry.representative_name || "-"}</span>
-                      {entry.representative_name && queryName !== entry.representative_name.trim() && (
-                        <div className="text-[10px] text-slate-400 font-normal mt-0.5">
-                          (조회: {queryName})
-                        </div>
-                      )}
                     </TableCell>
                     <TableCell className="align-middle font-mono text-sm w-[110px]">{entry.industrial_accident_number || "-"}</TableCell>
                     <TableCell className="align-middle font-mono text-sm w-[110px]">{entry.commencement_number || "-"}</TableCell>

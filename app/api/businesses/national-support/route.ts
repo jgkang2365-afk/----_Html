@@ -346,7 +346,8 @@ export async function GET(request: NextRequest) {
         ...entry,
         business_name: businessInfo.name,
         address: businessInfo.address,
-        representative_name: targetInfo.representative_name,
+        // 실행 결과가 남긴 snapshot을 우선한다. 과거 레코드만 기존 원천으로 보완한다.
+        representative_name: entry.representative_name || targetInfo.representative_name,
         industrial_accident_number: targetInfo.industrial_accident_number,
         commencement_number: targetInfo.commencement_number,
         sync_status: targetInfo.sync_status

@@ -46,6 +46,7 @@ interface MeasurementTargetBusinessFormSectionsProps {
   onCodeChange?: (code: string) => void;
   onBusinessCategoryChange?: (businessCategory: string) => void;
   onProcessChangedTouched?: () => void;
+  isAdmin?: boolean;
 }
 
 type JurisdictionPreviewStatus =
@@ -215,8 +216,10 @@ export const MeasurementTargetBusinessFormSections: React.FC<
   onCodeChange,
   onBusinessCategoryChange,
   onProcessChangedTouched,
+  isAdmin = false,
 }) => {
   const isCreate = mode === "create";
+  const [manualNationalSupport, setManualNationalSupport] = React.useState(false);
   const [jurisdictionPreviewStatus, setJurisdictionPreviewStatus] =
     React.useState<JurisdictionPreviewStatus>("idle");
   const previewRequestSequence = React.useRef(0);
@@ -543,14 +546,20 @@ export const MeasurementTargetBusinessFormSections: React.FC<
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">국고지원여부</label>
-            <div className="flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
-              {isCreate
+            <div className="flex min-h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
+              {manualNationalSupport ? (
+                <Select
+                  value={value.national_support_status || ""}
+                  onChange={(event) => onChange({ national_support_status: event.target.value })}
+                  options={[{ value: "대상", label: "대상" }, { value: "비대상", label: "비대상" }]}
+                />
+              ) : (isCreate
                 ? value.period?.includes("(수시)")
                   ? "비대상"
                   : hasNationalSupportApplicationInformation({
                         industrial_accident_number: value.sanjae,
                         commencement_number: value.commencement,
-                        representative_name: value.representative_name,
+                        representative_name: value.national_support_representative_name || value.representative_name,
                         manager_name: value.manager_name,
                         manager_mobile: value.manager_mobile,
                       })
@@ -558,7 +567,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
                     : hasNationalSupportLookupInformation({
                           industrial_accident_number: value.sanjae,
                           commencement_number: value.commencement,
-                          representative_name: value.representative_name,
+                          representative_name: value.national_support_representative_name || value.representative_name,
                         })
                       ? "조회 대기"
                       : "정보 부족"
@@ -566,8 +575,23 @@ export const MeasurementTargetBusinessFormSections: React.FC<
                     ...value,
                     industrial_accident_number: value.sanjae || value.industrial_accident_number,
                     commencement_number: value.commencement || value.commencement_number,
-                  })}
+                  }))}
             </div>
+            {isAdmin && (
+              <label className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={manualNationalSupport}
+                  onChange={(event) => {
+                    setManualNationalSupport(event.target.checked);
+                    if (event.target.checked && value.national_support_status !== "대상" && value.national_support_status !== "비대상") {
+                      onChange({ national_support_status: "대상" });
+                    }
+                  }}
+                />
+                관리자 수정
+              </label>
+            )}
             {value.period?.includes("(수시)") && (
               <p className="mt-1 text-[11px] font-semibold text-red-600">
                 수시 주기는 건강디딤돌 비대상으로 처리됩니다.
@@ -607,11 +631,12 @@ export const MeasurementTargetBusinessFormSections: React.FC<
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-500">대표자명</label>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">신청 대표자</label>
             <Input
-              value={value.representative_name || ""}
-              onChange={(event) => onChange({ representative_name: event.target.value })}
+              value={value.national_support_representative_name ?? value.representative_name ?? ""}
+              onChange={(event) => onChange({ national_support_representative_name: event.target.value })}
             />
+            <p className="mt-1 text-[11px] text-slate-500">건강디딤돌 조회·신청에 사용할 대표자입니다. 별도 저장값이 없으면 기본 대표자를 사용합니다.</p>
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-500">

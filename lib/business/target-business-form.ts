@@ -46,6 +46,7 @@ export interface TargetBusinessFormValues {
   industrial_accident_number?: string | null;
   commencement_number?: string | null;
   representative_name?: string | null;
+  national_support_representative_name?: string | null;
   manager_name?: string | null;
   manager_mobile?: string | null;
   manager_phone?: string | null;
@@ -83,6 +84,7 @@ const CREATE_TARGET_BUSINESS_FIELDS = [
   "industrial_accident_number",
   "commencement_number",
   "representative_name",
+  "national_support_representative_name",
   "manager_name",
   "manager_mobile",
   "manager_phone",
@@ -95,6 +97,7 @@ const CREATE_TARGET_BUSINESS_FIELDS = [
   "link_measurer_id",
   "collaborators",
   "daily_staff",
+  "national_support_status",
 ] as const;
 
 export type SerializedTargetBusinessForm = Partial<
@@ -115,6 +118,8 @@ const EDITABLE_TARGET_BUSINESS_FIELDS = [
   "industrial_accident_number",
   "commencement_number",
   "representative_name",
+  "national_support_representative_name",
+  "national_support_status",
   "manager_name",
   "manager_mobile",
   "manager_email",
