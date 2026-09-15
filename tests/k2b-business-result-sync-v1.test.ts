@@ -113,6 +113,7 @@ test("실제결과 화면은 저장된 결과만 사용하고 활성·표시 중
   assert.match(panel, /K2B 실제 처리상태/);
   assert.doesNotMatch(panel, />\{execution\.queueStatus\}<\/span>/);
   const reportPage = readFileSync("app/(dashboard)/report-processing/page.tsx", "utf8");
-  assert.doesNotMatch(reportPage, /monitorJob\(body\.jobId, 'k2b_verify'\)/);
+  // 재검증 job은 저장된 결과 패널 갱신을 위해 기존 공통 monitor를 사용한다.
+  assert.match(reportPage, /monitorJob\(body\.jobId, 'k2b_verify'\)/);
   assert.match(reportPage, /onExecutionFinished=/);
 });

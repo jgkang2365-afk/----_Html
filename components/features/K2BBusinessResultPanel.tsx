@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/Table";
+import { FileCheck2 } from "lucide-react";
 import { useUser } from "@/hooks/use-user";
 import { toast } from "sonner";
 
@@ -190,9 +191,10 @@ export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFini
   };
 
   return <>
-    <Card className="space-y-3 p-4" aria-label="K2B 실제결과">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <Card className="space-y-2 p-3" aria-label="K2B 실제결과">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <FileCheck2 className="h-4 w-4 text-primary-600" aria-hidden="true" />
           <h2 className="text-base font-bold text-slate-800">K2B 실제결과</h2>
           <span role="status" className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{statusLabel}</span>
           <p aria-label="검증 결과 요약" className="text-xs text-slate-600">{execution?.verificationRows.length

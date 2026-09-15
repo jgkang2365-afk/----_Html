@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { getKSTISOString } from "@/lib/utils/date-utils";
+import { validateUserEnteredK2BSendDateChange } from '@/lib/k2b/user-input-date';
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 
 /**
@@ -113,6 +114,14 @@ export async function PATCH(
         { error: "측정일지를 찾을 수 없습니다." },
         { status: 404 }
       );
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updateData, 'k2b_send_date')) {
+      const k2bSendDateError = validateUserEnteredK2BSendDateChange(
+        updateData.k2b_send_date,
+        existingJournal.k2b_send_date,
+      );
+      if (k2bSendDateError) return NextResponse.json({ error: k2bSendDateError }, { status: 400 });
     }
 
     // 완료된 측정일지는 수정 불가 (애플리케이션 레벨 제약)

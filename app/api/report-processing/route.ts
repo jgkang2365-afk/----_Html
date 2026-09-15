@@ -4,11 +4,11 @@ import { createClient } from '@/lib/supabase/server';
 import { unstable_noStore as noStore } from 'next/cache';
 import {
     isReportProcessingTargetActive,
-    matchesReportProcessingMeasurementDate,
+    matchesReportProcessingMeasurementDateRange,
     measurementDatesForReportProcessing,
 } from '@/lib/report-processing/measurement-dates';
 import { REPORT_PROCESSING_EXCLUDED_BUSINESS_NAME_PATTERN } from '@/lib/report-processing/scope';
-import { isValidDateString } from '@/lib/utils/date-validator';
+import { normalizeReportProcessingDateRange } from '@/lib/report-processing/date-range';
 
 /**
  * 보고서 처리용 목록 조회 API
@@ -19,15 +19,26 @@ export async function GET(req: NextRequest) {
         const { searchParams } = new URL(req.url);
         const year = searchParams.get('year');
         const period = searchParams.get('period');
-        const measurementDate = searchParams.get('measurementDate');
+        const legacyMeasurementDate = searchParams.get('measurementDate');
+        const measurementDateRange = normalizeReportProcessingDateRange(
+            searchParams.get('measurementDateFrom') || legacyMeasurementDate,
+            searchParams.get('measurementDateTo'),
+            '측정일',
+        );
+        const k2bReceiptDateRange = normalizeReportProcessingDateRange(
+            searchParams.get('k2bReceiptDateFrom'),
+            searchParams.get('k2bReceiptDateTo'),
+            'K2B 실제 접수일',
+        );
         const search = searchParams.get('search');
 
         if (!year || !period) {
             return NextResponse.json({ error: '년도와 반기를 입력해주세요.' }, { status: 400 });
         }
-        if (measurementDate && !isValidDateString(measurementDate)) {
-            return NextResponse.json({ error: '측정일 형식을 확인해주세요.' }, { status: 400 });
-        }
+        if (!measurementDateRange.ok) return NextResponse.json({ error: measurementDateRange.error }, { status: 400 });
+        if (!k2bReceiptDateRange.ok) return NextResponse.json({ error: k2bReceiptDateRange.error }, { status: 400 });
+        const { from: measurementDateFrom, to: measurementDateTo } = measurementDateRange.range;
+        const { from: k2bReceiptDateFrom, to: k2bReceiptDateTo } = k2bReceiptDateRange.range;
 
         const supabase = await createClient();
         
@@ -100,8 +111,17 @@ export async function GET(req: NextRequest) {
         // 연도/주기 필터가 있으면 조인 쿼리에도 적용하여 효율화
         if (year !== 'all') journalQuery = journalQuery.eq('measurement_year', parseInt(year));
         if (period !== 'all') journalQuery = journalQuery.eq('measurement_period', period);
+        if (k2bReceiptDateFrom) {
+            journalQuery = journalQuery
+                .gte('k2b_verified_send_date', k2bReceiptDateFrom)
+                .lte('k2b_verified_send_date', k2bReceiptDateTo!);
+        }
 
         const { data: journals, error: jError } = await journalQuery;
+        if (jError) {
+            console.error('[API Error] K2B 실제 접수일 조회 실패:', jError);
+            return NextResponse.json({ error: 'K2B 실제 접수일 조회 중 오류가 발생했습니다.' }, { status: 500 });
+        }
 
         // 5. target이 있으면 현재 lifecycle(실시)만 표시한다.
         // target이 없는 과거 행은 기본 조회에서 유지하되, 날짜 조건에는 포함하지 않는다.
@@ -115,7 +135,8 @@ export async function GET(req: NextRequest) {
                 j.measurement_period === record.period
             );
             const measurement_dates = target ? measurementDatesForReportProcessing(target) : [];
-            if (!matchesReportProcessingMeasurementDate(measurement_dates, measurementDate)) return [];
+            if (!matchesReportProcessingMeasurementDateRange(measurement_dates, measurementDateFrom, measurementDateTo)) return [];
+            if (k2bReceiptDateFrom && !journal) return [];
 
             return [{
                 ...record,

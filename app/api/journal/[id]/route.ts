@@ -9,6 +9,7 @@ import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import { resolveJournalManagerEmailUpdate } from "@/lib/journal/manager-email-policy";
+import { validateUserEnteredK2BSendDateChange } from '@/lib/k2b/user-input-date';
 import {
   applyTargetClassificationToJournalNote,
   resolveTargetBusinessCategory,
@@ -36,7 +37,6 @@ export async function PUT(
 
     const journalId = params.id;
     const body = await request.json();
-
     // 자릿수 검증 (추가된 요구사항: 사업자 10자리, 산재/개시 11자리)
     const bNum = body.business_number;
     const sNum = body.industrial_accident_number;
@@ -78,6 +78,14 @@ export async function PUT(
         { error: "측정일지를 찾을 수 없습니다." },
         { status: 404 }
       );
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'k2b_send_date')) {
+      const k2bSendDateError = validateUserEnteredK2BSendDateChange(
+        body.k2b_send_date,
+        existingJournal.k2b_send_date,
+      );
+      if (k2bSendDateError) return NextResponse.json({ error: k2bSendDateError }, { status: 400 });
     }
 
     // 완료된 측정일지 수정 제한 로직 (관리자는 모든 수정 허용)

@@ -13,6 +13,7 @@ import {
   resolveTargetBusinessCategory,
 } from "@/lib/business/target-classification";
 import { resolveJournalManagerEmailForCreate } from "@/lib/journal/manager-email-policy";
+import { validateUserEnteredK2BSendDate } from '@/lib/k2b/user-input-date';
 
 /**
  * 측정일지 등록 API
@@ -45,6 +46,8 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    const k2bSendDateError = validateUserEnteredK2BSendDate(body.k2b_send_date);
+    if (k2bSendDateError) return NextResponse.json({ error: k2bSendDateError }, { status: 400 });
     console.log(`[POST /api/journal] 요청 데이터: code=${body.code}, year=${body.measurement_year || body.measurementYear}, period=${body.measurement_period || body.measurementPeriod}`);
 
     // 필드명 변환 (snake_case와 camelCase 모두 지원)

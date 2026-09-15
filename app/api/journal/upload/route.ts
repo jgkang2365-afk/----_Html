@@ -11,6 +11,7 @@ import { assignAllNumbers } from "@/lib/utils/number-assignment";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { classifyDesignatedOffice, fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 import { getKSTISOString } from "@/lib/utils/date-utils";
+import { validateUserEnteredK2BSendDate } from '@/lib/k2b/user-input-date';
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import * as XLSX from "xlsx";
 
@@ -436,6 +437,13 @@ export async function POST(request: NextRequest) {
         };
 
         // 측정일지 생성
+        const k2bSendDateError = validateUserEnteredK2BSendDate(journalData.k2b_send_date);
+        if (k2bSendDateError) {
+          errors.push(`행 ${i + 2}: ${k2bSendDateError}`);
+          errorCount++;
+          continue;
+        }
+
         const { error: insertError } = await supabase
           .from("measurement_journal")
           .insert(journalData);

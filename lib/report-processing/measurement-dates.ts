@@ -33,6 +33,20 @@ export function matchesReportProcessingMeasurementDate(dates: readonly string[],
     return !measurementDate || dates.includes(measurementDate);
 }
 
+/**
+ * 날짜 입력은 달력 날짜(YYYY-MM-DD)로만 비교한다. UTC Date 변환을 거치면
+ * KST 자정 경계에서 하루가 달라질 수 있으므로 문자열 순서를 사용한다.
+ */
+export function matchesReportProcessingMeasurementDateRange(
+    dates: readonly string[],
+    measurementDateFrom: string | null,
+    measurementDateTo: string | null,
+): boolean {
+    if (!measurementDateFrom) return true;
+    const end = measurementDateTo ?? measurementDateFrom;
+    return dates.some((date) => date >= measurementDateFrom && date <= end);
+}
+
 export function reportProcessingMeasurementDateLabel(dates: readonly string[]): string {
     if (dates.length === 0) return '-';
     if (dates.length === 1) return dates[0];
