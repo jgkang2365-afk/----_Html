@@ -65,21 +65,30 @@ class MesDownloadRuntimeTest(unittest.TestCase):
             mes_download.read_only_smoke()
         cleanup.assert_called_once()
 
-    def test_save_complete_popup_is_scoped_to_owned_mes_process(self):
-        wrong = Mock()
-        wrong.process_id.return_value = 111
-        wrong.texts.return_value = ["\ud655\uc778", "\uc790\ub8cc \uc800\uc7a5 \uc644\ub8cc"]
-        matching = Mock()
-        matching.process_id.return_value = 222
-        matching.texts.return_value = ["\ud655\uc778", "\uc790\ub8cc \uc800\uc7a5 \uc644\ub8cc"]
-        desktop = Mock(windows=Mock(return_value=[wrong, matching]))
-        with patch("mes_download.Desktop", return_value=desktop):
+    def test_save_complete_popup_uses_legacy_dialog_lookup_scoped_to_owned_mes_process(self):
+        app = Mock()
+        app.connect.return_value = app
+        confirm = Mock()
+        confirm.exists.return_value = True
+        message = Mock()
+        message.exists.return_value = True
+        confirm.child_window.return_value = message
+        app.window.return_value = confirm
+        with patch("mes_download.Application", return_value=app) as application:
             found = mes_download.wait_for_save_complete_popup(222, timeout=1)
-        self.assertIs(found, matching)
+        self.assertIs(found, confirm)
+        application.assert_called_once_with(backend="win32")
+        app.connect.assert_called_once_with(process=222, timeout=5)
+        app.window.assert_called_once_with(title="확인", class_name="#32770")
+        confirm.child_window.assert_called_once_with(title_re=".*자료.*저장.*")
 
     def test_save_complete_popup_fails_fast_instead_of_silent_five_minute_wait(self):
-        desktop = Mock(windows=Mock(return_value=[]))
-        with patch("mes_download.Desktop", return_value=desktop), \
+        app = Mock()
+        app.connect.return_value = app
+        confirm = Mock()
+        confirm.exists.return_value = False
+        app.window.return_value = confirm
+        with patch("mes_download.Application", return_value=app), \
              patch("mes_download.time.monotonic", side_effect=[0, 1]):
             with self.assertRaisesRegex(RuntimeError, "MES_SAVE_CONFIRMATION_NOT_FOUND"):
                 mes_download.wait_for_save_complete_popup(222, timeout=0.5)
@@ -95,7 +104,9 @@ class MesDownloadRuntimeTest(unittest.TestCase):
 
     def test_mes_save_confirmation_has_no_broken_local_app_or_300_second_loop(self):
         source = Path("mes_download.py").read_text(encoding="utf-8")
-        self.assertNotIn('app.window(title="\ud655\uc778"', source)
+        self.assertIn('owned_app.window(title="\ud655\uc778", class_name="#32770")', source)
+        self.assertIn('child_window(title_re=".*\uc790\ub8cc.*\uc800\uc7a5.*")', source)
+        self.assertNotIn("combined_text", source)
         self.assertNotIn("while time.time() - start_wait < 300", source)
         self.assertIn('MES_SAVE_CONFIRM_TIMEOUT_SECONDS = float(os.getenv("MES_SAVE_CONFIRM_TIMEOUT_SECONDS", "30"))', source)
         self.assertIn("is_interactive =", source)
