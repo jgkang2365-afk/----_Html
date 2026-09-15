@@ -6,7 +6,7 @@ import test from "node:test";
 const root = process.cwd();
 const read = (...parts: string[]) => fs.readFileSync(path.join(root, ...parts), "utf8");
 
-test("수동 placeholder와 실제 확정 결과의 status_source 경계가 migration에 명시된다", () => {
+test("수동 상태는 confirmed 결과에도 현재 내부 상태 원천으로 갱신된다", () => {
   const migration = read("supabase/migrations/20260915090000_add_national_support_representative.sql");
   const terminal = migration.slice(
     migration.indexOf("CREATE OR REPLACE FUNCTION public.complete_national_support_automation_job"),
@@ -19,8 +19,9 @@ test("수동 placeholder와 실제 확정 결과의 status_source 경계가 migr
   assert.match(terminal, /'confirmed_result'/);
   assert.match(terminal, /status_source=EXCLUDED\.status_source/);
   assert.match(manual, /'manual_internal'/);
-  assert.match(manual, /WHERE public\.national_support_application\.status_source IS DISTINCT FROM 'confirmed_result'/);
-  assert.match(manual, /application_status IS NULL[\s\S]*result IS NULL/);
+  assert.match(manual, /SET national_support_status = EXCLUDED\.national_support_status,[\s\S]*status_source = EXCLUDED\.status_source,[\s\S]*updated_at = CURRENT_TIMESTAMP;/);
+  assert.doesNotMatch(manual, /WHERE public\.national_support_application\.status_source IS DISTINCT FROM 'confirmed_result'/);
+  assert.doesNotMatch(manual, /application_status\s*=\s*EXCLUDED\.|result\s*=\s*EXCLUDED\.|representative_name\s*=\s*EXCLUDED\./);
 });
 
 test("apply shortcut은 confirmed 결과 또는 legacy 실제 결과 증거에만 허용한다", () => {

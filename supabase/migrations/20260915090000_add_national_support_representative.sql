@@ -129,18 +129,11 @@ BEGIN
       code, year, period, application_status, result, national_support_status, status_source
     ) VALUES (NEW.code, NEW.year, NEW.period, NULL, NULL, NEW.national_support_status, 'manual_internal')
     ON CONFLICT (code, year, period) DO UPDATE
-      -- 수동 확정은 기존 실제 결과의 snapshot/status를 덮어쓰지 않는다.
+      -- 수동 확정은 현재 내부 상태의 원천이다. 실제 결과의 상세와 대표자
+      -- snapshot은 보존하되, 상태·원천·갱신시각은 항상 수동 확정으로 갱신한다.
       SET national_support_status = EXCLUDED.national_support_status,
           status_source = EXCLUDED.status_source,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE public.national_support_application.status_source IS DISTINCT FROM 'confirmed_result'
-        AND (
-          public.national_support_application.status_source IS NOT NULL
-          OR (
-            public.national_support_application.application_status IS NULL
-            AND public.national_support_application.result IS NULL
-          )
-        );
+          updated_at = CURRENT_TIMESTAMP;
   END IF;
   RETURN NEW;
 END;
