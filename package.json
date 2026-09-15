@@ -32,7 +32,7 @@
     "clean-dev": "clean-start.bat",
     "db:local:configure-env": "node scripts/configure-local-supabase-env.mjs",
     "db:local:refresh-prod": "node scripts/refresh-local-from-production.mjs",
-    "db:local:bootstrap-prod": "npm run db:local:prepare && npx supabase start --workdir .supabase-local && npx supabase db reset --local --workdir .supabase-local && npm run db:local:configure-env && npm run db:local:refresh-prod"
+    "db:local:bootstrap-prod": "npm run db:local:prepare && npx supabase start --workdir .supabase-local && npx supabase db reset --local --workdir .supabase-local && npm run db:local:refresh-prod && npm run db:local:configure-env"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
@@ -68,7 +68,7 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@types/xlsx": "^0.0.35",
-    "autoprefixer": "^10.4.0",
+    "autoprefixer": "^10.0.0",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.23",
     "pg": "^8.18.0",
