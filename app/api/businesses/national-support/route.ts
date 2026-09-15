@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { syncNationalSupportToBusiness } from "@/lib/sync/national-support";
+import { resolveNationalSupportRepresentative } from "@/lib/national-support/representative";
 
 /**
  * 건강디딤돌 신청결과 등록 API
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
         application_status: application_status || null,
         result: result || null,
         national_support_status: calculatedStatus,
+        status_source: "confirmed_result",
       })
       .select()
       .single();
@@ -249,12 +251,17 @@ export async function GET(request: NextRequest) {
           // 3-1. business_info 조회 (대표자명 마스터)
           const { data: bInfos } = await supabase
             .from("business_info")
-            .select("code, representative_name")
+            .select("code, representative_name, national_support_representative_name")
             .in("code", codes);
-          const bInfoMap = new Map<string, string>();
+          const bInfoMap = new Map<string, { representativeName: string | null; nationalSupportRepresentativeName: string | null }>();
           if (bInfos) {
             bInfos.forEach((bi: any) => {
-              if (bi.representative_name) bInfoMap.set(bi.code, bi.representative_name);
+              if (bi.code) {
+                bInfoMap.set(bi.code, {
+                  representativeName: bi.representative_name || null,
+                  nationalSupportRepresentativeName: bi.national_support_representative_name || null,
+                });
+              }
             });
           }
 
@@ -294,10 +301,18 @@ export async function GET(request: NextRequest) {
               
               // 3단계 결합 우선순위 정의 (1. 계획 테이블값 -> 2. 실적 마스터값 -> 3. 기본정보 마스터값)
               const mbFallback = mbMap.get(tb.code) || { representative_name: null, industrial_accident_number: null, commencement_number: null };
-              const biRepName = bInfoMap.get(tb.code) || null;
+              const biInfo = bInfoMap.get(tb.code);
+              // 목록의 신청 대표자는 실행 snapshot 다음으로, 현재 override를
+              // 항상 우선한다. 기본 대표자 3계층은 override가 없을 때만 fallback이다.
+              const canonicalBaseRepresentative =
+                tb.representative_name || mbFallback.representative_name || biInfo?.representativeName || null;
+              const effectiveNationalSupportRepresentative = resolveNationalSupportRepresentative(
+                biInfo?.nationalSupportRepresentativeName,
+                canonicalBaseRepresentative,
+              );
 
               const payload = {
-                representative_name: tb.representative_name || mbFallback.representative_name || biRepName || null,
+                representative_name: effectiveNationalSupportRepresentative,
                 industrial_accident_number: tb.industrial_accident_number || mbFallback.industrial_accident_number || null,
                 commencement_number: tb.commencement_number || mbFallback.commencement_number || null,
                 sync_status: tb.sync_status || null
@@ -316,9 +331,14 @@ export async function GET(request: NextRequest) {
           codes.forEach((code: string) => {
             if (!targetBusinessMap.has(code)) {
               const mbFallback = mbMap.get(code) || { representative_name: null, industrial_accident_number: null, commencement_number: null };
-              const biRepName = bInfoMap.get(code) || null;
+              const biInfo = bInfoMap.get(code);
+              const canonicalBaseRepresentative = mbFallback.representative_name || biInfo?.representativeName || null;
+              const effectiveNationalSupportRepresentative = resolveNationalSupportRepresentative(
+                biInfo?.nationalSupportRepresentativeName,
+                canonicalBaseRepresentative,
+              );
               targetBusinessMap.set(code, {
-                representative_name: mbFallback.representative_name || biRepName || null,
+                representative_name: effectiveNationalSupportRepresentative,
                 industrial_accident_number: mbFallback.industrial_accident_number || null,
                 commencement_number: mbFallback.commencement_number || null,
                 sync_status: null
@@ -346,7 +366,8 @@ export async function GET(request: NextRequest) {
         ...entry,
         business_name: businessInfo.name,
         address: businessInfo.address,
-        representative_name: targetInfo.representative_name,
+        // 실행 결과가 남긴 snapshot을 우선한다. 과거 레코드만 기존 원천으로 보완한다.
+        representative_name: entry.representative_name || targetInfo.representative_name,
         industrial_accident_number: targetInfo.industrial_accident_number,
         commencement_number: targetInfo.commencement_number,
         sync_status: targetInfo.sync_status

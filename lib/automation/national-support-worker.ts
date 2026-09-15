@@ -189,7 +189,6 @@ export async function processNationalSupportJob(
   const commonTargetFields = {
     industrial_accident_number: payload.sanjae || null,
     commencement_number: payload.commencement || null,
-    representative_name: payload.representative || null,
   };
 
   const resultCode = (result: AutomationResult, label: string) => {

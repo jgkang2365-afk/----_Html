@@ -16,6 +16,10 @@ const recheckMigrationPath = path.join(
   process.cwd(),
   "supabase/migrations/20260718_reset_second_half_national_support_review.sql",
 );
+const representativeMigrationPath = path.join(
+  process.cwd(),
+  "supabase/migrations/20260915090000_add_national_support_representative.sql",
+);
 const recheckVerificationPath = path.join(
   process.cwd(),
   "supabase/verification/20260718_verify_second_half_national_support_review.sql",
@@ -24,10 +28,13 @@ const recheckVerificationPath = path.join(
 
 
 test("허용된 모든 sync_status가 코드와 DB 제약에 포함된다", () => {
-  const migration = fs.readFileSync(migrationPath, "utf8");
+  const migrations = [
+    fs.readFileSync(migrationPath, "utf8"),
+    fs.readFileSync(representativeMigrationPath, "utf8"),
+  ];
   for (const status of NATIONAL_SUPPORT_SYNC_STATUSES) {
     assert.equal(isAllowedNationalSupportSyncStatus(status), true);
-    assert.match(migration, new RegExp(`'${status}'`));
+    assert.equal(migrations.some((migration) => new RegExp(`'${status}'`).test(migration)), true);
   }
   assert.equal(isAllowedNationalSupportSyncStatus(null), true);
   assert.equal(isAllowedNationalSupportSyncStatus("임의상태"), false);

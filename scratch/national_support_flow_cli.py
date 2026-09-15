@@ -54,8 +54,8 @@ def worker_boundary(event):
 
 
 def normalize_representative(value):
-    representative = str(value or "").strip().split(",", 1)[0].strip()
-    return re.sub(r"외\s*\d*\s*(인|명|)", "", representative).strip()
+    # 건강디딤돌 전용 값은 사용자 저장 구조를 보존한다.
+    return str(value or "").strip()
 
 
 def classify_lookup_candidates(candidates):

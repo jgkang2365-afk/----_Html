@@ -26,7 +26,7 @@ test("enqueue 실패 응답은 오류 코드와 correlationId를 제공한다", 
 });
 
 test("다른 사용자 또는 requested_by 없는 활성 작업은 job 데이터 없는 409로 응답한다", () => {
-  const guard = route.slice(route.indexOf("if (automationJob.requested_by !== Number(user.id))"), route.indexOf("return NextResponse.json({\n      success: true,", route.indexOf("if (automationJob.requested_by !== Number(user.id))")));
+  const guard = route.match(/if \(automationJob\.requested_by !== Number\(user\.id\)\) \{[\s\S]*?\}, \{ status: 409 \}\);/)?.[0] || "";
   assert.match(guard, /status: 409/);
   assert.match(guard, /NATIONAL_SUPPORT_ALREADY_RUNNING/);
   assert.doesNotMatch(guard, /jobId|request_payload|automationJob\.id/);

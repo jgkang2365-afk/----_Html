@@ -12,6 +12,9 @@ BEGIN
   IF function_definition IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = '42883', MESSAGE = 'REVERSE_PLANNER_CONFIRM_RPC_NOT_FOUND';
   END IF;
+  -- pg_get_functiondef preserves CRLF from the original historical migration.
+  -- Normalize before applying the LF-based deterministic patch anchor.
+  function_definition := replace(function_definition, E'\r\n', E'\n');
   corrected_definition := replace(
     function_definition,
     E'  IF p_measurement_date IS DISTINCT FROM target_row.measurement_date::date AND NOT EXISTS (',
@@ -26,6 +29,9 @@ BEGIN
   IF function_definition IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = '42883', MESSAGE = 'REVERSE_PLANNER_APPLY_RPC_NOT_FOUND';
   END IF;
+  -- pg_get_functiondef preserves CRLF from the original historical migration.
+  -- Normalize before applying the LF-based deterministic patch anchor.
+  function_definition := replace(function_definition, E'\r\n', E'\n');
   corrected_definition := replace(
     function_definition,
     E'    IF target_row.measurement_date::text IS DISTINCT FROM plan_item->>''source_measurement_date''',

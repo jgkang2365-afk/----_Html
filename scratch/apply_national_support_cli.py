@@ -52,11 +52,8 @@ def main():
     sanjae = str(args.sanjae).replace("-", "").strip()
     commencement = str(args.commencement).replace("-", "").strip()
     
-    # 대표자명 실시간 1인 정규화 (법적 원본은 DB에 있고, 조회 통신 시점에만 가공)
-    raw_representative = str(args.representative).strip()
-    if "," in raw_representative:
-        raw_representative = raw_representative.split(",")[0].strip()
-    representative = re.sub(r'외\s*\d*\s*(인|명|)', '', raw_representative).strip()
+    # 건강디딤돌 입력값은 API가 결정한 신청 대표자를 그대로 사용한다.
+    representative = str(args.representative).strip()
     
     period = str(args.period).strip()
     year = str(args.year).strip()

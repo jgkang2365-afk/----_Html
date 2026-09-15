@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
-import { normalizeContactName, normalizeRepresentativeName } from "@/lib/utils/data-utils";
+import { normalizeContactName } from "@/lib/utils/data-utils";
+import { resolveNationalSupportRepresentative } from "@/lib/national-support/representative";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
 import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
 import { enqueueAutomationJob, nationalSupportIdempotencyKey } from "@/lib/automation/jobs";
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     const { data: canonicalTarget, error: targetError } = await createAdminClient()
       .from("measurement_target_business")
-      .select("id, code, year, period")
+      .select("id, code, year, period, representative_name")
       .eq("id", target_id).maybeSingle();
     if (targetError) throw targetError;
     if (!canonicalTarget) {
@@ -80,6 +81,22 @@ export async function POST(request: NextRequest) {
       }, { status: 409 });
     }
     const { id: canonicalTargetId, code, year, period } = canonicalTarget;
+    const { data: businessInfo, error: businessInfoError } = await createAdminClient()
+      .from("business_info")
+      .select("representative_name, national_support_representative_name")
+      .eq("code", code)
+      .maybeSingle();
+    if (businessInfoError) throw businessInfoError;
+    const effectiveRepresentative = resolveNationalSupportRepresentative(
+      businessInfo?.national_support_representative_name,
+      businessInfo?.representative_name || canonicalTarget.representative_name || representative,
+    );
+    // 건강디딤돌 신청 대표자는 전용 override일 뿐, master 대표자 projection에
+    // 전달할 값이 아니다. 기존 기본 대표자를 그대로 유지한다.
+    const canonicalRepresentative = businessInfo?.representative_name || canonicalTarget.representative_name || null;
+    if (!effectiveRepresentative) {
+      return NextResponse.json({ error: "신청 대표자 정보가 없습니다." }, { status: 400 });
+    }
 
     const normalizedSanjae = normalizeElevenDigitNumber(sanjae);
     const normalizedCommencement = normalizeElevenDigitNumber(commencement);
@@ -100,7 +117,7 @@ export async function POST(request: NextRequest) {
     if (jobMode === "apply_if_missing" && !hasNationalSupportApplicationInformation({
       industrial_accident_number: normalizedSanjae,
       commencement_number: normalizedCommencement,
-      representative_name: representative,
+      representative_name: effectiveRepresentative,
       manager_name: contact_name,
       manager_mobile: contact_phone,
     })) {
@@ -139,10 +156,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // target의 수동 상태는 화면 표시용 placeholder일 수 있다. 실제 application
+    // source를 먼저 확인해야 manual_internal 비대상이 조회 job 자체를 막지 않는다.
+    const { data: existingApp, error: appError } = await supabase
+      .from("national_support_application")
+      .select("national_support_status, status_source, application_status, result")
+      .eq("code", code)
+      .eq("year", parseInt(String(year)))
+      .eq("period", period)
+      .maybeSingle();
+    const hasManualInternalPlaceholder = !appError && existingApp?.status_source === "manual_internal";
+
     // 목록은 측정사업장/측정일지의 국고 상태를 보완해 표시할 수 있습니다.
     // 화면에서 "대상"으로 확인한 뒤 새로고침을 누른 경우, 대상 사업장 테이블의
     // 값이 비어 있어도 조회를 허용하고 아래 락 단계에서 "대상"으로 맞춥니다.
-    if (currentPlan.national_support_status === "비대상") {
+    if (currentPlan.national_support_status === "비대상" && !hasManualInternalPlaceholder) {
       return NextResponse.json(
         { error: "국고 지원 비대상 사업장입니다." },
         { status: 400 }
@@ -160,16 +188,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 기존 건강디딤돌 신청결과 테이블을 조회하여 결과 존재 시 즉시 동기화 처리
-    const { data: existingApp, error: appError } = await supabase
-      .from("national_support_application")
-      .select("national_support_status")
-      .eq("code", code)
-      .eq("year", parseInt(String(year)))
-      .eq("period", period)
-      .maybeSingle();
-
-    if (!appError && existingApp && (existingApp.national_support_status === "대상" || existingApp.national_support_status === "비대상")) {
+    // 수동 확인 placeholder는 외부 조회의 실제 결과가 아니므로 shortcut으로
+    // 처리하지 않고 lookup job을 enqueue한다. source가 없던 legacy 행은
+    // result/application_status라는 실제 결과 증거가 있을 때만 호환한다.
+    const hasConfirmedExistingResult = existingApp && (
+      existingApp.status_source === "confirmed_result" ||
+      (existingApp.status_source == null && Boolean(existingApp.result || existingApp.application_status))
+    );
+    if (!appError && hasConfirmedExistingResult && (existingApp.national_support_status === "대상" || existingApp.national_support_status === "비대상")) {
       const dbStatus = existingApp.national_support_status;
 
       // 계획 테이블(measurement_target_business) 즉시 성공 처리 및 상태 업데이트
@@ -180,7 +206,6 @@ export async function POST(request: NextRequest) {
           national_support_status: dbStatus,
           industrial_accident_number: normalizedSanjae,
           commencement_number: normalizedCommencement,
-          representative_name: representative || null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", canonicalTargetId);
@@ -205,7 +230,7 @@ export async function POST(request: NextRequest) {
           Number(year),
           period,
           bName,
-          representative || null,
+          canonicalRepresentative,
           normalizedSanjae,
           normalizedCommencement,
           { updateBusinessInfo: false },
@@ -227,7 +252,7 @@ export async function POST(request: NextRequest) {
       target_id: canonicalTargetId,
       sanjae: normalizedSanjae,
       commencement: normalizedCommencement,
-      representative: normalizeRepresentativeName(representative) || representative,
+      representative: effectiveRepresentative,
       contact_name: normalizeContactName(contact_name) || "",
       contact_phone: contact_phone || "",
       period,

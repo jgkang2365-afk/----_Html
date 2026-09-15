@@ -7,6 +7,7 @@ import { buildK2BSyncRange, K2B_SYNC_OVERLAP_DAYS } from '../automation/k2b-orig
 import { enqueueAutomationJob, mesScheduledIdempotencyKey, nationalSupportIdempotencyKey } from '../automation/jobs';
 import { forEachAscendingIdPage } from './id-pages';
 import { hasMeasurementJournalForTarget } from '../national-support/automation-contract';
+import { resolveNationalSupportRepresentative } from '../national-support/representative';
 import { hasNationalSupportApplicationInformation } from '../national-support/eligibility';
 
 const KST_CRON_OPTIONS = { timezone: 'Asia/Seoul' };
@@ -204,7 +205,17 @@ export class BackgroundTasks {
           return data || [];
         }, async (target) => {
             if (String(target.period).includes('(수시)')) return;
-            if (!target.industrial_accident_number || !target.commencement_number || !target.representative_name) return;
+            const { data: businessInfo, error: businessInfoError } = await admin
+              .from('business_info')
+              .select('representative_name, national_support_representative_name')
+              .eq('code', target.code)
+              .maybeSingle();
+            if (businessInfoError) throw businessInfoError;
+            const representative = resolveNationalSupportRepresentative(
+              businessInfo?.national_support_representative_name,
+              businessInfo?.representative_name || target.representative_name,
+            );
+            if (!target.industrial_accident_number || !target.commencement_number || !representative) return;
             if (await hasMeasurementJournalForTarget(admin, target)) return;
             await enqueueAutomationJob(admin, {
                 jobType: 'NATIONAL_SUPPORT',
@@ -213,11 +224,11 @@ export class BackgroundTasks {
                 requestPayload: {
                     target_id: target.id, code: target.code, year: target.year, period: target.period,
                     sanjae: target.industrial_accident_number, commencement: target.commencement_number,
-                    representative: target.representative_name, contact_name: target.manager_name || '', contact_phone: target.manager_mobile || '',
+                    representative, contact_name: target.manager_name || '', contact_phone: target.manager_mobile || '',
                     mode: hasNationalSupportApplicationInformation({
                       industrial_accident_number: target.industrial_accident_number,
                       commencement_number: target.commencement_number,
-                      representative_name: target.representative_name,
+                      representative_name: representative,
                       manager_name: target.manager_name,
                       manager_mobile: target.manager_mobile,
                     }) ? 'apply_if_missing' : 'lookup_only', scheduled_at: date,
