@@ -91,28 +91,29 @@ def wait_for_logged_in_main(login_win, prior_main_handles: set[int], timeout: fl
     raise RuntimeError("MES_MAIN_WINDOW_NOT_FOUND")
 
 def wait_for_save_complete_popup(main_process_id: int, timeout: float | None = None):
-    """Wait for the owned MES save-complete dialog without silently burning a long timeout."""
+    """Use the legacy-proven Win32 dialog lookup, scoped to the owned MES process."""
+    try:
+        owned_app = Application(backend="win32").connect(process=main_process_id, timeout=5)
+    except Exception as error:
+        raise RuntimeError("MES_SAVE_CONFIRMATION_DISCOVERY_FAILED") from error
+
     deadline = time.monotonic() + (MES_SAVE_CONFIRM_TIMEOUT_SECONDS if timeout is None else timeout)
-    desktop = Desktop(backend="win32")
     while time.monotonic() < deadline:
         if cancel_requested.is_set():
             raise RuntimeError("MES_CANCEL_REQUESTED")
         try:
-            dialogs = desktop.windows(title="확인", class_name="#32770", visible_only=True)
-        except Exception as error:
-            raise RuntimeError("MES_SAVE_CONFIRMATION_DISCOVERY_FAILED") from error
-        for candidate in dialogs:
-            try:
-                if candidate.process_id() != main_process_id:
-                    continue
-                combined_text = " ".join(str(text or "") for text in candidate.texts())
-                if "자료" in combined_text and "저장" in combined_text:
-                    return candidate
-            except Exception:
-                continue
+            # Historical MES automation used this exact #32770 + child-title lookup.
+            # It is more reliable for this legacy program than Desktop().windows()/texts().
+            confirm_win = owned_app.window(title="확인", class_name="#32770")
+            if confirm_win.exists(timeout=0.2):
+                message = confirm_win.child_window(title_re=".*자료.*저장.*")
+                if message.exists(timeout=0.2):
+                    return confirm_win
+        except Exception:
+            # Transient Win32 wrapper failures are expected while the dialog is being created.
+            pass
         time.sleep(0.2)
     raise RuntimeError("MES_SAVE_CONFIRMATION_NOT_FOUND")
-
 
 def refresh_owned_main_window(main_process_id: int, timeout: float = 5):
     """Reacquire the owned main window after startup dialogs may invalidate the original HWND."""
