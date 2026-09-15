@@ -50,10 +50,14 @@ test('날짜 그룹은 자동 종료일과 사용자 종료일을 독립적으�
 });
 
 test('보고서 처리 필터는 접근 가능한 측정일·K2B 실제 접수일 그룹으로 구성한다', () => {
-  assert.match(source, /<fieldset className="min-w-0 space-y-1\.5">[\s\S]*?<legend[^>]*>측정일<\/legend>/);
-  assert.match(source, /<fieldset className="min-w-0 space-y-1\.5">[\s\S]*?<legend[^>]*>K2B 실제 접수일<\/legend>/);
-  assert.match(source, /label="시작일"/);
-  assert.match(source, /label="종료일"/);
+  assert.match(source, /<fieldset className="min-w-0 space-y-1">[\s\S]*?<legend[^>]*>측정일<\/legend>/);
+  assert.match(source, /<fieldset className="min-w-0 space-y-1 border-slate-100 xl:border-l xl:pl-3">[\s\S]*?<legend[^>]*>K2B 실제 접수일<\/legend>/);
+  assert.match(source, /aria-label="측정일 시작일"/);
+  assert.match(source, /aria-label="측정일 종료일"/);
+  assert.match(source, /aria-label="K2B 실제 접수일 시작일"/);
+  assert.match(source, /aria-label="K2B 실제 접수일 종료일"/);
+  assert.doesNotMatch(source, /label="시작일"/);
+  assert.doesNotMatch(source, /label="종료일"/);
   assert.match(source, /aria-hidden="true">~<\/span>/);
   assert.match(source, /measurementDateToTouched/);
   assert.match(source, /k2bReceiptDateToTouched/);
@@ -67,6 +71,8 @@ test('검색 결과 영역은 건수·페이지 단위와 다음 행동이 있�
   assert.match(source, /10개씩 보기/);
   assert.match(source, /검색 결과가 없습니다\./);
   assert.match(source, /검색 조건을 변경하여 다시 검색해 주세요\./);
+  assert.match(source, /h-\[260px\]/);
+  assert.match(source, /<FileSearch/);
 });
 
 test('서버 날짜 범위 정규화는 From-only를 단일일로 만들고 잘못된 요청을 400 사유로 구분한다', () => {

@@ -79,8 +79,10 @@ test('보고서 처리 화면은 날짜 범위를 조회 순서와 결과 표에
 
   assert.match(page, /<legend[^>]*>측정일<\/legend>/);
   assert.match(page, /<legend[^>]*>K2B 실제 접수일<\/legend>/);
-  assert.match(page, /label="시작일"/);
-  assert.match(page, /label="종료일"/);
+  assert.match(page, /aria-label="측정일 시작일"/);
+  assert.match(page, /aria-label="측정일 종료일"/);
+  assert.match(page, /aria-label="K2B 실제 접수일 시작일"/);
+  assert.match(page, /aria-label="K2B 실제 접수일 종료일"/);
   assert.match(page, /changeReportProcessingDateRangeStart/);
   assert.match(page, /changeReportProcessingDateRangeEnd/);
   assert.match(page, /type="date"/);

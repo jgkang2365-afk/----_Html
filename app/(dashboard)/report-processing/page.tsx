@@ -44,7 +44,7 @@ import type {
     ReportExplorerQueryResult
 } from '@/lib/report-explorer/types';
 import { toast } from 'sonner';
-import { ExternalLink, FolderSearch, Loader2, Mail, Search, RefreshCw, Upload, X } from 'lucide-react';
+import { ExternalLink, FileSearch, FolderSearch, Loader2, Mail, Search, RefreshCw, Upload, X } from 'lucide-react';
 
 interface BusinessRecord {
     code: string;
@@ -760,7 +760,10 @@ export default function ReportProcessingPage() {
         {activeJob && showRemoteJobProgress && remoteJobView && <RemoteJobProgressDialog title={remoteJobCopy[activeJob.type].title} view={remoteJobView} running onClose={() => setShowRemoteJobProgress(false)} onCancel={cancelActiveJob} cancelLabel="작업 중단" cancelPending={activeJob.status === 'cancel_requested'} />}
         <div className="w-full min-w-0 max-w-[calc(100vw-2rem)] space-y-4 overflow-hidden p-4 md:p-6 lg:max-w-none">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h1 className="text-xl font-bold text-gray-800 md:text-2xl">작업환경측정결과 보고서 처리</h1>
+                <div>
+                    <h1 className="text-xl font-bold text-gray-800 md:text-2xl">작업환경측정결과 보고서 처리</h1>
+                    <p className="mt-1 text-sm text-slate-500">작업환경측정 결과를 확인하고 K2B 전송 및 보고서 처리를 진행할 수 있습니다.</p>
+                </div>
                 <div className="flex flex-wrap gap-2">
                     {activeJob && (
                         <Button size="sm" variant="secondary" onClick={cancelActiveJob} disabled={activeJob.status === 'cancel_requested'} className="h-10 border-red-200 px-4 text-red-700 hover:bg-red-50">
@@ -856,47 +859,47 @@ export default function ReportProcessingPage() {
                         ]}
                     />
                 </div>
-                <fieldset className="min-w-0 space-y-1.5">
+                <fieldset className="min-w-0 space-y-1">
                     <legend className="text-sm font-medium text-gray-700">측정일</legend>
-                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
                         <Input
-                            label="시작일"
                             type="date"
+                            aria-label="측정일 시작일"
                             value={filters.measurementDateFrom}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeFrom('measurementDateFrom', 'measurementDateTo', measurementDateToTouched, setMeasurementDateToTouched, e.target.value)}
                             className="h-10 text-sm"
                         />
                         <span className="pb-2 text-sm text-gray-500" aria-hidden="true">~</span>
                         <Input
-                            label="종료일"
                             type="date"
+                            aria-label="측정일 종료일"
                             value={filters.measurementDateTo}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeTo('measurementDateTo', setMeasurementDateToTouched, e.target.value)}
                             className="h-10 text-sm"
                         />
                     </div>
                 </fieldset>
-                <fieldset className="min-w-0 space-y-1.5">
+                <fieldset className="min-w-0 space-y-1 border-slate-100 xl:border-l xl:pl-3">
                     <legend className="text-sm font-medium text-gray-700">K2B 실제 접수일</legend>
-                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
                         <Input
-                            label="시작일"
                             type="date"
+                            aria-label="K2B 실제 접수일 시작일"
                             value={filters.k2bReceiptDateFrom}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeFrom('k2bReceiptDateFrom', 'k2bReceiptDateTo', k2bReceiptDateToTouched, setK2BReceiptDateToTouched, e.target.value)}
                             className="h-10 text-sm"
                         />
                         <span className="pb-2 text-sm text-gray-500" aria-hidden="true">~</span>
                         <Input
-                            label="종료일"
                             type="date"
+                            aria-label="K2B 실제 접수일 종료일"
                             value={filters.k2bReceiptDateTo}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeTo('k2bReceiptDateTo', setK2BReceiptDateToTouched, e.target.value)}
                             className="h-10 text-sm"
                         />
                     </div>
                 </fieldset>
-                <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 sm:flex-row sm:items-end xl:col-span-1">
+                <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 sm:flex-row sm:items-end xl:col-span-1 xl:border-l xl:border-slate-100 xl:pl-3">
                     <div className="relative min-w-0 flex-1">
                         <Input
                             label="사업장 검색"
@@ -927,7 +930,7 @@ export default function ReportProcessingPage() {
             <section aria-label="보고서 처리 결과" className="space-y-2">
                 <div className="flex items-center justify-between px-1">
                     <h2 className="text-base font-bold text-slate-800">검색 결과 {records.length}건</h2>
-                    <span className="text-sm text-slate-500">10개씩 보기</span>
+                    <span aria-label="페이지당 10개 고정 표시" className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600">10개씩 보기</span>
                 </div>
                 <Table className="table-fixed text-sm">
                     <TableHeader>
@@ -960,8 +963,9 @@ export default function ReportProcessingPage() {
                             </TableRow>
                         ) : records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={12} className="h-24 text-center text-muted-foreground">
-                                    <div className="space-y-1">
+                                <TableCell colSpan={12} className="h-[260px] py-8 text-center text-muted-foreground">
+                                    <div className="flex flex-col items-center justify-center gap-2">
+                                        <FileSearch className="h-8 w-8 text-slate-400" aria-hidden="true" />
                                         <p className="font-medium text-slate-600">검색 결과가 없습니다.</p>
                                         <p className="text-sm">검색 조건을 변경하여 다시 검색해 주세요.</p>
                                     </div>
