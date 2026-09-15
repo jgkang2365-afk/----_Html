@@ -6,7 +6,10 @@ import {
   normalizeNationalSupportRepresentativeOverride,
   resolveNationalSupportRepresentative,
 } from "../lib/national-support/representative";
-import { saveNationalSupportRepresentativeOverride } from "../lib/national-support/representative-storage";
+import {
+  hasNationalSupportRepresentativeMaster,
+  saveNationalSupportRepresentativeOverride,
+} from "../lib/national-support/representative-storage";
 
 test("신청 대표자는 override를 우선하고 이름 구조를 보존한다", () => {
   assert.equal(resolveNationalSupportRepresentative(null, "홍길동, 백두산"), "홍길동, 백두산");
@@ -64,6 +67,41 @@ test("신청 대표자 override 저장은 없는 business_info master를 생성�
   assert.equal(insertCalls, 0);
 });
 
+test("신청 대표자 override preflight는 없는 master를 target 저장 전에 판별한다", async () => {
+  const found = await hasNationalSupportRepresentativeMaster({
+    from(table: string) {
+      assert.equal(table, "business_info");
+      return {
+        select() {
+          return {
+            eq() {
+              return { maybeSingle: async () => ({ data: null, error: null }) };
+            },
+          };
+        },
+      };
+    },
+  }, "MISSING");
+  assert.equal(found, false);
+
+  const source = fs.readFileSync(path.join(process.cwd(), "app/api/businesses/route.ts"), "utf8");
+  const patchPreflight = source.indexOf("hasNationalSupportRepresentativeMaster(supabase, String(overrideCode))");
+  const postPreflight = source.indexOf("hasNationalSupportRepresentativeMaster(supabase, String(code))");
+  const targetInsert = source.indexOf(".insert({", postPreflight);
+  const targetUpdate = source.indexOf('let query = supabase.from("measurement_target_business").update(updatePayload)');
+  assert.ok(postPreflight >= 0 && targetInsert >= 0 && postPreflight < targetInsert);
+  assert.ok(patchPreflight >= 0 && targetUpdate >= 0 && patchPreflight < targetUpdate);
+});
+
+test("override 후속 저장 실패는 target 부분 저장 사실을 숨기지 않는다", () => {
+  const businessApi = fs.readFileSync(path.join(process.cwd(), "app/api/businesses/route.ts"), "utf8");
+  assert.equal(
+    (businessApi.match(/NATIONAL_SUPPORT_REPRESENTATIVE_OVERRIDE_PARTIAL_SAVE/g) || []).length,
+    2,
+  );
+  assert.match(businessApi, /targetSaved: true,[\s\S]*partialSave: true/);
+});
+
 test("대표자 snapshot은 실제 완료 projection만 기록하고 수동 placeholder는 null을 유지한다", () => {
   const migration = fs.readFileSync(
     path.join(process.cwd(), "supabase/migrations/20260915090000_add_national_support_representative.sql"),
@@ -106,6 +144,26 @@ test("신청결과 목록은 snapshot이 없을 때 현재 신청 대표자 over
     "utf8",
   );
   assert.match(source, /representative_name, national_support_representative_name/);
-  assert.match(source, /resolveNationalSupportRepresentative\([\s\S]*nationalSupportRepresentativeName[\s\S]*representativeName/);
+  assert.match(source, /canonicalBaseRepresentative[\s\S]*tb\.representative_name[\s\S]*mbFallback\.representative_name/);
+  assert.match(source, /resolveNationalSupportRepresentative\([\s\S]*nationalSupportRepresentativeName[\s\S]*canonicalBaseRepresentative/);
+  assert.match(source, /representative_name: effectiveNationalSupportRepresentative/);
   assert.match(source, /representative_name: entry\.representative_name \|\| targetInfo\.representative_name/);
+});
+
+test("수시 주기는 UI와 서버에서 대상 수동확정을 차단한다", () => {
+  const manualApi = fs.readFileSync(
+    path.join(process.cwd(), "app/api/businesses/national-support/manual-status/route.ts"),
+    "utf8",
+  );
+  const businessApi = fs.readFileSync(path.join(process.cwd(), "app/api/businesses/route.ts"), "utf8");
+  const form = fs.readFileSync(
+    path.join(process.cwd(), "components/features/MeasurementTargetBusinessFormSections.tsx"),
+    "utf8",
+  );
+
+  assert.match(manualApi, /isAdHocMeasurement\(targetPeriod\) && national_support_status === "대상"/);
+  assert.ok(manualApi.indexOf("isAdHocMeasurement(targetPeriod)") < manualApi.indexOf('.rpc("set_manual_national_support_status"'));
+  assert.match(businessApi, /isAdHocMeasurement\(period\) && requestedManualStatus === "대상"/);
+  assert.match(form, /isAdmin && !isAdHocPeriod/);
+  assert.match(form, /수시 주기는 건강디딤돌 비대상으로 처리됩니다/);
 });

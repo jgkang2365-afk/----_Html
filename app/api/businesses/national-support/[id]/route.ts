@@ -63,6 +63,7 @@ export async function PATCH(
       application_status: application_status || null,
       result: result || null,
       national_support_status: calculatedStatus,
+      status_source: "confirmed_result",
       updated_at: new Date().toISOString(),
     };
 

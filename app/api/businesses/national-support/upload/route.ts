@@ -178,6 +178,7 @@ export async function POST(request: NextRequest) {
           application_status: applicationStatus || null,
           result: result || null,
           national_support_status: nationalSupportStatus,
+          status_source: "confirmed_result",
           updated_at: new Date().toISOString(),
         }, {
           onConflict: 'code,year,period'

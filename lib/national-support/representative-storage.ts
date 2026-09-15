@@ -1,5 +1,23 @@
 import { normalizeNationalSupportRepresentativeOverride } from "./representative";
 
+/**
+ * 신청 대표자 override는 business_info의 부가 필드다. target을 수정하기 전에
+ * master 존재 여부를 확인해, 예측 가능한 missing-master 오류가 partial write로
+ * 바뀌지 않게 한다.
+ */
+export async function hasNationalSupportRepresentativeMaster(
+  supabase: any,
+  code: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("business_info")
+    .select("code")
+    .eq("code", code)
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
+}
+
 /** business master에만 건강디딤돌 override를 저장한다. 기본 대표자 원본은 건드리지 않는다. */
 export async function saveNationalSupportRepresentativeOverride(
   supabase: any,

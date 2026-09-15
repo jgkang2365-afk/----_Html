@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
         application_status: application_status || null,
         result: result || null,
         national_support_status: calculatedStatus,
+        status_source: "confirmed_result",
       })
       .select()
       .single();
@@ -301,13 +302,17 @@ export async function GET(request: NextRequest) {
               // 3단계 결합 우선순위 정의 (1. 계획 테이블값 -> 2. 실적 마스터값 -> 3. 기본정보 마스터값)
               const mbFallback = mbMap.get(tb.code) || { representative_name: null, industrial_accident_number: null, commencement_number: null };
               const biInfo = bInfoMap.get(tb.code);
-              const biRepName = resolveNationalSupportRepresentative(
+              // 목록의 신청 대표자는 실행 snapshot 다음으로, 현재 override를
+              // 항상 우선한다. 기본 대표자 3계층은 override가 없을 때만 fallback이다.
+              const canonicalBaseRepresentative =
+                tb.representative_name || mbFallback.representative_name || biInfo?.representativeName || null;
+              const effectiveNationalSupportRepresentative = resolveNationalSupportRepresentative(
                 biInfo?.nationalSupportRepresentativeName,
-                biInfo?.representativeName,
+                canonicalBaseRepresentative,
               );
 
               const payload = {
-                representative_name: tb.representative_name || mbFallback.representative_name || biRepName || null,
+                representative_name: effectiveNationalSupportRepresentative,
                 industrial_accident_number: tb.industrial_accident_number || mbFallback.industrial_accident_number || null,
                 commencement_number: tb.commencement_number || mbFallback.commencement_number || null,
                 sync_status: tb.sync_status || null
@@ -327,12 +332,13 @@ export async function GET(request: NextRequest) {
             if (!targetBusinessMap.has(code)) {
               const mbFallback = mbMap.get(code) || { representative_name: null, industrial_accident_number: null, commencement_number: null };
               const biInfo = bInfoMap.get(code);
-              const biRepName = resolveNationalSupportRepresentative(
+              const canonicalBaseRepresentative = mbFallback.representative_name || biInfo?.representativeName || null;
+              const effectiveNationalSupportRepresentative = resolveNationalSupportRepresentative(
                 biInfo?.nationalSupportRepresentativeName,
-                biInfo?.representativeName,
+                canonicalBaseRepresentative,
               );
               targetBusinessMap.set(code, {
-                representative_name: mbFallback.representative_name || biRepName || null,
+                representative_name: effectiveNationalSupportRepresentative,
                 industrial_accident_number: mbFallback.industrial_accident_number || null,
                 commencement_number: mbFallback.commencement_number || null,
                 sync_status: null

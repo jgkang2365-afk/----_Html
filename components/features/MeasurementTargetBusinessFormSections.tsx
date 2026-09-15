@@ -226,9 +226,16 @@ export const MeasurementTargetBusinessFormSections: React.FC<
   onManualNationalSupportIntentChange,
 }) => {
   const isCreate = mode === "create";
+  const isAdHocPeriod = Boolean(value.period?.includes("(수시)"));
   const [jurisdictionPreviewStatus, setJurisdictionPreviewStatus] =
     React.useState<JurisdictionPreviewStatus>("idle");
   const previewRequestSequence = React.useRef(0);
+
+  React.useEffect(() => {
+    if (isAdHocPeriod && manualNationalSupportIntent.enabled) {
+      onManualNationalSupportIntentChange?.(EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT);
+    }
+  }, [isAdHocPeriod, manualNationalSupportIntent.enabled, onManualNationalSupportIntentChange]);
   const onChangeRef = React.useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -553,7 +560,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">국고지원여부</label>
             <div className="flex min-h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
-              {manualNationalSupportIntent.enabled ? (
+              {manualNationalSupportIntent.enabled && !isAdHocPeriod ? (
                 <Select
                   value={manualNationalSupportIntent.draft || ""}
                   onChange={(event) => onManualNationalSupportIntentChange?.({
@@ -592,7 +599,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
                     commencement_number: value.commencement || value.commencement_number,
                   }))}
             </div>
-            {isAdmin && (
+            {isAdmin && !isAdHocPeriod && (
               <label className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
                 <input
                   type="checkbox"
@@ -606,7 +613,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
                 관리자 수정
               </label>
             )}
-            {value.period?.includes("(수시)") && (
+            {isAdHocPeriod && (
               <p className="mt-1 text-[11px] font-semibold text-red-600">
                 수시 주기는 건강디딤돌 비대상으로 처리됩니다.
               </p>

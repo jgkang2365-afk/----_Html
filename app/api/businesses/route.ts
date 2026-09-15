@@ -28,7 +28,10 @@ import {
 } from "@/lib/business-coordinates/service";
 import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
-import { saveNationalSupportRepresentativeOverride } from "@/lib/national-support/representative-storage";
+import {
+  hasNationalSupportRepresentativeMaster,
+  saveNationalSupportRepresentativeOverride,
+} from "@/lib/national-support/representative-storage";
 import {
   hasNationalSupportLookupInformation,
   getInitialNationalSupportState,
@@ -505,9 +508,10 @@ export async function PATCH(request: NextRequest) {
     let existingProcessChanged: boolean | null = null;
     let existingPeriod: string | null = null;
     let existingYear: number | null = null;
+    let existingCode: string | null = null;
 
     if (id || (code && year && period)) {
-      let bQuery = supabase.from("measurement_target_business").select("id, measurement_date, business_name, address, coordinate_locked, measurer_id, link_measurer_id, collaborators, daily_staff, business_type, process_changed, period, year");
+      let bQuery = supabase.from("measurement_target_business").select("id, code, measurement_date, business_name, address, coordinate_locked, measurer_id, link_measurer_id, collaborators, daily_staff, business_type, process_changed, period, year");
       if (id) {
         bQuery = bQuery.eq("id", id);
       } else if (code && year && period) {
@@ -528,6 +532,7 @@ export async function PATCH(request: NextRequest) {
         existingProcessChanged = oldData.process_changed ?? null;
         existingPeriod = oldData.period ?? null;
         existingYear = oldData.year ?? null;
+        existingCode = oldData.code ?? null;
       }
     }
 
@@ -575,6 +580,19 @@ export async function PATCH(request: NextRequest) {
       "business_type", "process_changed"
     ]);
     const requestedNationalSupportRepresentative = updates.national_support_representative_name;
+    const overrideCode = code || existingCode;
+    if (Object.prototype.hasOwnProperty.call(updates, "national_support_representative_name")) {
+      if (!overrideCode) {
+        return NextResponse.json({ error: "신청 대표자를 저장할 사업장 코드를 확인할 수 없습니다." }, { status: 400 });
+      }
+      const masterExists = await hasNationalSupportRepresentativeMaster(supabase, String(overrideCode));
+      if (!masterExists) {
+        return NextResponse.json(
+          { error: "신청 대표자를 저장할 사업장 기본정보가 없습니다. 사업장 기본정보를 먼저 등록해 주세요." },
+          { status: 409 },
+        );
+      }
+    }
     const updatePayload: any = Object.fromEntries(
       Object.entries(updates).filter(([key]) => allowedUpdateColumns.has(key))
     );
@@ -679,13 +697,23 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    if (Object.prototype.hasOwnProperty.call(updates, "national_support_representative_name") && code) {
-      await saveNationalSupportRepresentativeOverride(supabase, {
-        code: String(code),
-        businessName: String(updatedData.business_name || businessNameForNote),
-        representativeName: updatedData.representative_name,
-        override: requestedNationalSupportRepresentative,
-      });
+    if (Object.prototype.hasOwnProperty.call(updates, "national_support_representative_name") && overrideCode) {
+      try {
+        await saveNationalSupportRepresentativeOverride(supabase, {
+          code: String(overrideCode),
+          businessName: String(updatedData.business_name || businessNameForNote),
+          representativeName: updatedData.representative_name,
+          override: requestedNationalSupportRepresentative,
+        });
+      } catch (overrideError) {
+        console.error("[NationalSupportRepresentative] PATCH override 후속 저장 실패:", overrideError);
+        return NextResponse.json({
+          error: "신청 대표자 저장에 실패했습니다. 측정대상사업장 변경은 이미 저장되었습니다.",
+          code: "NATIONAL_SUPPORT_REPRESENTATIVE_OVERRIDE_PARTIAL_SAVE",
+          targetSaved: true,
+          partialSave: true,
+        }, { status: 500 });
+      }
     }
 
     let geocodeResult = null;
@@ -1340,12 +1368,24 @@ export async function POST(request: NextRequest) {
       if (requestedManualStatus !== "대상" && requestedManualStatus !== "비대상") {
         return NextResponse.json({ error: "국고지원 상태는 대상 또는 비대상만 가능합니다." }, { status: 400 });
       }
+      if (isAdHocMeasurement(period) && requestedManualStatus === "대상") {
+        return NextResponse.json({ error: "수시 주기는 건강디딤돌 비대상으로 처리됩니다." }, { status: 400 });
+      }
       initialSupportState = {
-        nationalSupportStatus: requestedManualStatus,
-        syncStatus: "수동확정",
+        nationalSupportStatus: isAdHocMeasurement(period) ? "비대상" : requestedManualStatus,
+        syncStatus: isAdHocMeasurement(period) ? "성공" : "수동확정",
         shouldQueueLookup: false,
         shouldAutoApply: false,
       };
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "national_support_representative_name")) {
+      const masterExists = await hasNationalSupportRepresentativeMaster(supabase, String(code));
+      if (!masterExists) {
+        return NextResponse.json(
+          { error: "신청 대표자를 저장할 사업장 기본정보가 없습니다. 사업장 기본정보를 먼저 등록해 주세요." },
+          { status: 409 },
+        );
+      }
     }
     if (!isNullableBusinessType(business_type ?? null)) {
       return NextResponse.json({ error: "business_type 값이 올바르지 않습니다." }, { status: 400 });
@@ -1430,12 +1470,22 @@ export async function POST(request: NextRequest) {
     }
 
     if (Object.prototype.hasOwnProperty.call(body, "national_support_representative_name")) {
-      await saveNationalSupportRepresentativeOverride(supabase, {
-        code: String(code),
-        businessName: String(business_name),
-        representativeName: representative_name,
-        override: body.national_support_representative_name,
-      });
+      try {
+        await saveNationalSupportRepresentativeOverride(supabase, {
+          code: String(code),
+          businessName: String(business_name),
+          representativeName: representative_name,
+          override: body.national_support_representative_name,
+        });
+      } catch (overrideError) {
+        console.error("[NationalSupportRepresentative] POST override 후속 저장 실패:", overrideError);
+        return NextResponse.json({
+          error: "신청 대표자 저장에 실패했습니다. 측정대상사업장 등록은 이미 저장되었습니다.",
+          code: "NATIONAL_SUPPORT_REPRESENTATIVE_OVERRIDE_PARTIAL_SAVE",
+          targetSaved: true,
+          partialSave: true,
+        }, { status: 500 });
+      }
     }
 
     try {

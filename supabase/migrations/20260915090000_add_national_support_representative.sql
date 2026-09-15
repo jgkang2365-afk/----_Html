@@ -5,6 +5,18 @@ ALTER TABLE public.business_info
 ALTER TABLE public.national_support_application
   ADD COLUMN IF NOT EXISTS representative_name text NULL;
 
+-- 신청 결과가 실제 조회/업로드로 확정된 것인지, 관리자 수동 확인의
+-- placeholder인지를 구분한다. NULL은 이 migration 이전의 legacy 행이다.
+ALTER TABLE public.national_support_application
+  ADD COLUMN IF NOT EXISTS status_source text NULL;
+
+ALTER TABLE public.national_support_application
+  DROP CONSTRAINT IF EXISTS national_support_application_status_source_check;
+
+ALTER TABLE public.national_support_application
+  ADD CONSTRAINT national_support_application_status_source_check
+  CHECK (status_source IS NULL OR status_source IN ('manual_internal', 'confirmed_result'));
+
 -- 수동 확정 RPC가 쓰는 상태를 기존 queue 상태 제약에도 허용한다.
 DO $$
 DECLARE
@@ -87,16 +99,17 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'NATIONAL_SUPPORT_TARGET_NOT_FOUND'; END IF;
   IF final_support_status IS NOT NULL THEN
     INSERT INTO public.national_support_application (
-      code, year, period, application_status, result, national_support_status, representative_name
+      code, year, period, application_status, result, national_support_status, representative_name, status_source
     ) VALUES (
       completed.request_payload->>'code', (completed.request_payload->>'year')::INTEGER,
       completed.request_payload->>'period', final_application_status,
       final_support_status, final_support_status,
-      NULLIF(completed.request_payload->>'representative', '')
+      NULLIF(completed.request_payload->>'representative', ''), 'confirmed_result'
     ) ON CONFLICT (code, year, period) DO UPDATE SET
       application_status=EXCLUDED.application_status, result=EXCLUDED.result,
       national_support_status=EXCLUDED.national_support_status,
       representative_name=EXCLUDED.representative_name,
+      status_source=EXCLUDED.status_source,
       updated_at=CURRENT_TIMESTAMP;
     UPDATE public.measurement_journal SET national_support_status=final_support_status
     WHERE code=completed.request_payload->>'code'
@@ -113,10 +126,21 @@ AS $$
 BEGIN
   IF NEW.sync_status = '수동확정' AND NEW.national_support_status IN ('대상', '비대상') THEN
     INSERT INTO public.national_support_application (
-      code, year, period, application_status, result, national_support_status
-    ) VALUES (NEW.code, NEW.year, NEW.period, NULL, NULL, NEW.national_support_status)
+      code, year, period, application_status, result, national_support_status, status_source
+    ) VALUES (NEW.code, NEW.year, NEW.period, NULL, NULL, NEW.national_support_status, 'manual_internal')
     ON CONFLICT (code, year, period) DO UPDATE
-      SET national_support_status = EXCLUDED.national_support_status;
+      -- 수동 확정은 기존 실제 결과의 snapshot/status를 덮어쓰지 않는다.
+      SET national_support_status = EXCLUDED.national_support_status,
+          status_source = EXCLUDED.status_source,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE public.national_support_application.status_source IS DISTINCT FROM 'confirmed_result'
+        AND (
+          public.national_support_application.status_source IS NOT NULL
+          OR (
+            public.national_support_application.application_status IS NULL
+            AND public.national_support_application.result IS NULL
+          )
+        );
   END IF;
   RETURN NEW;
 END;
