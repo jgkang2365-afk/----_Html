@@ -78,6 +78,10 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = '42883', MESSAGE = 'REVERSE_PLANNER_APPLY_RPC_NOT_FOUND';
   END IF;
 
+  -- pg_get_functiondef preserves CRLF from the original historical migration.
+  -- Normalize before applying the LF-based deterministic patch anchors.
+  current_definition := replace(current_definition, E'\r\n', E'\n');
+
   corrected_definition := replace(
     current_definition,
     E'        ''automatic'',\n        target_row.measurement_date::date,',
