@@ -12,6 +12,7 @@ import {
 import { normalizeReportProcessingDateRange } from "../lib/report-processing/date-range";
 
 const source = readFileSync("app/(dashboard)/report-processing/page.tsx", "utf8");
+const tableSource = readFileSync("components/ui/Table.tsx", "utf8");
 
 test("보고서 처리 필터는 최초 진입 한 번만 자동 조회하고 입력 중에는 기존 결과를 유지한다", () => {
   assert.equal(shouldRunInitialReportProcessingQuery(false, false), false);
@@ -81,4 +82,10 @@ test('서버 날짜 범위 정규화는 From-only를 단일일로 만들고 잘�
   assert.deepEqual(normalizeReportProcessingDateRange(null, '2026-09-09', 'K2B 실제 접수일'), { ok: false, error: 'K2B 실제 접수일 시작일을 입력해주세요.' });
   assert.deepEqual(normalizeReportProcessingDateRange('2026-02-30', null, '측정일'), { ok: false, error: '측정일 형식을 확인해주세요.' });
   assert.deepEqual(normalizeReportProcessingDateRange('2026-09-10', '2026-09-09', '측정일'), { ok: false, error: '측정일 시작일은 종료일보다 늦을 수 없습니다.' });
+});
+
+test('report results table keeps sticky header inside a real vertical scroll container', () => {
+  assert.match(source, /<Table className="table-fixed text-sm" maxHeight="max-h-\[32rem\]">/);
+  assert.match(tableSource, /overflow-y-auto/);
+  assert.match(tableSource, /sticky top-0 z-30/);
 });

@@ -930,7 +930,7 @@ export default function ReportProcessingPage() {
                     <h2 className="text-base font-bold text-slate-800">검색 결과 {records.length}건</h2>
                     <span aria-label="페이지당 10개 고정 표시" className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600">10개씩 보기</span>
                 </div>
-                <Table className="table-fixed text-sm">
+                <Table className="table-fixed text-sm" maxHeight="max-h-[32rem]">
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-10">
