@@ -1,12 +1,14 @@
 import path from "node:path";
 import process from "node:process";
+import { writeFile } from "node:fs/promises";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { Client as PostgresClient } from "pg";
 
 const root = process.cwd();
-dotenv.config({ path: path.join(root, ".env.production-readonly.local") });
+const productionSourcePath = path.join(root, ".env.production-readonly.local");
+dotenv.config({ path: productionSourcePath });
 dotenv.config({ path: path.join(root, ".env.local"), override: false });
 
 const PRODUCTION_REF = "xjxqbwvcgffunqnkmoqw";
@@ -53,6 +55,32 @@ function assertProductionSource(urlValue) {
     throw new Error("PRODUCTION_SNAPSHOT_SOURCE_MISMATCH");
   }
 }
+
+async function resolveProductionSource() {
+  const explicitUrl = process.env.PROD_SNAPSHOT_SUPABASE_URL;
+  const explicitKey = process.env.PROD_SNAPSHOT_SERVICE_ROLE_KEY;
+  const fallbackUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const fallbackKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = explicitUrl || fallbackUrl;
+  const key = explicitKey || fallbackKey;
+
+  assertProductionSource(url);
+  if (!key) throw new Error("PRODUCTION_SNAPSHOT_SERVICE_ROLE_KEY_MISSING");
+
+  if ((!explicitUrl || !explicitKey) && fallbackUrl && fallbackKey) {
+    await writeFile(
+      productionSourcePath,
+      `PROD_SNAPSHOT_SUPABASE_URL=${fallbackUrl}\nPROD_SNAPSHOT_SERVICE_ROLE_KEY=${fallbackKey}\n`,
+      "utf8"
+    );
+    process.env.PROD_SNAPSHOT_SUPABASE_URL = fallbackUrl;
+    process.env.PROD_SNAPSHOT_SERVICE_ROLE_KEY = fallbackKey;
+    console.log("Production READ_ONLY snapshot source captured locally without logging credentials");
+  }
+
+  return { url, key };
+}
+
 function localDatabaseUrl() {
   const value = process.env.LOCAL_SUPABASE_DB_URL ?? "postgresql://postgres:postgres@127.0.0.1:55322/postgres";
   const url = new URL(value);
@@ -83,6 +111,7 @@ async function fetchAll(client, table) {
     if (page.length < PAGE_SIZE) return rows;
   }
 }
+
 async function assertLocalDatabaseReady(connectionString) {
   const postgres = new PostgresClient({ connectionString });
   try {
@@ -95,11 +124,7 @@ async function assertLocalDatabaseReady(connectionString) {
 }
 
 async function exportProduction() {
-  const url = process.env.PROD_SNAPSHOT_SUPABASE_URL;
-  const key = process.env.PROD_SNAPSHOT_SERVICE_ROLE_KEY;
-  assertProductionSource(url);
-  if (!key) throw new Error("PRODUCTION_SNAPSHOT_SERVICE_ROLE_KEY_MISSING");
-
+  const { url, key } = await resolveProductionSource();
   const client = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -152,6 +177,7 @@ async function resetIdSequence(postgres, table) {
   const maxId = Number(maxResult.rows[0]?.max_id ?? 0);
   await postgres.query("select setval($1::regclass, greatest($2::bigint, 1), $2::bigint > 0)", [name, maxId]);
 }
+
 async function provisionLocalLogin(postgres) {
   const name = process.env.TEST_USER_NAME?.trim();
   const password = process.env.TEST_USER_PASSWORD;
@@ -187,6 +213,7 @@ async function importLocal(connectionString, snapshot) {
     await postgres.end();
   }
 }
+
 async function verifyLocalCounts(connectionString, snapshot) {
   const postgres = new PostgresClient({ connectionString });
   await postgres.connect();
