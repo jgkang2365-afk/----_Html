@@ -51,7 +51,7 @@ test('날짜 그룹은 자동 종료일과 사용자 종료일을 독립적으�
 
 test('보고서 처리 필터는 접근 가능한 측정일·K2B 실제 접수일 그룹으로 구성한다', () => {
   assert.match(source, /<fieldset className="min-w-0 space-y-1">[\s\S]*?<legend[^>]*>측정일<\/legend>/);
-  assert.match(source, /<fieldset className="min-w-0 space-y-1 border-slate-100 xl:border-l xl:pl-3">[\s\S]*?<legend[^>]*>K2B 실제 접수일<\/legend>/);
+  assert.match(source, /<fieldset className="min-w-0 space-y-1 border-slate-100 min-\[1320px\]:border-l">[\s\S]*?<legend[^>]*>K2B 실제 접수일<\/legend>/);
   assert.match(source, /aria-label="측정일 시작일"/);
   assert.match(source, /aria-label="측정일 종료일"/);
   assert.match(source, /aria-label="K2B 실제 접수일 시작일"/);
@@ -61,8 +61,9 @@ test('보고서 처리 필터는 접근 가능한 측정일·K2B 실제 접수�
   assert.match(source, /aria-hidden="true">~<\/span>/);
   assert.match(source, /measurementDateToTouched/);
   assert.match(source, /k2bReceiptDateToTouched/);
-  assert.match(source, /xl:grid-cols-\[5\.5rem_5\.5rem_15\.75rem_15\.75rem_minmax\(10rem,1fr\)_auto_auto\]/);
-  assert.match(source, /flex-col gap-2 sm:col-span-2 sm:flex-row sm:items-end xl:col-span-1/);
+  assert.match(source, /min-\[1320px\]:grid-cols-\[6rem_6\.25rem_19rem_19rem_minmax\(17\.5rem,1fr\)_auto_auto\]/);
+  assert.match(source, /relative min-w-0 sm:col-span-2 min-\[1320px\]:col-span-1/);
+  assert.match(source, /grid-cols-\[minmax\(0,1fr\)_auto_minmax\(0,1fr\)\] items-center gap-1/);
   assert.doesNotMatch(source, /xl:col-span-4/);
 });
 

@@ -758,7 +758,7 @@ export default function ReportProcessingPage() {
     return (
         <>
         {activeJob && showRemoteJobProgress && remoteJobView && <RemoteJobProgressDialog title={remoteJobCopy[activeJob.type].title} view={remoteJobView} running onClose={() => setShowRemoteJobProgress(false)} onCancel={cancelActiveJob} cancelLabel="작업 중단" cancelPending={activeJob.status === 'cancel_requested'} />}
-        <div className="w-full min-w-0 max-w-[calc(100vw-2rem)] space-y-4 overflow-hidden p-4 md:p-6 lg:max-w-none">
+        <div className="w-full min-w-0 max-w-[calc(100vw-2rem)] space-y-4 overflow-hidden p-4 lg:px-0 lg:py-4 lg:max-w-none">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-xl font-bold text-gray-800 md:text-2xl">작업환경측정결과 보고서 처리</h1>
@@ -831,7 +831,7 @@ export default function ReportProcessingPage() {
                 }}
             />
 
-            <Card className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[5.5rem_5.5rem_15.75rem_15.75rem_minmax(10rem,1fr)_auto_auto] xl:items-end">
+            <Card className="grid gap-2 p-3 sm:grid-cols-2 min-[1320px]:grid-cols-[6rem_6.25rem_19rem_19rem_minmax(17.5rem,1fr)_auto_auto] min-[1320px]:items-end">
                 <div>
                     <Select
                         label="년도"
@@ -861,7 +861,7 @@ export default function ReportProcessingPage() {
                 </div>
                 <fieldset className="min-w-0 space-y-1">
                     <legend className="text-sm font-medium text-gray-700">측정일</legend>
-                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1">
                         <Input
                             type="date"
                             aria-label="측정일 시작일"
@@ -879,9 +879,9 @@ export default function ReportProcessingPage() {
                         />
                     </div>
                 </fieldset>
-                <fieldset className="min-w-0 space-y-1 border-slate-100 xl:border-l xl:pl-3">
+                <fieldset className="min-w-0 space-y-1 border-slate-100 min-[1320px]:border-l">
                     <legend className="text-sm font-medium text-gray-700">K2B 실제 접수일</legend>
-                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1">
                         <Input
                             type="date"
                             aria-label="K2B 실제 접수일 시작일"
@@ -899,32 +899,30 @@ export default function ReportProcessingPage() {
                         />
                     </div>
                 </fieldset>
-                <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 sm:flex-row sm:items-end xl:col-span-1 xl:border-l xl:border-slate-100 xl:pl-3">
-                    <div className="relative min-w-0 flex-1">
-                        <Input
-                            label="사업장 검색"
-                            placeholder="업체명 또는 코드 (쉼표 구분 가능)"
-                            value={filters.search}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    fetchRecords();
-                                }
-                            }}
-                            className="h-10 pr-10 text-sm"
-                        />
-                    </div>
-                    <Button size="sm" className="h-10 shrink-0 px-3" onClick={clearSearchFilters} variant="secondary" disabled={loading || refreshing}>초기화</Button>
-                    <Button size="sm" className="h-10 shrink-0 px-4" onClick={() => fetchRecords(false)} variant="primary" disabled={loading || refreshing}>
-                        {loading ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        ) : (
-                            <Search className="w-4 h-4 mr-2" />
-                        )}
-                        검색
-                    </Button>
+                <div className="relative min-w-0 sm:col-span-2 min-[1320px]:col-span-1">
+                    <Input
+                        label="사업장 검색"
+                        placeholder="업체명 또는 코드 (쉼표 구분 가능)"
+                        value={filters.search}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                        onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                fetchRecords();
+                            }
+                        }}
+                        className="h-10 pr-10 text-sm"
+                    />
                 </div>
+                <Button size="sm" className="h-10 px-3" onClick={clearSearchFilters} variant="secondary" disabled={loading || refreshing}>초기화</Button>
+                <Button size="sm" className="h-10 px-4" onClick={() => fetchRecords(false)} variant="primary" disabled={loading || refreshing}>
+                    {loading ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                        <Search className="w-4 h-4 mr-2" />
+                    )}
+                    검색
+                </Button>
             </Card>
 
             <section aria-label="보고서 처리 결과" className="space-y-2">
