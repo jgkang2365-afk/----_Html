@@ -55,6 +55,8 @@ WEB_USERNAME = os.getenv("WEB_USERNAME")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD")
 owned_mes_process: subprocess.Popen | None = None
 cancel_requested = threading.Event()
+is_interactive = bool(getattr(sys.stdin, "isatty", lambda: False)()) and bool(getattr(sys.stdout, "isatty", lambda: False)())
+MES_SAVE_CONFIRM_TIMEOUT_SECONDS = float(os.getenv("MES_SAVE_CONFIRM_TIMEOUT_SECONDS", "30"))
 
 def cleanup_owned_mes() -> None:
     """Close only the MES instance launched by this run, never a user's MES."""
@@ -87,6 +89,44 @@ def wait_for_logged_in_main(login_win, prior_main_handles: set[int], timeout: fl
                     return candidate
         time.sleep(0.25)
     raise RuntimeError("MES_MAIN_WINDOW_NOT_FOUND")
+
+def wait_for_save_complete_popup(main_process_id: int, timeout: float | None = None):
+    """Wait for the owned MES save-complete dialog without silently burning a long timeout."""
+    deadline = time.monotonic() + (MES_SAVE_CONFIRM_TIMEOUT_SECONDS if timeout is None else timeout)
+    desktop = Desktop(backend="win32")
+    while time.monotonic() < deadline:
+        if cancel_requested.is_set():
+            raise RuntimeError("MES_CANCEL_REQUESTED")
+        try:
+            dialogs = desktop.windows(title="확인", class_name="#32770", visible_only=True)
+        except Exception as error:
+            raise RuntimeError("MES_SAVE_CONFIRMATION_DISCOVERY_FAILED") from error
+        for candidate in dialogs:
+            try:
+                if candidate.process_id() != main_process_id:
+                    continue
+                combined_text = " ".join(str(text or "") for text in candidate.texts())
+                if "자료" in combined_text and "저장" in combined_text:
+                    return candidate
+            except Exception:
+                continue
+        time.sleep(0.2)
+    raise RuntimeError("MES_SAVE_CONFIRMATION_NOT_FOUND")
+
+
+def refresh_owned_main_window(main_process_id: int, timeout: float = 5):
+    """Reacquire the owned main window after startup dialogs may invalidate the original HWND."""
+    deadline = time.monotonic() + timeout
+    desktop = Desktop(backend="win32")
+    while time.monotonic() < deadline:
+        for candidate in desktop.windows(title_re=MAIN_TITLE, visible_only=True):
+            try:
+                if candidate.process_id() == main_process_id:
+                    return candidate
+            except Exception:
+                continue
+        time.sleep(0.2)
+    raise RuntimeError("MES_MAIN_WINDOW_REFRESH_FAILED")
 
 def start_mes_and_login(read_only: bool = False):
     """Start one owned MES process and return a verified, newly-created main window."""
@@ -465,6 +505,7 @@ def main():
     print("[-] MES 로그인 및 메인 화면 진입 대기 중...")
     try:
         main_win = start_mes_and_login()
+        main_process_id = main_win.process_id()
         time.sleep(2)
         
         # 초기 공지 팝업 3개 닫기 시퀀스 (Tab -> Space)
@@ -480,6 +521,7 @@ def main():
 
     # 4. 메뉴 이동 (측정사업장)
     print("[-] 측정사업장 메뉴로 이동합니다.")
+    main_win = refresh_owned_main_window(main_process_id)
     main_win.set_focus()
     send_keys("{VK_MENU}") # Alt키 활성화
     time.sleep(0.8)
@@ -533,24 +575,13 @@ def main():
     print("[-] 추가 엔터 전송...")
     press_key(VK_RETURN)
     
-    print("[-] 자료 저장 완료 팝업 대기 중 (최대 5분)...")
-    start_wait = time.time()
-    popup_found = False
-    while time.time() - start_wait < 300:
-        try:
-            confirm_win = app.window(title="확인", class_name="#32770")
-            if confirm_win.exists():
-                if confirm_win.child_window(title_re=".*자료.*저장.*").exists():
-                    print("[OK] 자료 저장 완료 팝업 감지 완료.")
-                    popup_found = True
-                    break
-        except Exception:
-            pass
-        time.sleep(0.5)
-        
-    if not popup_found:
-        print("[경고] 5분 동안 자료 저장 완료 팝업이 감지되지 않았습니다. 계속 진행합니다.")
-        
+    print(f"[-] 자료 저장 완료 팝업 대기 중 (최대 {MES_SAVE_CONFIRM_TIMEOUT_SECONDS:g}초)...")
+    confirm_win = wait_for_save_complete_popup(main_process_id)
+    print("[OK] 자료 저장 완료 팝업 감지 완료.")
+    try:
+        confirm_win.set_focus()
+    except Exception:
+        pass
     print("[-] 완료 팝업 확인 엔터 전송...")
     press_key(VK_RETURN)
     print("[-] 1.5초 대기...")
