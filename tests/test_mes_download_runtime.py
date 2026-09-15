@@ -8,6 +8,7 @@ import mes_download
 class MesDownloadRuntimeTest(unittest.TestCase):
     def tearDown(self):
         mes_download.owned_mes_process = None
+        mes_download.cancel_requested.clear()
 
     def test_login_requires_closed_dialog_and_new_main_window(self):
         login = Mock()
@@ -63,6 +64,41 @@ class MesDownloadRuntimeTest(unittest.TestCase):
              patch("mes_download.cleanup_owned_mes") as cleanup:
             mes_download.read_only_smoke()
         cleanup.assert_called_once()
+
+    def test_save_complete_popup_is_scoped_to_owned_mes_process(self):
+        wrong = Mock()
+        wrong.process_id.return_value = 111
+        wrong.texts.return_value = ["\ud655\uc778", "\uc790\ub8cc \uc800\uc7a5 \uc644\ub8cc"]
+        matching = Mock()
+        matching.process_id.return_value = 222
+        matching.texts.return_value = ["\ud655\uc778", "\uc790\ub8cc \uc800\uc7a5 \uc644\ub8cc"]
+        desktop = Mock(windows=Mock(return_value=[wrong, matching]))
+        with patch("mes_download.Desktop", return_value=desktop):
+            found = mes_download.wait_for_save_complete_popup(222, timeout=1)
+        self.assertIs(found, matching)
+
+    def test_save_complete_popup_fails_fast_instead_of_silent_five_minute_wait(self):
+        desktop = Mock(windows=Mock(return_value=[]))
+        with patch("mes_download.Desktop", return_value=desktop), \
+             patch("mes_download.time.monotonic", side_effect=[0, 1]):
+            with self.assertRaisesRegex(RuntimeError, "MES_SAVE_CONFIRMATION_NOT_FOUND"):
+                mes_download.wait_for_save_complete_popup(222, timeout=0.5)
+
+    def test_main_window_refresh_reacquires_owned_process_window(self):
+        wrong = Mock()
+        wrong.process_id.return_value = 111
+        matching = Mock()
+        matching.process_id.return_value = 222
+        with patch("mes_download.Desktop", return_value=Mock(windows=Mock(return_value=[wrong, matching]))):
+            found = mes_download.refresh_owned_main_window(222, timeout=1)
+        self.assertIs(found, matching)
+
+    def test_mes_save_confirmation_has_no_broken_local_app_or_300_second_loop(self):
+        source = Path("mes_download.py").read_text(encoding="utf-8")
+        self.assertNotIn('app.window(title="\ud655\uc778"', source)
+        self.assertNotIn("while time.time() - start_wait < 300", source)
+        self.assertIn('MES_SAVE_CONFIRM_TIMEOUT_SECONDS = float(os.getenv("MES_SAVE_CONFIRM_TIMEOUT_SECONDS", "30"))', source)
+        self.assertIn("is_interactive =", source)
 
     def test_mes_execution_has_no_windows_admin_preflight_or_uac_elevation(self):
         source = Path("mes_download.py").read_text(encoding="utf-8")
