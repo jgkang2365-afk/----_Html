@@ -62,6 +62,13 @@ test('보고서 처리 필터는 접근 가능한 측정일·K2B 실제 접수�
   assert.doesNotMatch(source, /xl:col-span-4/);
 });
 
+test('검색 결과 영역은 건수·페이지 단위와 다음 행동이 있는 빈 상태를 표시한다', () => {
+  assert.match(source, /검색 결과 \{records\.length\}건/);
+  assert.match(source, /10개씩 보기/);
+  assert.match(source, /검색 결과가 없습니다\./);
+  assert.match(source, /검색 조건을 변경하여 다시 검색해 주세요\./);
+});
+
 test('서버 날짜 범위 정규화는 From-only를 단일일로 만들고 잘못된 요청을 400 사유로 구분한다', () => {
   assert.deepEqual(normalizeReportProcessingDateRange('2026-09-09', null, '측정일'), { ok: true, range: { from: '2026-09-09', to: '2026-09-09' } });
   assert.deepEqual(normalizeReportProcessingDateRange(null, '2026-09-09', 'K2B 실제 접수일'), { ok: false, error: 'K2B 실제 접수일 시작일을 입력해주세요.' });

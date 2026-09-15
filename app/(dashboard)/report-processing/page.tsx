@@ -925,26 +925,30 @@ export default function ReportProcessingPage() {
             </Card>
 
             <section aria-label="보고서 처리 결과" className="space-y-2">
-                <Table className="min-w-[1280px] table-fixed text-sm">
+                <div className="flex items-center justify-between px-1">
+                    <h2 className="text-base font-bold text-slate-800">검색 결과 {records.length}건</h2>
+                    <span className="text-sm text-slate-500">10개씩 보기</span>
+                </div>
+                <Table className="table-fixed text-sm">
                     <TableHeader>
                         <TableRow>
-                            <TableHead className="w-11">
+                            <TableHead className="w-10">
                                 <Checkbox
                                     checked={allVisibleRecordsSelected}
                                     onChange={toggleAll}
                                 />
                             </TableHead>
-                            <TableHead className="w-16 text-center">구분</TableHead>
-                            <TableHead className="w-20 text-center">년도</TableHead>
-                            <TableHead className="w-20 text-center">주기</TableHead>
+                            <TableHead className="w-14 text-center">구분</TableHead>
+                            <TableHead className="w-16 text-center">년도</TableHead>
+                            <TableHead className="w-16 text-center">주기</TableHead>
                             <TableHead className="w-32 text-center">측정일</TableHead>
-                            <TableHead className="w-24">업체코드</TableHead>
-                            <TableHead className="w-40">사업장명</TableHead>
-                            <TableHead className="w-48">담당자 이메일</TableHead>
-                            <TableHead className="w-44">이메일 발송 상태</TableHead>
-                            <TableHead className="w-28">K2B 전송일자</TableHead>
-                            <TableHead className="w-28">K2B 상태</TableHead>
-                            <TableHead className="w-44">실제결과 정합성</TableHead>
+                            <TableHead className="w-20">업체코드</TableHead>
+                            <TableHead className="w-28">사업장명</TableHead>
+                            <TableHead className="w-36">담당자 이메일</TableHead>
+                            <TableHead className="w-28">이메일 발송 상태</TableHead>
+                            <TableHead className="w-24">K2B 전송일자</TableHead>
+                            <TableHead className="w-24">K2B 상태</TableHead>
+                            <TableHead className="w-28">실제결과 정합성</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -956,8 +960,11 @@ export default function ReportProcessingPage() {
                             </TableRow>
                         ) : records.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={12} className="h-20 text-center text-muted-foreground">
-                                    조회된 데이터가 없습니다.
+                                <TableCell colSpan={12} className="h-24 text-center text-muted-foreground">
+                                    <div className="space-y-1">
+                                        <p className="font-medium text-slate-600">검색 결과가 없습니다.</p>
+                                        <p className="text-sm">검색 조건을 변경하여 다시 검색해 주세요.</p>
+                                    </div>
                                 </TableCell>
                             </TableRow>
                         ) : (

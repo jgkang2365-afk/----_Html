@@ -190,9 +190,9 @@ export function K2BBusinessResultPanel({ refreshKey, onApproved, onExecutionFini
   };
 
   return <>
-    <Card className="space-y-3 p-4" aria-label="K2B 실제결과">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <Card className="space-y-2 p-3" aria-label="K2B 실제결과">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           <h2 className="text-base font-bold text-slate-800">K2B 실제결과</h2>
           <span role="status" className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700">{statusLabel}</span>
           <p aria-label="검증 결과 요약" className="text-xs text-slate-600">{execution?.verificationRows.length
