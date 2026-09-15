@@ -828,7 +828,7 @@ export default function ReportProcessingPage() {
                 }}
             />
 
-            <Card className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[8rem_8rem_minmax(19rem,1fr)_minmax(19rem,1fr)] xl:items-end">
+            <Card className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[5.5rem_5.5rem_15.75rem_15.75rem_minmax(10rem,1fr)_auto_auto] xl:items-end">
                 <div>
                     <Select
                         label="년도"
@@ -896,7 +896,7 @@ export default function ReportProcessingPage() {
                         />
                     </div>
                 </fieldset>
-                <div className="flex min-w-0 items-end gap-2 sm:col-span-2 xl:col-span-4">
+                <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 sm:flex-row sm:items-end xl:col-span-1">
                     <div className="relative min-w-0 flex-1">
                         <Input
                             label="사업장 검색"

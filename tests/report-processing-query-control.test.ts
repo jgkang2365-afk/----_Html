@@ -57,6 +57,9 @@ test('보고서 처리 필터는 접근 가능한 측정일·K2B 실제 접수�
   assert.match(source, /aria-hidden="true">~<\/span>/);
   assert.match(source, /measurementDateToTouched/);
   assert.match(source, /k2bReceiptDateToTouched/);
+  assert.match(source, /xl:grid-cols-\[5\.5rem_5\.5rem_15\.75rem_15\.75rem_minmax\(10rem,1fr\)_auto_auto\]/);
+  assert.match(source, /flex-col gap-2 sm:col-span-2 sm:flex-row sm:items-end xl:col-span-1/);
+  assert.doesNotMatch(source, /xl:col-span-4/);
 });
 
 test('서버 날짜 범위 정규화는 From-only를 단일일로 만들고 잘못된 요청을 400 사유로 구분한다', () => {
