@@ -29,7 +29,7 @@ import {
     searchReportExplorer
 } from '@/lib/report-explorer/client';
 import { reportProcessingMeasurementDateLabel } from '@/lib/report-processing/measurement-dates';
-import { clearReportProcessingSearchFilters, shouldRunInitialReportProcessingQuery } from '@/lib/report-processing/query-control';
+import { clearReportProcessingSearchFilters, reportProcessingDateRangeError, shouldRunInitialReportProcessingQuery } from '@/lib/report-processing/query-control';
 import type {
     ReportExplorerConnectionStatus,
     ReportExplorerMatch,
@@ -67,7 +67,10 @@ const REPORT_PROCESSING_FILTERS_STORAGE_KEY = 'reportProcessingFilters';
 const DEFAULT_REPORT_PROCESSING_FILTERS = {
     year: new Date().getFullYear().toString(),
     period: '상반기',
-    measurementDate: '',
+    measurementDateFrom: '',
+    measurementDateTo: '',
+    k2bReceiptDateFrom: '',
+    k2bReceiptDateTo: '',
     search: ''
 };
 const PAGE_SIZE = 10;
@@ -94,7 +97,15 @@ function restoreReportProcessingFilters(value: string | null) {
         return {
             year: typeof saved.year === 'string' ? saved.year : DEFAULT_REPORT_PROCESSING_FILTERS.year,
             period: typeof saved.period === 'string' ? saved.period : DEFAULT_REPORT_PROCESSING_FILTERS.period,
-            measurementDate: typeof saved.measurementDate === 'string' ? saved.measurementDate : DEFAULT_REPORT_PROCESSING_FILTERS.measurementDate,
+            // 기존 단일 측정일 저장값은 시작/종료일이 같은 범위로만 승격한다.
+            measurementDateFrom: typeof saved.measurementDateFrom === 'string'
+                ? saved.measurementDateFrom
+                : typeof saved.measurementDate === 'string' ? saved.measurementDate : '',
+            measurementDateTo: typeof saved.measurementDateTo === 'string'
+                ? saved.measurementDateTo
+                : typeof saved.measurementDate === 'string' ? saved.measurementDate : '',
+            k2bReceiptDateFrom: typeof saved.k2bReceiptDateFrom === 'string' ? saved.k2bReceiptDateFrom : '',
+            k2bReceiptDateTo: typeof saved.k2bReceiptDateTo === 'string' ? saved.k2bReceiptDateTo : '',
             search: typeof saved.search === 'string' ? saved.search : DEFAULT_REPORT_PROCESSING_FILTERS.search
         };
     } catch {
@@ -163,10 +174,19 @@ export default function ReportProcessingPage() {
         else setLoading(true);
 
         try {
+            const rangeError = reportProcessingDateRangeError(queryFilters.measurementDateFrom, queryFilters.measurementDateTo, '측정일')
+                ?? reportProcessingDateRangeError(queryFilters.k2bReceiptDateFrom, queryFilters.k2bReceiptDateTo, 'K2B 실제 접수일');
+            if (rangeError) {
+                toast.error(rangeError);
+                return;
+            }
             const searchParams = new URLSearchParams({
                 year: queryFilters.year,
                 period: queryFilters.period,
-                measurementDate: queryFilters.measurementDate,
+                measurementDateFrom: queryFilters.measurementDateFrom,
+                measurementDateTo: queryFilters.measurementDateTo,
+                k2bReceiptDateFrom: queryFilters.k2bReceiptDateFrom,
+                k2bReceiptDateTo: queryFilters.k2bReceiptDateTo,
                 search: queryFilters.search,
                 t: Date.now().toString()
             });
@@ -214,6 +234,13 @@ export default function ReportProcessingPage() {
         const next = clearReportProcessingSearchFilters(filters);
         setFilters(next);
         void fetchRecords(false, next);
+    };
+
+    const updateDateRangeFrom = (fromKey: 'measurementDateFrom' | 'k2bReceiptDateFrom', toKey: 'measurementDateTo' | 'k2bReceiptDateTo', value: string) => {
+        setFilters((previous) => {
+            if (!value) return { ...previous, [fromKey]: '', [toKey]: '' };
+            return { ...previous, [fromKey]: value, [toKey]: previous[toKey] || value };
+        });
     };
 
     useEffect(() => {
@@ -765,7 +792,7 @@ export default function ReportProcessingPage() {
                 }}
             />
 
-            <Card className="grid gap-3 p-4 md:grid-cols-[10rem_10rem_10rem_minmax(16rem,1fr)] md:items-end">
+            <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[9rem_9rem_10rem_10rem_10rem_10rem_minmax(16rem,1fr)] xl:items-end">
                 <div>
                     <Select
                         label="년도"
@@ -795,10 +822,37 @@ export default function ReportProcessingPage() {
                 </div>
                 <div>
                     <Input
-                        label="측정일"
+                        label="측정일 시작"
                         type="date"
-                        value={filters.measurementDate}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilters(prev => ({ ...prev, measurementDate: e.target.value }))}
+                        value={filters.measurementDateFrom}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeFrom('measurementDateFrom', 'measurementDateTo', e.target.value)}
+                        className="h-10 text-sm"
+                    />
+                </div>
+                <div>
+                    <Input
+                        label="측정일 종료"
+                        type="date"
+                        value={filters.measurementDateTo}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilters(prev => ({ ...prev, measurementDateTo: e.target.value }))}
+                        className="h-10 text-sm"
+                    />
+                </div>
+                <div>
+                    <Input
+                        label="실제 접수일 시작"
+                        type="date"
+                        value={filters.k2bReceiptDateFrom}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeFrom('k2bReceiptDateFrom', 'k2bReceiptDateTo', e.target.value)}
+                        className="h-10 text-sm"
+                    />
+                </div>
+                <div>
+                    <Input
+                        label="실제 접수일 종료"
+                        type="date"
+                        value={filters.k2bReceiptDateTo}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilters(prev => ({ ...prev, k2bReceiptDateTo: e.target.value }))}
                         className="h-10 text-sm"
                     />
                 </div>
@@ -869,8 +923,18 @@ export default function ReportProcessingPage() {
                         ) : (
                             visibleRecords.map((record: BusinessRecord) => {
                                 const rowKey = `${record.code}-${record.year}-${record.period}`;
-                                const consistencyStatus = record.k2b_consistency_status || record.k2b_verified_status || 'UNVERIFIED';
+                                const hasK2BDateMismatch = Boolean(
+                                    record.k2b_send_date
+                                    && record.k2b_verified_send_date
+                                    && record.k2b_send_date !== record.k2b_verified_send_date,
+                                );
+                                const consistencyStatus = hasK2BDateMismatch
+                                    ? 'YELLOW'
+                                    : record.k2b_consistency_status || record.k2b_verified_status || 'UNVERIFIED';
                                 const consistencySignal = K2B_CONSISTENCY_SIGNAL[consistencyStatus];
+                                const consistencyNote = hasK2BDateMismatch
+                                    ? `날짜 불일치: 내부 ${record.k2b_send_date} / 실제 ${record.k2b_verified_send_date}`
+                                    : record.k2b_consistency_note || '실제결과 미검증';
                                 return (
                                     <TableRow key={rowKey} className="h-12">
                                         <TableCell className="px-4 py-2">
@@ -927,16 +991,16 @@ export default function ReportProcessingPage() {
                                                 <span className="text-muted-foreground text-sm">-</span>
                                             )}
                                         </TableCell>
-                                        <TableCell title={record.k2b_consistency_note}>
+                                        <TableCell title={consistencyNote}>
                                             <span
                                                 className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-sm font-semibold ${K2B_CONSISTENCY_SIGNAL_CLASS[consistencyStatus]}`}
                                                 aria-label={`K2B 실제결과 ${consistencySignal.label}`}
-                                                title={`${consistencySignal.label}: ${record.k2b_consistency_note || '상세 정보 없음'}`}
+                                                title={`${consistencySignal.label}: ${consistencyNote}`}
                                             >
                                                 <span aria-hidden="true">{consistencySignal.icon}</span>
                                                 <span>{consistencySignal.label}</span>
                                             </span>
-                                            <span className="block text-[11px] text-slate-500">{record.k2b_consistency_note || '실제결과 미검증'}</span>
+                                            <span className="block text-[11px] text-slate-500">{consistencyNote}</span>
                                             {(record.k2b_consistency_status === 'STALE' || record.k2b_consistency_status === 'RED') && <span className="block text-[11px] text-slate-500">마지막 검증 {record.k2b_verified_at ? record.k2b_verified_at.substring(0, 16).replace('T', ' ') : '없음'}</span>}
                                         </TableCell>
                                     </TableRow>

@@ -10,6 +10,7 @@ import { Alert } from "@/components/ui/Alert";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
+import { getKSTDateString } from "@/lib/utils/date-utils";
 import { formatBusinessNumber, parseBusinessNumber, isValidDigitCount } from "@/lib/utils/business-number";
 import { useUser } from "@/hooks/use-user";
 import { cn } from "@/lib/utils";
@@ -1986,6 +1987,7 @@ export const JournalEditForm: React.FC<JournalEditFormProps> = ({
         <Input
           label="K2B 전송일"
           type="date"
+          max={getKSTDateString()}
           value={normalizeDateForInput(formData.k2b_send_date)}
           onChange={(e) =>
             setFormData({ ...formData, k2b_send_date: e.target.value })

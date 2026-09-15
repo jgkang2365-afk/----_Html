@@ -9,6 +9,7 @@ import { fullNameToShortName } from "@/lib/utils/jurisdiction-matcher";
 import { cleanToDigits, isValidDigitCount } from "@/lib/utils/business-number";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 import { resolveJournalManagerEmailUpdate } from "@/lib/journal/manager-email-policy";
+import { validateUserEnteredK2BSendDate } from '@/lib/k2b/user-input-date';
 import {
   applyTargetClassificationToJournalNote,
   resolveTargetBusinessCategory,
@@ -36,6 +37,10 @@ export async function PUT(
 
     const journalId = params.id;
     const body = await request.json();
+    if (Object.prototype.hasOwnProperty.call(body, 'k2b_send_date')) {
+      const k2bSendDateError = validateUserEnteredK2BSendDate(body.k2b_send_date);
+      if (k2bSendDateError) return NextResponse.json({ error: k2bSendDateError }, { status: 400 });
+    }
 
     // 자릿수 검증 (추가된 요구사항: 사업자 10자리, 산재/개시 11자리)
     const bNum = body.business_number;

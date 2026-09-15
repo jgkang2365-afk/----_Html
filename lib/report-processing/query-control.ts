@@ -1,7 +1,10 @@
 export type ReportProcessingQueryFilters = {
   year: string;
   period: string;
-  measurementDate: string;
+  measurementDateFrom: string;
+  measurementDateTo: string;
+  k2bReceiptDateFrom: string;
+  k2bReceiptDateTo: string;
   search: string;
 };
 
@@ -11,5 +14,19 @@ export function shouldRunInitialReportProcessingQuery(filtersReady: boolean, ini
 }
 
 export function clearReportProcessingSearchFilters<T extends ReportProcessingQueryFilters>(filters: T): T {
-  return { ...filters, measurementDate: "", search: "" };
+  return {
+    ...filters,
+    measurementDateFrom: "",
+    measurementDateTo: "",
+    k2bReceiptDateFrom: "",
+    k2bReceiptDateTo: "",
+    search: "",
+  };
+}
+
+export function reportProcessingDateRangeError(from: string, to: string, label: string): string | null {
+  if (!from && !to) return null;
+  if (!from) return `${label} 시작일을 입력해주세요.`;
+  if (from > (to || from)) return `${label} 시작일은 종료일보다 늦을 수 없습니다.`;
+  return null;
 }

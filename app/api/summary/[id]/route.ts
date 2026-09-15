@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { getKSTISOString } from "@/lib/utils/date-utils";
+import { validateUserEnteredK2BSendDate } from '@/lib/k2b/user-input-date';
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
 
 /**
@@ -77,6 +78,10 @@ export async function PATCH(
     if (updateData.measurement_start_date === "") updateData.measurement_start_date = null;
     if (updateData.measurement_end_date === "") updateData.measurement_end_date = null;
     if (updateData.k2b_send_date === "") updateData.k2b_send_date = null;
+    if (Object.prototype.hasOwnProperty.call(updateData, 'k2b_send_date')) {
+      const k2bSendDateError = validateUserEnteredK2BSendDate(updateData.k2b_send_date);
+      if (k2bSendDateError) return NextResponse.json({ error: k2bSendDateError }, { status: 400 });
+    }
     if (updateData.electronic_invoice_date === "") updateData.electronic_invoice_date = null;
     if (updateData.electronic_invoice_date_2 === "") updateData.electronic_invoice_date_2 = null;
     if (updateData.deposit_date_business === "") updateData.deposit_date_business = null;

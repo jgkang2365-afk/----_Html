@@ -19,7 +19,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Alert } from "@/components/ui/Alert";
 import { Modal } from "@/components/ui/Modal";
 import { Textarea } from "@/components/ui/Textarea";
-import { formatDateYYYYMMDD } from "@/lib/utils/date-utils";
+import { formatDateYYYYMMDD, getKSTDateString } from "@/lib/utils/date-utils";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
 import { getDynamicEmailFontSize, splitEmails } from "@/lib/utils/email-utils";
@@ -1823,6 +1823,7 @@ export const SummaryTable: React.FC = () => {
                       <Input
                         className="h-11 md:h-10 text-base md:text-sm shadow-sm"
                         type="date"
+                        max={getKSTDateString()}
                         value={normalizeDateForInput(editFormData.k2b_send_date)}
                         onChange={(e) =>
                           setEditFormData({ ...editFormData, k2b_send_date: e.target.value })
