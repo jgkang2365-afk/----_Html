@@ -77,11 +77,12 @@ test('보고서 처리 API는 target 일정을 batch 조회하고 날짜 범위�
 test('보고서 처리 화면은 날짜 범위를 조회 순서와 결과 표에 표시하고 현재 페이지만 선택한다', () => {
   const page = readFileSync('app/(dashboard)/report-processing/page.tsx', 'utf8');
 
-  assert.match(page, /label="측정일 시작"/);
-  assert.match(page, /label="측정일 종료"/);
-  assert.match(page, /label="실제 접수일 시작"/);
-  assert.match(page, /label="실제 접수일 종료"/);
-  assert.match(page, /previous\[toKey\] \|\| value/);
+  assert.match(page, /<legend[^>]*>측정일<\/legend>/);
+  assert.match(page, /<legend[^>]*>K2B 실제 접수일<\/legend>/);
+  assert.match(page, /label="시작일"/);
+  assert.match(page, /label="종료일"/);
+  assert.match(page, /changeReportProcessingDateRangeStart/);
+  assert.match(page, /changeReportProcessingDateRangeEnd/);
   assert.match(page, /type="date"/);
   assert.match(page, /<TableHead className="w-32 text-center">측정일<\/TableHead>/);
   assert.match(page, /reportProcessingMeasurementDateLabel\(record\.measurement_dates\)/);

@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { clearReportProcessingSearchFilters, reportProcessingDateRangeError, shouldRunInitialReportProcessingQuery } from "../lib/report-processing/query-control";
+import {
+  changeReportProcessingDateRangeEnd,
+  changeReportProcessingDateRangeStart,
+  clearReportProcessingSearchFilters,
+  reportProcessingDateRangeError,
+  restoreReportProcessingDateRangeInputState,
+  shouldRunInitialReportProcessingQuery,
+} from "../lib/report-processing/query-control";
 import { normalizeReportProcessingDateRange } from "../lib/report-processing/date-range";
 
 const source = readFileSync("app/(dashboard)/report-processing/page.tsx", "utf8");
@@ -19,7 +26,7 @@ test("보고서 처리 필터는 최초 진입 한 번만 자동 조회하고 �
 test("초기화는 year/period를 보존한 명시적 next filter로 정확히 한 번 조회한다", () => {
   assert.deepEqual(clearReportProcessingSearchFilters({ year: "2026", period: "하반기", measurementDateFrom: "2026-09-09", measurementDateTo: "2026-09-10", k2bReceiptDateFrom: "2026-09-11", k2bReceiptDateTo: "2026-09-12", search: "알파" }), { year: "2026", period: "하반기", measurementDateFrom: "", measurementDateTo: "", k2bReceiptDateFrom: "", k2bReceiptDateTo: "", search: "" });
   assert.match(source, /const next = clearReportProcessingSearchFilters\(filters\);/);
-  assert.match(source, /setFilters\(next\);\s*void fetchRecords\(false, next\);/);
+  assert.match(source, /setFilters\(next\);[\s\S]*?void fetchRecords\(false, next\);/);
   assert.doesNotMatch(source, /setTimeout\(\(\) => void fetchRecords\(\), 0\)/);
 });
 
@@ -28,6 +35,28 @@ test('날짜 범위는 종료일 단독 입력과 역전 범위를 검색 전에
   assert.equal(reportProcessingDateRangeError('2026-09-09', '', '측정일'), null);
   assert.equal(reportProcessingDateRangeError('', '2026-09-09', '측정일'), '측정일 시작일을 입력해주세요.');
   assert.equal(reportProcessingDateRangeError('2026-09-10', '2026-09-09', '측정일'), '측정일 시작일은 종료일보다 늦을 수 없습니다.');
+});
+
+test('날짜 그룹은 자동 종료일과 사용자 종료일을 독립적으로 구분한다', () => {
+  const automatic = restoreReportProcessingDateRangeInputState('2026-08-01', '2026-08-01');
+  assert.deepEqual(changeReportProcessingDateRangeStart(automatic, '2026-08-05'), { from: '2026-08-05', to: '2026-08-05', toTouched: false });
+
+  const touched = changeReportProcessingDateRangeEnd(automatic, '2026-08-20');
+  assert.deepEqual(touched, { from: '2026-08-01', to: '2026-08-20', toTouched: true });
+  assert.deepEqual(changeReportProcessingDateRangeStart(touched, '2026-08-05'), { from: '2026-08-05', to: '2026-08-20', toTouched: true });
+  assert.deepEqual(changeReportProcessingDateRangeEnd(touched, ''), { from: '2026-08-01', to: '', toTouched: true });
+  assert.deepEqual(changeReportProcessingDateRangeStart(touched, ''), { from: '', to: '', toTouched: false });
+  assert.equal(restoreReportProcessingDateRangeInputState('2026-08-01', '2026-08-20').toTouched, true);
+});
+
+test('보고서 처리 필터는 접근 가능한 측정일·K2B 실제 접수일 그룹으로 구성한다', () => {
+  assert.match(source, /<fieldset className="min-w-0 space-y-1\.5">[\s\S]*?<legend[^>]*>측정일<\/legend>/);
+  assert.match(source, /<fieldset className="min-w-0 space-y-1\.5">[\s\S]*?<legend[^>]*>K2B 실제 접수일<\/legend>/);
+  assert.match(source, /label="시작일"/);
+  assert.match(source, /label="종료일"/);
+  assert.match(source, /aria-hidden="true">~<\/span>/);
+  assert.match(source, /measurementDateToTouched/);
+  assert.match(source, /k2bReceiptDateToTouched/);
 });
 
 test('서버 날짜 범위 정규화는 From-only를 단일일로 만들고 잘못된 요청을 400 사유로 구분한다', () => {

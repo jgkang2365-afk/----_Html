@@ -29,7 +29,14 @@ import {
     searchReportExplorer
 } from '@/lib/report-explorer/client';
 import { reportProcessingMeasurementDateLabel } from '@/lib/report-processing/measurement-dates';
-import { clearReportProcessingSearchFilters, reportProcessingDateRangeError, shouldRunInitialReportProcessingQuery } from '@/lib/report-processing/query-control';
+import {
+    changeReportProcessingDateRangeEnd,
+    changeReportProcessingDateRangeStart,
+    clearReportProcessingSearchFilters,
+    reportProcessingDateRangeError,
+    restoreReportProcessingDateRangeInputState,
+    shouldRunInitialReportProcessingQuery,
+} from '@/lib/report-processing/query-control';
 import type {
     ReportExplorerConnectionStatus,
     ReportExplorerMatch,
@@ -145,6 +152,8 @@ export default function ReportProcessingPage() {
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]); // 기기: code 기반 -> key `${code}-${year}-${period}` 기반
     const [filters, setFilters] = useState(DEFAULT_REPORT_PROCESSING_FILTERS);
     const [filtersReady, setFiltersReady] = useState(false);
+    const [measurementDateToTouched, setMeasurementDateToTouched] = useState(false);
+    const [k2bReceiptDateToTouched, setK2BReceiptDateToTouched] = useState(false);
     const [useReportProcessingResults, setUseReportProcessingResults] = useState(true);
     const [manualExplorerNames, setManualExplorerNames] = useState('');
     const [explorerYear, setExplorerYear] = useState('');
@@ -215,7 +224,10 @@ export default function ReportProcessingPage() {
     };
 
     useEffect(() => {
-        setFilters(restoreReportProcessingFilters(localStorage.getItem(REPORT_PROCESSING_FILTERS_STORAGE_KEY)));
+        const restored = restoreReportProcessingFilters(localStorage.getItem(REPORT_PROCESSING_FILTERS_STORAGE_KEY));
+        setFilters(restored);
+        setMeasurementDateToTouched(restoreReportProcessingDateRangeInputState(restored.measurementDateFrom, restored.measurementDateTo).toTouched);
+        setK2BReceiptDateToTouched(restoreReportProcessingDateRangeInputState(restored.k2bReceiptDateFrom, restored.k2bReceiptDateTo).toTouched);
         setFiltersReady(true);
     }, []);
 
@@ -233,14 +245,38 @@ export default function ReportProcessingPage() {
     const clearSearchFilters = () => {
         const next = clearReportProcessingSearchFilters(filters);
         setFilters(next);
+        setMeasurementDateToTouched(false);
+        setK2BReceiptDateToTouched(false);
         void fetchRecords(false, next);
     };
 
-    const updateDateRangeFrom = (fromKey: 'measurementDateFrom' | 'k2bReceiptDateFrom', toKey: 'measurementDateTo' | 'k2bReceiptDateTo', value: string) => {
+    const updateDateRangeFrom = (
+        fromKey: 'measurementDateFrom' | 'k2bReceiptDateFrom',
+        toKey: 'measurementDateTo' | 'k2bReceiptDateTo',
+        toTouched: boolean,
+        setToTouched: (value: boolean) => void,
+        value: string,
+    ) => {
         setFilters((previous) => {
-            if (!value) return { ...previous, [fromKey]: '', [toKey]: '' };
-            return { ...previous, [fromKey]: value, [toKey]: previous[toKey] || value };
+            const next = changeReportProcessingDateRangeStart(
+                { from: previous[fromKey], to: previous[toKey], toTouched },
+                value,
+            );
+            return { ...previous, [fromKey]: next.from, [toKey]: next.to };
         });
+        if (!value) setToTouched(false);
+    };
+
+    const updateDateRangeTo = (
+        toKey: 'measurementDateTo' | 'k2bReceiptDateTo',
+        setToTouched: (value: boolean) => void,
+        value: string,
+    ) => {
+        setFilters((previous) => {
+            const next = changeReportProcessingDateRangeEnd({ from: '', to: previous[toKey], toTouched: false }, value);
+            return { ...previous, [toKey]: next.to };
+        });
+        setToTouched(true);
     };
 
     useEffect(() => {
@@ -792,7 +828,7 @@ export default function ReportProcessingPage() {
                 }}
             />
 
-            <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[9rem_9rem_10rem_10rem_10rem_10rem_minmax(16rem,1fr)] xl:items-end">
+            <Card className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[8rem_8rem_minmax(19rem,1fr)_minmax(19rem,1fr)] xl:items-end">
                 <div>
                     <Select
                         label="년도"
@@ -820,43 +856,47 @@ export default function ReportProcessingPage() {
                         ]}
                     />
                 </div>
-                <div>
-                    <Input
-                        label="측정일 시작"
-                        type="date"
-                        value={filters.measurementDateFrom}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeFrom('measurementDateFrom', 'measurementDateTo', e.target.value)}
-                        className="h-10 text-sm"
-                    />
-                </div>
-                <div>
-                    <Input
-                        label="측정일 종료"
-                        type="date"
-                        value={filters.measurementDateTo}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilters(prev => ({ ...prev, measurementDateTo: e.target.value }))}
-                        className="h-10 text-sm"
-                    />
-                </div>
-                <div>
-                    <Input
-                        label="실제 접수일 시작"
-                        type="date"
-                        value={filters.k2bReceiptDateFrom}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeFrom('k2bReceiptDateFrom', 'k2bReceiptDateTo', e.target.value)}
-                        className="h-10 text-sm"
-                    />
-                </div>
-                <div>
-                    <Input
-                        label="실제 접수일 종료"
-                        type="date"
-                        value={filters.k2bReceiptDateTo}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFilters(prev => ({ ...prev, k2bReceiptDateTo: e.target.value }))}
-                        className="h-10 text-sm"
-                    />
-                </div>
-                <div className="flex min-w-0 items-end gap-2">
+                <fieldset className="min-w-0 space-y-1.5">
+                    <legend className="text-sm font-medium text-gray-700">측정일</legend>
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                        <Input
+                            label="시작일"
+                            type="date"
+                            value={filters.measurementDateFrom}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeFrom('measurementDateFrom', 'measurementDateTo', measurementDateToTouched, setMeasurementDateToTouched, e.target.value)}
+                            className="h-10 text-sm"
+                        />
+                        <span className="pb-2 text-sm text-gray-500" aria-hidden="true">~</span>
+                        <Input
+                            label="종료일"
+                            type="date"
+                            value={filters.measurementDateTo}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeTo('measurementDateTo', setMeasurementDateToTouched, e.target.value)}
+                            className="h-10 text-sm"
+                        />
+                    </div>
+                </fieldset>
+                <fieldset className="min-w-0 space-y-1.5">
+                    <legend className="text-sm font-medium text-gray-700">K2B 실제 접수일</legend>
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2">
+                        <Input
+                            label="시작일"
+                            type="date"
+                            value={filters.k2bReceiptDateFrom}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeFrom('k2bReceiptDateFrom', 'k2bReceiptDateTo', k2bReceiptDateToTouched, setK2BReceiptDateToTouched, e.target.value)}
+                            className="h-10 text-sm"
+                        />
+                        <span className="pb-2 text-sm text-gray-500" aria-hidden="true">~</span>
+                        <Input
+                            label="종료일"
+                            type="date"
+                            value={filters.k2bReceiptDateTo}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateDateRangeTo('k2bReceiptDateTo', setK2BReceiptDateToTouched, e.target.value)}
+                            className="h-10 text-sm"
+                        />
+                    </div>
+                </fieldset>
+                <div className="flex min-w-0 items-end gap-2 sm:col-span-2 xl:col-span-4">
                     <div className="relative min-w-0 flex-1">
                         <Input
                             label="사업장 검색"
