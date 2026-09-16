@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { assertAdminK2BVerificationRange, buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, isK2BStaleCandidate, shouldSweepK2BStale } from "../lib/automation/k2b-original-sync";
-import { deriveK2BReconciliationUpdate, deriveK2BStaleUpdate, K2B_STALE_NOTICE, reconcileK2BSubmissionResults, shouldReflectActualK2BStatus } from "../lib/k2b-verification";
+import { deriveK2BReconciliationUpdate, deriveK2BStaleUpdate, K2B_STALE_NOTICE, reconcileK2BSubmissionResults, selectK2BStaleUpdates, shouldReflectActualK2BStatus } from "../lib/k2b-verification";
 import { selectStoredK2BVerificationApprovalRows } from "../lib/automation/k2b-verification-approval";
 
 const target = { journalId: 1, code: "A", businessName: "동명이인", resultDate: "2026-09-09", industrialAccidentNumber: "123-45", commencementNumber: "00001", internalK2BStatus: "정상처리", internalK2BSendDate: "2026-09-09" };
@@ -135,12 +135,22 @@ test("STALE 전환은 기존 실제 오류 note를 보존하고 반복 실행해
   assert.equal(Object.keys(repeated).sort().join(","), "k2b_consistency_note,k2b_consistency_status,k2b_verified_status");
 });
 
+test("완전히 STALE인 행은 두 번째 scheduled sweep에서 DB update 대상이 아니다", () => {
+  const firstCandidates = [{ id: 1, k2b_verified_status: "YELLOW", k2b_consistency_status: "YELLOW", k2b_consistency_note: "K2B 실제결과 오류: 접수번호 불일치" }];
+  const firstUpdates = selectK2BStaleUpdates(firstCandidates);
+  assert.equal(firstUpdates.length, 1);
+  const afterFirst = { ...firstCandidates[0], ...firstUpdates[0].update };
+  assert.deepEqual(selectK2BStaleUpdates([afterFirst]), []);
+  assert.deepEqual(selectK2BStaleUpdates([{ id: 2, k2b_verified_status: "STALE", k2b_consistency_status: "STALE", k2b_consistency_note: "기존 사유" }]).map(({ id }) => id), [2]);
+  assert.deepEqual(selectK2BStaleUpdates([{ id: 3, k2b_verified_status: "GREEN", k2b_consistency_status: "GREEN", k2b_consistency_note: null }]), []);
+});
+
 test("scheduled 원본 동기화는 7일을 지난 non-GREEN을 관측값 보존형 STALE로 전이한다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
   assert.match(worker, /shouldSweepK2BStale\(trigger\)/);
   assert.match(worker, /buildK2BStaleCutoff\(getKSTDateString\(\)\)/);
   assert.match(worker, /\.lt\('k2b_send_date', staleCutoff\)/);
-  assert.match(worker, /deriveK2BStaleUpdate\(journal\.k2b_consistency_note\)/);
+  assert.match(worker, /selectK2BStaleUpdates\(staleCandidates \|\| \[\]\)/);
   assert.doesNotMatch(worker, /\.lt\('k2b_send_date', range\.fromDate\)/);
   assert.match(worker, /k2b_verified_status\.is\.null,k2b_verified_status\.neq\.GREEN/);
 });

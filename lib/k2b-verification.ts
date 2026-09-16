@@ -187,6 +187,33 @@ export function deriveK2BStaleUpdate(existingConsistencyNote: string | null | un
   };
 }
 
+/**
+ * 이미 완전히 STALE인 행도 과거 중단 등으로 일부 필드가 누락됐을 수 있다.
+ * 계산된 STALE patch와 현재 저장값이 다를 때만 DB write를 허용한다.
+ */
+export function needsK2BStaleUpdate(
+  current: Pick<Record<"k2b_verified_status" | "k2b_consistency_status" | "k2b_consistency_note", string | null | undefined>, "k2b_verified_status" | "k2b_consistency_status" | "k2b_consistency_note">,
+  update: Record<string, string>,
+): boolean {
+  return Object.entries(update).some(([field, value]) => current[field as keyof typeof current] !== value);
+}
+
+export type K2BStaleCandidate = {
+  id: string | number;
+  k2b_verified_status: string | null | undefined;
+  k2b_consistency_status: string | null | undefined;
+  k2b_consistency_note: string | null | undefined;
+};
+
+/** DB 후보 중 실제 patch가 달라지는 행만 반환해 write count를 결정론적으로 만든다. */
+export function selectK2BStaleUpdates(candidates: readonly K2BStaleCandidate[]): Array<{ id: K2BStaleCandidate["id"]; update: Record<string, string> }> {
+  return candidates.flatMap((candidate) => {
+    if (candidate.k2b_verified_status === "GREEN") return [];
+    const update = deriveK2BStaleUpdate(candidate.k2b_consistency_note);
+    return needsK2BStaleUpdate(candidate, update) ? [{ id: candidate.id, update }] : [];
+  });
+}
+
 export function verificationFailureState(previous: K2BVerificationState | null | undefined): "STALE" | "UNVERIFIED" {
   return previous === "GREEN" ? "STALE" : "UNVERIFIED";
 }
