@@ -174,7 +174,14 @@ export function deriveK2BReconciliationUpdate(
     k2b_verification_attempted_at: attemptedAt,
   };
   update.k2b_status = journalStatusForK2BReconciliation(item);
-  update.k2b_send_date = item.verdict === "정상" && matched ? item.match!.submissionDate ?? null : null;
+  // 정상은 실제 접수일을 원천값으로 반영하고, 실제 반송/오류만 기존 접수일을 지운다.
+  // Grid 불완전·미확정·키 불일치 같은 판정불가에서는 관측하지 못한 기존 날짜를 null로
+  // 정규화하지 않는다. 해당 key를 omit해 DB의 마지막 정상 접수일을 보존한다.
+  if (item.verdict === "정상" && matched) {
+    update.k2b_send_date = item.match!.submissionDate ?? null;
+  } else if (item.verdict === "사용자반송" || item.verdict === "오류") {
+    update.k2b_send_date = null;
+  }
   if (!matched || !item.match) return update;
   update.k2b_verified_send_date = item.match.submissionDate ?? null;
   update.k2b_verified_result_date = item.match.submissionDate ?? null;

@@ -48,9 +48,17 @@ test("13. source 불완전은 NEEDS_CONFIRMATION이다", () => {
 test("14. NORMAL patch는 실제 접수일을 저장한다", () => assert.equal(deriveK2BReconciliationUpdate(reconcile([receipt()]), journal, "now").k2b_send_date, "2026-08-23"));
 test("15. 반송 patch는 send_date를 null로 비운다", () => assert.equal(deriveK2BReconciliationUpdate(reconcile([receipt({ submissionNumber: "반송파일" })]), journal, "now").k2b_send_date, null));
 test("16. 오류 patch는 send_date를 null로 비운다", () => assert.equal(deriveK2BReconciliationUpdate(reconcile([receipt({ errorDetail: "오류" })]), journal, "now").k2b_send_date, null));
-test("17. 확인 필요 patch는 send_date를 null로 비운다", () => {
+test("17. 확인 필요 patch는 기존 send_date를 omit하여 보존한다", () => {
   const [item] = reconcileK2BSubmissionResults([target], [receipt()], { completeness: "UNKNOWN" });
-  assert.equal(deriveK2BReconciliationUpdate(item, journal, "now").k2b_send_date, null);
+  const update = deriveK2BReconciliationUpdate(item, journal, "now");
+  assert.equal(Object.hasOwn(update, "k2b_send_date"), false);
+  assert.equal(journal.internalK2BSendDate, "2026-08-19");
+});
+test("17b. 기존 null의 판정불가는 date write 없이 material idempotency를 유지한다", () => {
+  const [item] = reconcileK2BSubmissionResults([{ ...target, internalK2BSendDate: null }], [receipt()], { completeness: "INCOMPLETE" });
+  const first = deriveK2BReconciliationUpdate(item, { internalK2BSendDate: null, k2bStatus: "결과 확인 필요" }, "now");
+  assert.equal(Object.hasOwn(first, "k2b_send_date"), false);
+  assert.equal(selectChangedK2BReconciliationUpdate(item, { internalK2BSendDate: null, k2bStatus: "결과 확인 필요", ...first }, "later"), null);
 });
 test("18. 08/19 정상 → 08/22 반송은 기존 날짜를 제거한다", () => assert.deepEqual(deriveK2BReconciliationUpdate(reconcile([receipt({ submissionDate: "2026-08-19" }), receipt({ submissionDate: "2026-08-22", submissionNumber: "반송파일" })]), journal, "now"), { k2b_verified_status: "YELLOW", k2b_verified_at: "now", k2b_consistency_status: "YELLOW", k2b_consistency_note: "K2B 실제결과 사용자반송", k2b_verification_error: null, k2b_verification_attempted_at: "now", k2b_status: "사용자반송", k2b_send_date: null, k2b_verified_send_date: "2026-08-22", k2b_verified_result_date: "2026-08-22", k2b_verified_remote_status: "정상처리" }));
 test("19. 이후 08/23 정상은 최신 날짜로 다시 저장한다", () => assert.equal(deriveK2BReconciliationUpdate(reconcile([receipt({ submissionDate: "2026-08-22", submissionNumber: "반송파일" }), receipt()]), journal, "now").k2b_send_date, "2026-08-23"));
