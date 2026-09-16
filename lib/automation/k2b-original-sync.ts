@@ -53,6 +53,15 @@ function normalized(value: unknown): string {
   return String(value ?? "").normalize("NFKC").replace(/\s+/g, "").trim();
 }
 
+export function resolveK2BJournalScope(receipt: Pick<K2BOriginalReceipt, "businessYear" | "half">): { measurementYear: number; measurementPeriod: "상반기" | "하반기" } {
+  const yearText = normalized(receipt.businessYear).replace(/년$/, "");
+  const periodText = normalized(receipt.half);
+  if (!/^\d{4}$/.test(yearText) || (periodText !== "상반기" && periodText !== "하반기")) {
+    throw new Error("K2B_GRID_SCHEMA_MISMATCH:invalid_business_scope");
+  }
+  return { measurementYear: Number(yearText), measurementPeriod: periodText };
+}
+
 function asKstDate(value: unknown): string | null {
   const digits = String(value ?? "").replace(/\D/g, "");
   if (digits.length !== 8) return null;
