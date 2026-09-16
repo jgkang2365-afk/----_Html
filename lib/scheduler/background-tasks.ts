@@ -3,7 +3,8 @@ import { backupDatabase } from '../../scripts/backup-db';
 import { createAdminClient } from '../supabase/admin';
 import { getKSTDateString } from '../utils/date-utils';
 import { K2B_VERIFY_SCHEDULE } from '../constants/k2b-verification';
-import { buildK2BSyncRange, K2B_SYNC_OVERLAP_DAYS } from '../automation/k2b-original-sync';
+import { buildK2BSyncRange } from '../automation/k2b-original-sync';
+import { K2B_VERIFY_UNRESOLVED_DAYS } from '../constants/k2b-verification';
 import { enqueueAutomationJob, mesScheduledIdempotencyKey, nationalSupportIdempotencyKey } from '../automation/jobs';
 import { forEachAscendingIdPage } from './id-pages';
 import { hasMeasurementJournalForTarget } from '../national-support/automation-contract';
@@ -134,12 +135,12 @@ export class BackgroundTasks {
             } });
             if (error) {
                 if (error.message.includes('K2B_AUTOMATION_ALREADY_ACTIVE')) {
-                    console.log(`[BackgroundTasks] K2B 원본 동기화 보류: 업로드/동기화 작업이 활성 상태입니다. overlap=${K2B_SYNC_OVERLAP_DAYS}`);
+                    console.log(`[BackgroundTasks] K2B 원본 동기화 보류: 업로드/동기화 작업이 활성 상태입니다. reverifyDays=${K2B_VERIFY_UNRESOLVED_DAYS}`);
                     return null;
                 }
                 throw error;
             }
-            console.log(`[BackgroundTasks] K2B 원본 동기화(${range.fromDate}..${range.toDate})를 등록했습니다. overlap=${K2B_SYNC_OVERLAP_DAYS}`);
+            console.log(`[BackgroundTasks] K2B 원본 동기화(${range.fromDate}..${range.toDate})를 등록했습니다. reverifyDays=${K2B_VERIFY_UNRESOLVED_DAYS}`);
             return data as string;
         } catch (error: any) {
             console.error('[BackgroundTasks] K2B 일일 검증 등록 실패:', error?.message || String(error));

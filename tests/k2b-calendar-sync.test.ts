@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { requestK2BCalendarSync } from "../lib/automation/k2b-calendar-sync-client";
+import { decideK2BCalendarSync } from "../lib/automation/k2b-calendar-sync-policy";
+import { reconcileK2BSubmissionResults } from "../lib/k2b-verification";
 
 test("K2B 최종 정상처리는 서버 캘린더 API에 인증된 요청을 보낸다", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
@@ -50,9 +52,9 @@ test("Worker는 중간 업로드 직후 동기화를 제거하고 최종 정상�
   const queue = readFileSync("app/api/report-processing/queue/route.ts", "utf8");
 
   assert.equal((worker.match(/this\.syncCalendarAfterK2B\(/g) || []).length, 1);
-  assert.match(worker, /if \(gr\.status === '정상처리'\)[\s\S]*?this\.syncCalendarAfterK2B/);
   assert.doesNotMatch(worker, /syncBusinessToCalendar/);
-  assert.match(worker, /await requireK2BJournalPersistence\([\s\S]*?this\.syncCalendarAfterK2B/);
+  assert.match(worker, /decideK2BCalendarSync\([\s\S]*?receipt: gr/);
+  assert.match(worker, /if \(calendarSyncDecision\.shouldSync\)[\s\S]*?this\.syncCalendarAfterK2B/);
   assert.match(worker, /calendarFailures = results\.filter\(r => r\.success && r\.calendarSyncSuccess === false\)/);
   assert.match(route, /journal\.k2b_status !== "정상처리"/);
   assert.match(route, /await syncBusinessToCalendar\(supabase, code, year, measurementPeriod\)/);
@@ -61,11 +63,9 @@ test("Worker는 중간 업로드 직후 동기화를 제거하고 최종 정상�
 });
 
 test("Worker는 period를 ASCII 안전값(first/second)으로 변환해 calendar sync API에 전달한다", () => {
-  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
-  // 상반기 → first, 하반기 → second 변환 + 지원하지 않는 period는 명시적 에러 처리
-  assert.match(worker, /matchTarget\.period === '상반기'\s*\?\s*'first'/);
-  assert.match(worker, /matchTarget\.period === '하반기'\s*\?\s*'second'/);
-  assert.match(worker, /지원하지 않는 measurement_period/);
+  assert.deepEqual(decideK2BCalendarSync({ exactMatch: true, receipt: { status: "정상처리" }, measurementPeriod: "상반기" }), { shouldSync: true, period: "first" });
+  assert.deepEqual(decideK2BCalendarSync({ exactMatch: true, receipt: { status: "정상처리" }, measurementPeriod: "하반기" }), { shouldSync: true, period: "second" });
+  assert.deepEqual(decideK2BCalendarSync({ exactMatch: true, receipt: { status: "정상처리" }, measurementPeriod: "분기" }), { shouldSync: false, reason: "unsupported_period" });
 });
 
 test("calendar-sync API는 period first/second를 내부 DB 값(상반기/하반기)으로 변환한다", () => {
@@ -80,13 +80,11 @@ test("calendar-sync API는 period first/second를 내부 DB 값(상반기/하반
 
 test("정상처리 확인 시 캘린더 동기화는 results 배열 유무와 무관하게 1회 보장된다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
-  // 캘린더 sync 호출이 rIdx !== -1 블록 밖(정상처리 판정 직후)에서 실행되어,
-  // results push 실패/매칭 오류 시에도 누락되지 않는다.
-  const block = worker.match(/K2B 접수현황이 '정상처리'로 확인되면[\s\S]*?this\.syncCalendarAfterK2B[\s\S]*?\n\s*\}\);/);
-  assert.ok(block, "정상처리 시 캘린더 sync 보장 주석 블록이 존재해야 한다");
-  // 조건 진입 후 진단 로그가 있어도 같은 블록 안에서 sync 호출이 보장된다.
-  assert.match(block[0], /if \(gr\.status === '정상처리'\)[\s\S]*?const calendarSync = await this\.syncCalendarAfterK2B/);
-  // 호출 위치가 rIdx !== -1 내부가 아님을 확인 (calendarSyncAfterK2B 호출 앞에 rIdx 검사가 없어야 함)
+  assert.deepEqual(decideK2BCalendarSync({ exactMatch: true, receipt: { status: "정상처리" }, measurementPeriod: "하반기" }), { shouldSync: true, period: "second" });
+  assert.deepEqual(decideK2BCalendarSync({ exactMatch: true, receipt: { status: "반려" }, measurementPeriod: "하반기" }), { shouldSync: false, reason: "not_normal" });
+  assert.deepEqual(decideK2BCalendarSync({ exactMatch: false, receipt: { status: "정상처리" }, measurementPeriod: "하반기" }), { shouldSync: false, reason: "not_exact" });
+  assert.deepEqual(decideK2BCalendarSync({ exactMatch: true, receipt: { status: "정상처리", errorDetail: "실제 오류" }, measurementPeriod: "하반기" }), { shouldSync: false, reason: "not_normal" });
+  // sync 결정은 results 배열을 입력으로 받지 않으며, Worker의 호출도 rIdx 기록 블록 밖에 있다.
   const syncCall = worker.indexOf("this.syncCalendarAfterK2B(");
   const preceding = worker.slice(Math.max(0, syncCall - 200), syncCall);
   assert.doesNotMatch(preceding, /if \(rIdx !== -1\)\s*\{[\s\S]{0,120}$/);
@@ -94,7 +92,78 @@ test("정상처리 확인 시 캘린더 동기화는 results 배열 유무와 �
 
 test("그리드 매칭 진단 로그로 매칭 실패 원인을 식별할 수 있다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
-  // 매칭 성공/실패 양쪽에 진단 로그가 있어 원인을 파악 가능
-  assert.match(worker, /그리드 매칭: company=\$\{gr\.companyName\} status=\$\{gr\.status\}/);
-  assert.match(worker, /그리드 매칭 실패: company=\$\{gr\.companyName\}/);
+  // canonical key 미확정 시 대상 코드와 reconciliation method가 함께 남아 운영 원인을 식별한다.
+  assert.match(worker, /exact-key result unresolved: target=\$\{matchTarget\.code\} method=\$\{reconciled\?\.matchMethod \|\| 'NONE'\}/);
+  assert.match(worker, /calendar sync skipped: code=\$\{matchTarget\.code\} period=\$\{String\(matchTarget\.period\)\}/);
+});
+
+test("전송 후 재조회도 사업년도와 반기를 포함한 canonical 4-key로만 확정한다", () => {
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  assert.match(worker, /businessYear: row\.businessYear,[\s\S]*?half: row\.half/);
+  assert.match(worker, /measurementYear: matchTarget\.year,[\s\S]*?measurementPeriod: matchTarget\.period/);
+
+  const [differentScope] = reconcileK2BSubmissionResults([{
+    code: "H0507",
+    industrialAccidentNumber: "123-45",
+    commencementNumber: "00001",
+    businessName: "동일 사업장",
+    resultDate: "2026-09-16",
+    measurementYear: 2026,
+    measurementPeriod: "하반기",
+    internalK2BSendDate: "2026-09-16",
+  }], [{
+    managementNumber: "123-45",
+    commencementNumber: "00001",
+    businessYear: "2025",
+    half: "상반기",
+    companyName: "동일 사업장",
+    submissionDate: "2026-09-16",
+    status: "정상처리",
+  }], { completeness: "COMPLETE" });
+  const calendarDecision = decideK2BCalendarSync({
+    exactMatch: differentScope.matchMethod === "exact_keys",
+    receipt: differentScope.match,
+    measurementPeriod: "하반기",
+  });
+
+  assert.equal(differentScope.matchMethod, "NONE");
+  assert.equal(differentScope.match, null);
+  assert.deepEqual(calendarDecision, { shouldSync: false, reason: "not_exact" });
+});
+
+test("불완전한 post-upload grid는 정상 상태·전송일·캘린더를 확정하지 않고 오류 관측은 유지한다", () => {
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  const [incompleteNormal] = reconcileK2BSubmissionResults([{
+    code: "H0507",
+    industrialAccidentNumber: "123-45",
+    commencementNumber: "00001",
+    businessName: "동일 사업장",
+    resultDate: "2026-09-16",
+    measurementYear: 2026,
+    measurementPeriod: "하반기",
+    internalK2BSendDate: "2026-09-16",
+  }], [{
+    managementNumber: "123-45",
+    commencementNumber: "00001",
+    businessYear: "2026",
+    half: "하반기",
+    submissionDate: "2026-09-16",
+    status: "정상처리",
+  }], { completeness: "INCOMPLETE" });
+
+  assert.equal(incompleteNormal.matchMethod, "exact_keys");
+  assert.equal(incompleteNormal.state, "YELLOW");
+  assert.equal(incompleteNormal.verdict, "확인 필요");
+  assert.match(worker, /const isConfirmedNormal = isObservedNormal[\s\S]*?reconciled\.state === 'GREEN'[\s\S]*?reconciled\.verdict === '\\uC815\\uC0C1'/);
+  assert.match(worker, /if \(isConfirmedNormal \|\| !isObservedNormal\)[\s\S]*?updateGridData\.k2b_status = effectiveStatus/);
+  assert.match(worker, /if \(isConfirmedNormal && \/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\//);
+  assert.match(worker, /exactMatch: isConfirmedNormal/);
+});
+
+test("동일 code/year/period 중복 target은 최종 reconciliation과 calendar sync를 한 번만 처리한다", () => {
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  assert.match(worker, /const finalizedTargetKeys = new Set<string>\(\);[\s\S]*?for \(const matchTarget of targets\)/);
+  assert.match(worker, /\[matchTarget\.code, matchTarget\.year, matchTarget\.period\][\s\S]*?join\('\\u0000'\)/);
+  assert.match(worker, /if \(finalizedTargetKeys\.has\(finalizedTargetKey\)\) continue;[\s\S]*?finalizedTargetKeys\.add\(finalizedTargetKey\)/);
+  assert.equal((worker.match(/this\.syncCalendarAfterK2B\(/g) || []).length, 1);
 });

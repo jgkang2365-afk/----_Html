@@ -190,14 +190,12 @@ test("새 K2B 검증은 대표계정 read-only 범위 조회와 업로드 직렬
   const migration = readFileSync("supabase/migrations/20260906022850_add_k2b_verification_fields.sql", "utf8");
   assert.match(service, /querySubmissionResultsForRange/); assert.doesNotMatch(service, /extractResults\(/);
   assert.match(k2b, /querySubmissionResultsForDate\(resultDate/); assert.match(k2b, /start_date_calendaredit_input/); assert.match(k2b, /end_date_calendaredit_input/); assert.match(k2b, /readOnlyMode/); assert.match(k2b, /waitForSubmissionGridRefresh/); assert.doesNotMatch(k2b, /stableIdentifier/);
-  assert.match(worker, /job\.job_type === 'k2b_verify'/); assert.match(worker, /k2b_verification_attempted_at/); assert.doesNotMatch(worker, /\.select\('k2b_id, k2b_pw'\)/); assert.match(worker, /querySubmissionResultsForRange\(verificationRange\.fromDate, verificationRange\.toDate\)/); assert.match(worker, /K2B 대표계정은 이 로컬 worker의 K2B_ID\/K2B_PW만 사용/); assert.match(worker, /\.gte\('k2b_send_date', verificationRange\.fromDate\)/); assert.match(worker, /\.lte\('k2b_send_date', verificationRange\.toDate\)/); assert.match(worker, /UNVERIFIED,STALE,YELLOW,RED/); assert.match(worker, /REPORT_PROCESSING_EXCLUDED_BUSINESS_NAME_PATTERN/); assert.match(worker, /selectReportProcessingCodes/); assert.match(worker, /from\('measurement_target_business'\)/); assert.doesNotMatch(worker, /K2B_VERIFY_MANUAL_CANDIDATE_LIMIT/); assert.match(worker, /journalsBySendDate/); assert.match(worker, /requireK2BJournalPersistence/); assert.match(scheduler, /cron\.schedule\(K2B_VERIFY_SCHEDULE/);
+  assert.match(worker, /job\.job_type === 'k2b_verify'/); assert.match(worker, /k2b_verification_attempted_at/); assert.doesNotMatch(worker, /\.select\('k2b_id, k2b_pw'\)/); assert.match(worker, /querySubmissionResultsForRange\(verificationRange\.fromDate, verificationRange\.toDate\)/); assert.match(worker, /K2B 대표계정은 이 로컬 worker의 K2B_ID\/K2B_PW만 사용/); assert.match(worker, /\.gte\('k2b_send_date', verificationRange\.fromDate\)/); assert.match(worker, /\.lte\('k2b_send_date', verificationRange\.toDate\)/); assert.doesNotMatch(worker, /UNVERIFIED,STALE,YELLOW,RED/); assert.match(worker, /REPORT_PROCESSING_EXCLUDED_BUSINESS_NAME_PATTERN/); assert.match(worker, /selectReportProcessingCodes/); assert.match(worker, /from\('measurement_target_business'\)/); assert.doesNotMatch(worker, /K2B_VERIFY_MANUAL_CANDIDATE_LIMIT/); assert.match(worker, /journalsBySendDate/); assert.match(worker, /requireK2BJournalPersistence/); assert.match(scheduler, /cron\.schedule\(K2B_VERIFY_SCHEDULE/);
   const verifyStart = worker.indexOf("private async processK2BVerifyJob");
   const failurePath = worker.slice(worker.indexOf("} catch (error: any) {", verifyStart), worker.indexOf("private async processK2BJob", verifyStart));
   assert.match(failurePath, /k2b_verification_error/); assert.doesNotMatch(failurePath, /k2b_verified_status:/);
   const verificationPath = worker.slice(verifyStart, worker.indexOf("private async processK2BJob", verifyStart));
-  assert.match(verificationPath, /const reflectActualStatus = \['정상', '오류'\]\.includes\(item\.verdict\)/);
-  assert.match(verificationPath, /journal\.k2b_send_date === item\.match\.submissionDate/);
-  assert.match(verificationPath, /\.\.\.\(reflectActualStatus \? \{ k2b_status: item\.match\.status \} : \{\}\)/);
+  assert.match(verificationPath, /deriveK2BReconciliationUpdate\(item, \{ internalK2BSendDate: journal\.k2b_send_date/);
   assert.doesNotMatch(verificationPath, /k2b_send_date\s*:/);
   assert.doesNotMatch(verificationPath, /k2b_sender\s*:/);
   assert.match(migration, /k2b_verified_send_date/); assert.match(migration, /k2b_consistency_status/); assert.match(migration, /k2b_consistency_note/); assert.match(migration, /enqueue_k2b_automation_job/); assert.match(migration, /enqueue_k2b_upload_job/); assert.match(migration, /TO service_role/); assert.doesNotMatch(migration, /GRANT EXECUTE[^;]+authenticated/);
@@ -210,6 +208,10 @@ test("K2B 정합성 UI의 주 표시는 내부 enum이 아닌 신호등과 사�
   assert.match(page, /YELLOW: \{ icon: '🟡', label: '확인 필요' \}/);
   assert.match(page, /RED: \{ icon: '🔴', label: '오류' \}/);
   assert.match(page, /UNVERIFIED: \{ icon: '⚪', label: '미검증' \}/);
+  assert.match(page, /STALE: \{ icon: '⚪', label: '검증 지연' \}/);
+  assert.match(page, /function k2bStatusPresentation/);
+  assert.match(page, /return \{ label: '진행', className: 'border-slate-200 bg-slate-50 text-slate-700' \}/);
+  assert.doesNotMatch(page, /record\.k2b_status === '정상처리' \? '성공' : '실패'/);
   assert.match(page, /aria-label=\{`K2B 실제결과 \$\{consistencySignal\.label\}`\}/);
   assert.doesNotMatch(page, />실제결과 \{record\.k2b_consistency_status/);
 });

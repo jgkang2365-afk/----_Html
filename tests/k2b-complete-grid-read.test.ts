@@ -211,11 +211,11 @@ test("COMPLETE exact0만 미접수, UNKNOWN/INCOMPLETE exact0는 확인 필요",
   assert.equal(reconcileK2BSubmissionResults([target], [])[0].verdict, "확인 필요");
 });
 
-test("INCOMPLETE/UNKNOWN이어도 실제 exact 1건 정상/오류 verdict를 유지한다", () => {
+test("INCOMPLETE/UNKNOWN 원본 Grid는 exact receipt가 있어도 자동 확정하지 않는다", () => {
   for (const completeness of ["INCOMPLETE", "UNKNOWN"] as const) {
-    assert.equal(reconcileK2BSubmissionResults([target], [exact], { completeness })[0].verdict, "정상");
+    assert.equal(reconcileK2BSubmissionResults([target], [exact], { completeness })[0].verdict, "확인 필요");
     for (const error of [{ errorDetail: "실제 오류" }, { errorViewAvailable: true }, { status: "파일오류" }]) {
-      assert.equal(reconcileK2BSubmissionResults([target], [{ ...exact, ...error }], { completeness })[0].verdict, "오류");
+      assert.equal(reconcileK2BSubmissionResults([target], [{ ...exact, ...error }], { completeness })[0].verdict, "확인 필요");
     }
   }
 });
