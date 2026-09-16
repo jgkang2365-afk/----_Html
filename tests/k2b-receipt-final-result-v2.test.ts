@@ -77,7 +77,7 @@ test("17d. AMBIGUOUS canonical 결과는 최종 update에서 기존 접수일 ke
   );
   const update = deriveK2BReconciliationUpdate(item, journal, "now");
 
-  assert.deepEqual([item.matchMethod, item.verdict], ["AMBIGUOUS", "확인 필요"]);
+  assert.deepEqual([item.matchMethod, item.verdict, item.state], ["AMBIGUOUS", "확인 필요", "YELLOW"]);
   assert.equal(update.k2b_status, "결과 확인 필요");
   assert.equal(Object.prototype.hasOwnProperty.call(update, "k2b_send_date"), false);
   assert.equal(journal.internalK2BSendDate, "2026-08-19");
@@ -90,7 +90,7 @@ test("17e. MISSING_KEY 결과는 최종 update에서 기존 접수일 key를 보
   );
   const update = deriveK2BReconciliationUpdate(item, journal, "now");
 
-  assert.deepEqual([item.matchMethod, item.verdict], ["MISSING_KEY", "확인 필요"]);
+  assert.deepEqual([item.matchMethod, item.verdict, item.state], ["MISSING_KEY", "확인 필요", "RED"]);
   assert.equal(update.k2b_status, "결과 확인 필요");
   assert.equal(Object.prototype.hasOwnProperty.call(update, "k2b_send_date"), false);
   assert.equal(journal.internalK2BSendDate, "2026-08-19");
