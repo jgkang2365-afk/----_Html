@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { assertAdminK2BVerificationRange, buildGeneralK2BVerificationRange, buildK2BSyncRange } from "../lib/automation/k2b-original-sync";
-import { deriveK2BReconciliationUpdate, reconcileK2BSubmissionResults, shouldReflectActualK2BStatus } from "../lib/k2b-verification";
+import { assertAdminK2BVerificationRange, buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, isK2BStaleCandidate, shouldSweepK2BStale } from "../lib/automation/k2b-original-sync";
+import { deriveK2BReconciliationUpdate, deriveK2BStaleUpdate, K2B_STALE_NOTICE, reconcileK2BSubmissionResults, shouldReflectActualK2BStatus } from "../lib/k2b-verification";
 import { selectStoredK2BVerificationApprovalRows } from "../lib/automation/k2b-verification-approval";
 
 const target = { journalId: 1, code: "A", businessName: "동명이인", resultDate: "2026-09-09", industrialAccidentNumber: "123-45", commencementNumber: "00001", internalK2BStatus: "정상처리", internalK2BSendDate: "2026-09-09" };
@@ -107,11 +107,40 @@ test("공통 반영 helper는 정상·실제오류·날짜불일치의 내부 �
   assert.equal(deriveK2BReconciliationUpdate(mismatch, { ...journal, internalK2BSendDate: "2026-09-08" }, "now").k2b_status, undefined);
 });
 
+test("STALE cutoff는 수동 1일 range와 무관하며 scheduled에만 전체 sweep을 허용한다", () => {
+  const cutoff = buildK2BStaleCutoff("2026-09-16");
+  assert.equal(cutoff, "2026-09-09");
+  assert.equal(shouldSweepK2BStale("manual"), false);
+  assert.equal(isK2BStaleCandidate("2026-09-10", "YELLOW", cutoff), false);
+  assert.equal(isK2BStaleCandidate("2026-09-08", "YELLOW", cutoff), true);
+});
+
+test("오래된 cursor catch-up range와 독립된 canonical cutoff만 STALE 후보를 만든다", () => {
+  const range = buildK2BSyncRange({ trigger: "scheduled", today: "2026-09-16", lastSuccessfulThroughDate: "2026-09-01" });
+  const cutoff = buildK2BStaleCutoff("2026-09-16");
+  assert.equal(range.fromDate, "2026-09-02");
+  assert.equal(isK2BStaleCandidate("2026-09-08", "RED", cutoff), true);
+  assert.equal(isK2BStaleCandidate("2026-09-09", "RED", cutoff), false);
+});
+
+test("STALE 전환은 기존 실제 오류 note를 보존하고 반복 실행해도 안내를 중복하지 않는다", () => {
+  const existing = "K2B 실제결과 오류: 접수번호 불일치";
+  const first = deriveK2BStaleUpdate(existing);
+  assert.equal(first.k2b_verified_status, "STALE");
+  assert.equal(first.k2b_consistency_status, "STALE");
+  assert.equal(first.k2b_consistency_note, `${existing} ${K2B_STALE_NOTICE}`);
+  const repeated = deriveK2BStaleUpdate(first.k2b_consistency_note);
+  assert.equal(repeated.k2b_consistency_note, first.k2b_consistency_note);
+  assert.equal(Object.keys(repeated).sort().join(","), "k2b_consistency_note,k2b_consistency_status,k2b_verified_status");
+});
+
 test("scheduled 원본 동기화는 7일을 지난 non-GREEN을 관측값 보존형 STALE로 전이한다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
-  assert.match(worker, /k2b_verified_status: 'STALE'/);
-  assert.match(worker, /k2b_consistency_status: 'STALE'/);
-  assert.match(worker, /자동 재확인 기간 7일이 경과했습니다/);
+  assert.match(worker, /shouldSweepK2BStale\(trigger\)/);
+  assert.match(worker, /buildK2BStaleCutoff\(getKSTDateString\(\)\)/);
+  assert.match(worker, /\.lt\('k2b_send_date', staleCutoff\)/);
+  assert.match(worker, /deriveK2BStaleUpdate\(journal\.k2b_consistency_note\)/);
+  assert.doesNotMatch(worker, /\.lt\('k2b_send_date', range\.fromDate\)/);
   assert.match(worker, /k2b_verified_status\.is\.null,k2b_verified_status\.neq\.GREEN/);
 });
 

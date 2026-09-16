@@ -44,6 +44,8 @@ export type K2BReconciliationJournal = Pick<K2BVerificationTarget, "internalK2BS
   k2bStatus: string | null | undefined;
 };
 
+export const K2B_STALE_NOTICE = "자동 재확인 기간 7일이 경과했습니다. 필요 시 관리자 재검증을 실행하세요.";
+
 const normalizeKey = (value: unknown) => String(value ?? "").replace(/\D/g, "");
 const normalizeYear = (value: unknown) => String(value ?? "").replace(/\D/g, "");
 const normalizePeriod = (value: unknown) => String(value ?? "").replace(/\s+/g, "").trim();
@@ -168,6 +170,21 @@ export function deriveK2BReconciliationUpdate(
     update.k2b_status = item.match.status ?? null;
   }
   return update;
+}
+
+/**
+ * STALE은 마지막 실제 관측값을 무효화하지 않는다. 기존 정합성 사유 뒤에 안내만 한 번
+ * 덧붙이며, 반복 scheduled 실행에서도 같은 안내를 중복 누적하지 않는다.
+ */
+export function deriveK2BStaleUpdate(existingConsistencyNote: string | null | undefined): Record<string, string> {
+  const existing = String(existingConsistencyNote ?? "").trim();
+  return {
+    k2b_verified_status: "STALE",
+    k2b_consistency_status: "STALE",
+    k2b_consistency_note: existing.includes(K2B_STALE_NOTICE)
+      ? existing
+      : [existing, K2B_STALE_NOTICE].filter(Boolean).join(" "),
+  };
 }
 
 export function verificationFailureState(previous: K2BVerificationState | null | undefined): "STALE" | "UNVERIFIED" {

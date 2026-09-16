@@ -3,8 +3,8 @@ import { EmailService } from '../email/email-service';
 import { K2BService } from './k2b-service';
 import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-verification-service';
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
-import { deriveK2BReconciliationUpdate, hasK2BReceiptError, reconcileK2BSubmissionResults, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
-import { buildGeneralK2BVerificationRange, buildK2BSyncRange, inclusiveK2BDates, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
+import { deriveK2BReconciliationUpdate, deriveK2BStaleUpdate, hasK2BReceiptError, reconcileK2BSubmissionResults, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
+import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, inclusiveK2BDates, shouldSweepK2BStale, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
 import os from 'node:os';
 import {
@@ -577,16 +577,23 @@ export class WorkerDaemon {
                 if (updateError) throw updateError;
                 executionResult.journalVerification.saved += 1;
             }
-            // 최근 자동 재확인 보증기간을 벗어난 미해결 건은 관측값을 지우지 않고 STALE만 표시한다.
-            const { data: staleRows, error: staleError } = await admin.from('measurement_journal').update({
-                k2b_verified_status: 'STALE',
-                k2b_consistency_status: 'STALE',
-                k2b_consistency_note: '자동 재확인 기간 7일이 경과했습니다. 필요 시 관리자 재검증을 실행하세요.',
-            }).lt('k2b_send_date', range.fromDate)
-                .or('k2b_verified_status.is.null,k2b_verified_status.neq.GREEN')
-                .select('id');
-            if (staleError) throw staleError;
-            executionResult.journalVerification.stale = staleRows?.length ?? 0;
+            // STALE sweep은 scheduled에만 실행한다. cursor/manual range가 아닌 KST 7일
+            // canonical cutoff를 사용하고, 기존 실제 관측 필드는 update에 포함하지 않는다.
+            if (shouldSweepK2BStale(trigger)) {
+                const staleCutoff = buildK2BStaleCutoff(getKSTDateString());
+                const { data: staleCandidates, error: staleCandidatesError } = await admin.from('measurement_journal')
+                    .select('id, k2b_consistency_note')
+                    .lt('k2b_send_date', staleCutoff)
+                    .or('k2b_verified_status.is.null,k2b_verified_status.neq.GREEN');
+                if (staleCandidatesError) throw staleCandidatesError;
+                for (const journal of staleCandidates || []) {
+                    const { error: staleError } = await admin.from('measurement_journal')
+                        .update(deriveK2BStaleUpdate(journal.k2b_consistency_note))
+                        .eq('id', journal.id);
+                    if (staleError) throw staleError;
+                }
+                executionResult.journalVerification.stale = staleCandidates?.length ?? 0;
+            }
             executionResult.databaseSaveCompleted = executionResult.rawReceiptPersistence.saved === executionResult.rawReceiptPersistence.attempted;
             // 수동은 cursor를 절대 전진하지 않는다. scheduled는 range 전체가 성공한 후에만 전진한다.
             if (trigger === 'scheduled' && executionResult.databaseSaveCompleted) {

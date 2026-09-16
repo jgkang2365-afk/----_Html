@@ -114,6 +114,29 @@ export function buildK2BSyncRange(input: {
   return { fromDate: reverifyFrom, toDate: through };
 }
 
+/**
+ * STALE은 이번 조회 range와 무관하게 KST 오늘 기준 자동 재확인 7일의 직전 경계로 판정한다.
+ * 예: 2026-09-16이면 2026-09-09부터 7일간은 재확인 대상이고, 그보다 과거만 STALE 후보이다.
+ */
+export function buildK2BStaleCutoff(today: string): string {
+  if (!asKstDate(today)) throw new Error("K2B_STALE_INVALID_TODAY");
+  return subtractDays(today, K2B_VERIFY_UNRESOLVED_DAYS);
+}
+
+/** 과거 전체 미해결 건의 STALE sweep은 scheduled 원본 동기화에만 허용한다. */
+export function shouldSweepK2BStale(trigger: K2BSyncTrigger): boolean {
+  return trigger === "scheduled";
+}
+
+/** DB query의 STALE 후보 조건과 동등한 순수 정책 함수로 회귀 테스트에 사용한다. */
+export function isK2BStaleCandidate(
+  k2bSendDate: string | null | undefined,
+  verifiedStatus: string | null | undefined,
+  staleCutoff: string,
+): boolean {
+  return Boolean(k2bSendDate && k2bSendDate < staleCutoff && verifiedStatus !== "GREEN");
+}
+
 export function inclusiveK2BDates(range: K2BRange): string[] {
   if (range.fromDate > range.toDate) throw new Error("K2B_SYNC_INVALID_RANGE");
   const dates: string[] = [];
