@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { buildK2BSyncRange, buildK2BSourceKey, inclusiveK2BDates, parseK2BSubmissionGrid } from "../lib/automation/k2b-original-sync";
+import { buildK2BSyncRange, buildK2BSourceKey, inclusiveK2BDates, parseK2BSubmissionGrid, resolveK2BJournalScope } from "../lib/automation/k2b-original-sync";
 
 const requiredHeaders = ["청구 파일명", "사업장명", "처리상태", "접수일", "사업년도", "반기", "지원구분", "접수번호", "관리번호", "개시번호", "순번"];
 const completeRow = ["alpha.xml", "알파", "정상처리", "2026-09-04", "2026", "하반기", "국고", "R-1", "M-1", "C-1", "1"];
@@ -17,6 +17,18 @@ test("manual은 명시 range만 받고 unknown trigger 추론을 금지한다", 
   assert.deepEqual(buildK2BSyncRange({ trigger: "manual", today: "2026-09-07", fromDate: "2026-09-02", toDate: "2026-09-03" }), { fromDate: "2026-09-02", toDate: "2026-09-03" });
   assert.throws(() => buildK2BSyncRange({ trigger: "unknown", today: "2026-09-07" }), /K2B_SYNC_UNKNOWN_TRIGGER/);
   assert.throws(() => buildK2BSyncRange({ trigger: "manual", today: "2026-09-07" }), /K2B_SYNC_MANUAL_RANGE_REQUIRED/);
+});
+
+test("K2B receipt business year and half scope journal matching", () => {
+  assert.deepEqual(resolveK2BJournalScope({ businessYear: "2026", half: "하반기" }), { measurementYear: 2026, measurementPeriod: "하반기" });
+  assert.deepEqual(resolveK2BJournalScope({ businessYear: "2026년", half: "상 반기" }), { measurementYear: 2026, measurementPeriod: "상반기" });
+  assert.throws(() => resolveK2BJournalScope({ businessYear: "26", half: "하반기" }), /invalid_business_scope/);
+  assert.throws(() => resolveK2BJournalScope({ businessYear: "2026", half: "3분기" }), /invalid_business_scope/);
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  const originalSync = worker.slice(worker.indexOf("private async processK2BOriginalSyncJob"), worker.indexOf("private async processK2BJob"));
+  assert.match(originalSync, /resolveK2BJournalScope\(receipt\)/);
+  assert.match(originalSync, /\.eq\('measurement_year', journalScope\.measurementYear\)/);
+  assert.match(originalSync, /\.eq\('measurement_period', journalScope\.measurementPeriod\)/);
 });
 
 test("K2B header mapping은 실제 필수 header와 submission number를 보존한다", () => {

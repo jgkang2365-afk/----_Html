@@ -4,7 +4,7 @@ import { K2BService } from './k2b-service';
 import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-verification-service';
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
 import { hasK2BReceiptError, reconcileK2BSubmissionResults, statusToState, verificationFailureState } from '../k2b-verification';
-import { buildGeneralK2BVerificationRange, buildK2BSyncRange, inclusiveK2BDates, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
+import { buildGeneralK2BVerificationRange, buildK2BSyncRange, inclusiveK2BDates, resolveK2BJournalScope, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
 import os from 'node:os';
 import {
@@ -541,10 +541,14 @@ export class WorkerDaemon {
                 if (disposition === 'inserted') executionResult.rawReceiptPersistence.insertedCount += 1;
                 else if (disposition === 'updated') executionResult.rawReceiptPersistence.updatedCount += 1;
                 else if (disposition === 'unchanged') executionResult.rawReceiptPersistence.unchangedCount += 1;
-                // 산재관리번호+개시번호 canonical 두 값이 모두 정확히 한 건 연결될 때만 관측값을 보완한다.
+                // 산재관리번호+개시번호+사업년도+반기가 정확히 한 일지로 좁혀질 때만 관측값을 보완한다.
+                const journalScope = resolveK2BJournalScope(receipt);
                 const { data: journals, error: journalError } = await admin.from('measurement_journal')
                     .select('id, k2b_status, k2b_send_date, industrial_accident_number, commencement_number')
-                    .eq('industrial_accident_number', receipt.managementNumber).eq('commencement_number', receipt.commencementNumber);
+                    .eq('industrial_accident_number', receipt.managementNumber)
+                    .eq('commencement_number', receipt.commencementNumber)
+                    .eq('measurement_year', journalScope.measurementYear)
+                    .eq('measurement_period', journalScope.measurementPeriod);
                 if (journalError) throw journalError;
                 if (journals?.length === 1) {
                     const journal = journals[0];
