@@ -113,6 +113,7 @@ test("STALE cutoff는 수동 1일 range와 무관하며 scheduled에만 전체 s
   assert.equal(shouldSweepK2BStale("manual"), false);
   assert.equal(isK2BStaleCandidate("2026-09-10", "YELLOW", cutoff), false);
   assert.equal(isK2BStaleCandidate("2026-09-08", "YELLOW", cutoff), true);
+  assert.equal(isK2BStaleCandidate("2026-09-08", "GREEN", cutoff), false);
 });
 
 test("오래된 cursor catch-up range와 독립된 canonical cutoff만 STALE 후보를 만든다", () => {
