@@ -60,6 +60,41 @@ test("17b. 기존 null의 판정불가는 date write 없이 material idempotency
   assert.equal(Object.hasOwn(first, "k2b_send_date"), false);
   assert.equal(selectChangedK2BReconciliationUpdate(item, { internalK2BSendDate: null, k2bStatus: "결과 확인 필요", ...first }, "later"), null);
 });
+test("17c. INCOMPLETE exact 결과는 최종 update에서 기존 접수일 key를 보존한다", () => {
+  const [item] = reconcileK2BSubmissionResults([target], [receipt()], { completeness: "INCOMPLETE" });
+  const update = deriveK2BReconciliationUpdate(item, journal, "now");
+
+  assert.deepEqual([item.matchMethod, item.verdict, item.state], ["exact_keys", "확인 필요", "RED"]);
+  assert.equal(update.k2b_status, "결과 확인 필요");
+  assert.equal(Object.prototype.hasOwnProperty.call(update, "k2b_send_date"), false);
+  assert.equal(journal.internalK2BSendDate, "2026-08-19");
+});
+test("17d. AMBIGUOUS canonical 결과는 최종 update에서 기존 접수일 key를 보존한다", () => {
+  const [item] = reconcileK2BSubmissionResults(
+    [target, { ...target, journalId: 8, code: "T-duplicate" }],
+    [receipt()],
+    complete,
+  );
+  const update = deriveK2BReconciliationUpdate(item, journal, "now");
+
+  assert.deepEqual([item.matchMethod, item.verdict], ["AMBIGUOUS", "확인 필요"]);
+  assert.equal(update.k2b_status, "결과 확인 필요");
+  assert.equal(Object.prototype.hasOwnProperty.call(update, "k2b_send_date"), false);
+  assert.equal(journal.internalK2BSendDate, "2026-08-19");
+});
+test("17e. MISSING_KEY 결과는 최종 update에서 기존 접수일 key를 보존한다", () => {
+  const [item] = reconcileK2BSubmissionResults(
+    [{ ...target, industrialAccidentNumber: null }],
+    [receipt()],
+    complete,
+  );
+  const update = deriveK2BReconciliationUpdate(item, journal, "now");
+
+  assert.deepEqual([item.matchMethod, item.verdict], ["MISSING_KEY", "확인 필요"]);
+  assert.equal(update.k2b_status, "결과 확인 필요");
+  assert.equal(Object.prototype.hasOwnProperty.call(update, "k2b_send_date"), false);
+  assert.equal(journal.internalK2BSendDate, "2026-08-19");
+});
 test("18. 08/19 정상 → 08/22 반송은 기존 날짜를 제거한다", () => assert.deepEqual(deriveK2BReconciliationUpdate(reconcile([receipt({ submissionDate: "2026-08-19" }), receipt({ submissionDate: "2026-08-22", submissionNumber: "반송파일" })]), journal, "now"), { k2b_verified_status: "YELLOW", k2b_verified_at: "now", k2b_consistency_status: "YELLOW", k2b_consistency_note: "K2B 실제결과 사용자반송", k2b_verification_error: null, k2b_verification_attempted_at: "now", k2b_status: "사용자반송", k2b_send_date: null, k2b_verified_send_date: "2026-08-22", k2b_verified_result_date: "2026-08-22", k2b_verified_remote_status: "정상처리" }));
 test("19. 이후 08/23 정상은 최신 날짜로 다시 저장한다", () => assert.equal(deriveK2BReconciliationUpdate(reconcile([receipt({ submissionDate: "2026-08-22", submissionNumber: "반송파일" }), receipt()]), journal, "now").k2b_send_date, "2026-08-23"));
 test("20. 같은 계산결과 반복 실행은 DB patch를 만들지 않는다", () => {
