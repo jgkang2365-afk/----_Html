@@ -29,6 +29,7 @@ import {
     searchReportExplorer
 } from '@/lib/report-explorer/client';
 import { reportProcessingMeasurementDateLabel } from '@/lib/report-processing/measurement-dates';
+import { presentK2BBusinessStatus, presentK2BConsistency } from '@/lib/report-processing/k2b-result-presentation';
 import {
     changeReportProcessingDateRangeEnd,
     changeReportProcessingDateRangeStart,
@@ -81,34 +82,6 @@ const DEFAULT_REPORT_PROCESSING_FILTERS = {
     search: ''
 };
 const PAGE_SIZE = 10;
-const K2B_CONSISTENCY_SIGNAL_CLASS: Record<BusinessRecord['k2b_consistency_status'], string> = {
-    GREEN: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    YELLOW: 'border-amber-200 bg-amber-50 text-amber-800',
-    RED: 'border-rose-200 bg-rose-50 text-rose-800',
-    UNVERIFIED: 'border-slate-200 bg-slate-50 text-slate-600',
-    STALE: 'border-violet-200 bg-violet-50 text-violet-800',
-};
-const K2B_CONSISTENCY_SIGNAL: Record<BusinessRecord['k2b_consistency_status'], { icon: string; label: string }> = {
-    GREEN: { icon: '🟢', label: '정상' },
-    YELLOW: { icon: '🟡', label: '확인 필요' },
-    RED: { icon: '🔴', label: '오류' },
-    UNVERIFIED: { icon: '⚪', label: '미검증' },
-    STALE: { icon: '⚪', label: '검증 지연' },
-};
-
-function k2bStatusPresentation(record: Pick<BusinessRecord, 'k2b_status' | 'k2b_verified_status' | 'k2b_consistency_status' | 'k2b_verified_remote_status'>) {
-    const hasActualError = record.k2b_verified_status === 'RED'
-        || record.k2b_consistency_status === 'RED'
-        || Boolean(record.k2b_verified_remote_status && record.k2b_verified_remote_status !== '정상처리');
-    if (record.k2b_status === '정상처리' && !hasActualError) {
-        return { label: '성공', className: 'border-green-200 bg-green-50 text-green-600' };
-    }
-    if (hasActualError) {
-        return { label: '오류', className: 'border-red-200 bg-red-50 text-red-600' };
-    }
-    return { label: '진행', className: 'border-slate-200 bg-slate-50 text-slate-700' };
-}
-
 function restoreReportProcessingFilters(value: string | null) {
     if (!value) return DEFAULT_REPORT_PROCESSING_FILTERS;
 
@@ -993,7 +966,7 @@ export default function ReportProcessingPage() {
                                 const consistencyStatus = hasK2BDateMismatch
                                     ? 'YELLOW'
                                     : record.k2b_consistency_status || record.k2b_verified_status || 'UNVERIFIED';
-                                const consistencySignal = K2B_CONSISTENCY_SIGNAL[consistencyStatus];
+                                const consistencySignal = presentK2BConsistency(consistencyStatus);
                                 const consistencyNote = hasK2BDateMismatch
                                     ? `날짜 불일치: 내부 ${record.k2b_send_date} / 실제 ${record.k2b_verified_send_date}`
                                     : record.k2b_consistency_note || '실제결과 미검증';
@@ -1040,18 +1013,15 @@ export default function ReportProcessingPage() {
                                         <TableCell className="text-sm">
                                             {record.k2b_send_date || '-'}
                                         </TableCell>
-                                        <TableCell>
-                                            {record.k2b_status ? (
-                                                <span className={`rounded border px-2 py-1 text-sm font-semibold ${k2bStatusPresentation(record).className}`}>
-                                                    {k2bStatusPresentation(record).label} ({record.k2b_status})
-                                                </span>
-                                            ) : (
-                                                <span className="text-muted-foreground text-sm">-</span>
-                                            )}
-                                        </TableCell>
+                                        <TableCell>{(() => {
+                                            const status = presentK2BBusinessStatus(record.k2b_status);
+                                            return status.label
+                                                ? <span className={`rounded border px-2 py-1 text-sm font-semibold ${status.className}`}>{status.label}</span>
+                                                : null;
+                                        })()}</TableCell>
                                         <TableCell title={consistencyNote}>
                                             <span
-                                                className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-sm font-semibold ${K2B_CONSISTENCY_SIGNAL_CLASS[consistencyStatus]}`}
+                                                className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-sm font-semibold ${consistencySignal.className}`}
                                                 aria-label={`K2B 실제결과 ${consistencySignal.label}`}
                                                 title={`${consistencySignal.label}: ${consistencyNote}`}
                                             >
