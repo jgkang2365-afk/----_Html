@@ -5,6 +5,12 @@ import {
   finalizeK2BPostUploadResult,
   markK2BGridConfirmationFailure,
 } from "../lib/automation/k2b-post-upload-result";
+import {
+  journalStatusForK2BReconciliation,
+  k2BSendDatePatchForReconciliation,
+  reconcileK2BSubmissionResults,
+  selectChangedK2BPostUploadUpdate,
+} from "../lib/k2b-verification";
 import { WorkerDaemon } from "../lib/automation/worker-daemon";
 
 const uploaded = () => beginK2BPostUploadResult({
@@ -77,6 +83,30 @@ test("v4 Test5: upload 실패 target은 과거 Grid 정상처럼 보여도 final
   assert.equal(result.success, false);
 });
 
+test("v5 post-upload date policy: NORMAL은 저장, 반송/오류는 null, 판정불가는 omit한다", () => {
+  const target = {
+    code: "A-1", businessName: "테스트 사업장", resultDate: "2026-09-10",
+    industrialAccidentNumber: "123-45", commencementNumber: "00001", measurementYear: 2026,
+    measurementPeriod: "하반기", internalK2BSendDate: "2026-09-10",
+  };
+  const row = (overrides: Record<string, unknown> = {}) => ({
+    managementNumber: "12345", commencementNumber: "00001", businessYear: "2026", half: "하반기",
+    submissionDate: "2026-09-10", status: "정상처리", submissionNumber: "R-1", ...overrides,
+  });
+  const patch = (result: Record<string, unknown>) => {
+    const [item] = reconcileK2BSubmissionResults([target], [result], { completeness: "COMPLETE" });
+    return selectChangedK2BPostUploadUpdate(
+      { k2b_status: "정상처리", k2b_send_date: "2026-09-01", k2b_sender: "대표계정" },
+      { k2b_status: journalStatusForK2BReconciliation(item), k2b_sender: "대표계정", ...k2BSendDatePatchForReconciliation(item) },
+    );
+  };
+  assert.equal(patch(row())?.k2b_send_date, "2026-09-10");
+  assert.equal(patch(row({ submissionNumber: "반송파일" }))?.k2b_send_date, null);
+  assert.equal(patch(row({ errorDetail: "오류" }))?.k2b_send_date, null);
+  const indeterminate = patch(row({ status: "보류" }));
+  assert.equal(Object.hasOwn(indeterminate || {}, "k2b_send_date"), false);
+});
+
 function workerLevelFixture(input: { upload: Record<string, unknown>; readGrid: () => Promise<any> }) {
   const daemon = WorkerDaemon.getInstance() as any;
   const jobStatuses: Array<{ status: string; message?: string }> = [];
@@ -87,7 +117,7 @@ function workerLevelFixture(input: { upload: Record<string, unknown>; readGrid: 
     code: "A-1", measurement_year: 2026, measurement_period: "하반기",
     k2b_status: "정상처리", k2b_send_date: "2026-09-10", k2b_sender: "대표계정",
   };
-  let journalBusinessStateUpdates = 0;
+  const journalBusinessStateUpdates: unknown[] = [];
   const query: any = {
     in: () => query,
     then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
@@ -100,9 +130,14 @@ function workerLevelFixture(input: { upload: Record<string, unknown>; readGrid: 
         assert.equal(table, "measurement_journal");
         return query;
       },
-      update: () => {
-        journalBusinessStateUpdates += 1;
-        return { eq: () => Promise.resolve({ error: null }) };
+      update: (payload: unknown) => {
+        journalBusinessStateUpdates.push(payload);
+        const updateQuery: any = {
+          eq: () => updateQuery,
+          then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+            Promise.resolve({ error: null }).then(resolve, reject),
+        };
+        return updateQuery;
       },
     }),
   });
@@ -137,7 +172,8 @@ function workerLevelFixture(input: { upload: Record<string, unknown>; readGrid: 
     notifications,
     managerNotifications,
     calendarCalls,
-    get journalBusinessStateUpdates() { return journalBusinessStateUpdates; },
+    get journalBusinessStateUpdates() { return journalBusinessStateUpdates.length; },
+    get journalBusinessStateUpdatePayloads() { return journalBusinessStateUpdates; },
     run: () => daemon.processK2BJob({
       id: "worker-level-k2b-job",
       payload: {
@@ -192,4 +228,28 @@ test("v4 Worker Test4-5: 업로드 실패 target은 과거 Grid NORMAL이 있어
   assert.equal(fixture.notifications.filter(({ type }) => type === "info").length, 0);
   assert.equal(fixture.calendarCalls.length, 0);
   assert.equal(fixture.journalBusinessStateUpdates, 0);
+});
+
+test("v5 Worker: COMPLETE exact 보류는 결과 확인 필요이지만 기존 접수일을 patch하지 않는다", async () => {
+  const fixture = workerLevelFixture({
+    upload: { success: true, status: "업로드 완료" },
+    readGrid: async () => ({
+      completeness: "COMPLETE",
+      rows: [{
+        managementNumber: "12345", commencementNumber: "00001", businessYear: "2026", half: "하반기",
+        status: "보류", actualSubmissionDate: "2026-09-10", submissionNumber: "R-hold",
+      }],
+    }),
+  });
+  const [result] = await fixture.run();
+
+  assert.equal(result.uploadSucceeded, true);
+  assert.equal(result.gridConfirmedNormal, false);
+  assert.equal(result.success, false);
+  assert.equal(result.status, "결과 확인 필요");
+  assert.equal(fixture.notifications.filter(({ type }) => type === "info").length, 0);
+  assert.equal(fixture.calendarCalls.length, 0);
+  assert.equal(fixture.journalBusinessStateUpdates, 1);
+  assert.equal(Object.hasOwn(fixture.journalBusinessStateUpdatePayloads[0] as object, "k2b_send_date"), false);
+  assert.equal(fixture.existingJournal.k2b_send_date, "2026-09-10");
 });

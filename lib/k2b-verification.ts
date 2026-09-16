@@ -153,6 +153,14 @@ export function journalStatusForK2BReconciliation(item: K2BReconciliation): stri
   return "결과 확인 필요";
 }
 
+/** 실제 K2B 결과가 확정되지 않았으면 기존 접수일 원천값을 patch하지 않는다. */
+export function k2BSendDatePatchForReconciliation(item: K2BReconciliation): Record<string, string | null> {
+  const matched = item.match && item.matchMethod === "exact_keys";
+  if (item.verdict === "정상" && matched) return { k2b_send_date: item.match!.submissionDate ?? null };
+  if (item.verdict === "사용자반송" || item.verdict === "오류") return { k2b_send_date: null };
+  return {};
+}
+
 /** 원본 동기화와 일반/관리자 재검증이 공유하는 단일 journal 반영 정책이다. */
 export function deriveK2BReconciliationUpdate(
   item: K2BReconciliation,
@@ -174,14 +182,8 @@ export function deriveK2BReconciliationUpdate(
     k2b_verification_attempted_at: attemptedAt,
   };
   update.k2b_status = journalStatusForK2BReconciliation(item);
-  // 정상은 실제 접수일을 원천값으로 반영하고, 실제 반송/오류만 기존 접수일을 지운다.
-  // Grid 불완전·미확정·키 불일치 같은 판정불가에서는 관측하지 못한 기존 날짜를 null로
-  // 정규화하지 않는다. 해당 key를 omit해 DB의 마지막 정상 접수일을 보존한다.
-  if (item.verdict === "정상" && matched) {
-    update.k2b_send_date = item.match!.submissionDate ?? null;
-  } else if (item.verdict === "사용자반송" || item.verdict === "오류") {
-    update.k2b_send_date = null;
-  }
+  // NORMAL/반송/오류와 판정불가의 접수일 정책을 post-upload 경로와 공유한다.
+  Object.assign(update, k2BSendDatePatchForReconciliation(item));
   if (!matched || !item.match) return update;
   update.k2b_verified_send_date = item.match.submissionDate ?? null;
   update.k2b_verified_result_date = item.match.submissionDate ?? null;
@@ -204,12 +206,9 @@ export function selectChangedK2BReconciliationUpdate(
 /** 업로드 직후 Grid 재조회는 같은 실제 결과에 journal write를 반복하지 않는다. */
 export function selectChangedK2BPostUploadUpdate(
   current: { k2b_status?: string | null; k2b_send_date?: string | null; k2b_sender?: string | null } | null | undefined,
-  desired: { k2b_status: string; k2b_send_date: string | null; k2b_sender: string },
+  desired: { k2b_status: string; k2b_send_date?: string | null; k2b_sender: string },
 ): typeof desired | null {
-  if (current
-    && current.k2b_status === desired.k2b_status
-    && current.k2b_send_date === desired.k2b_send_date
-    && current.k2b_sender === desired.k2b_sender) return null;
+  if (current && Object.entries(desired).every(([key, value]) => current[key as keyof typeof current] === value)) return null;
   return desired;
 }
 

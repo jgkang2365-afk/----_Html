@@ -3,7 +3,7 @@ import { EmailService } from '../email/email-service';
 import { K2BService } from './k2b-service';
 import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-verification-service';
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
-import { hasK2BReceiptError, journalStatusForK2BReconciliation, reconcileK2BSubmissionResults, selectChangedK2BPostUploadUpdate, selectChangedK2BReconciliationUpdate, selectK2BStaleUpdates, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
+import { hasK2BReceiptError, journalStatusForK2BReconciliation, k2BSendDatePatchForReconciliation, reconcileK2BSubmissionResults, selectChangedK2BPostUploadUpdate, selectChangedK2BReconciliationUpdate, selectK2BStaleUpdates, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
 import { decideK2BCalendarSync } from './k2b-calendar-sync-policy';
 import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, filterK2BObservedJournalCandidates, inclusiveK2BDates, resolveK2BJournalScope, shouldSweepK2BStale, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
@@ -1066,8 +1066,7 @@ export class WorkerDaemon {
                     const desiredGridData = {
                         k2b_sender: '\uB300\uD45C\uACC4\uC815',
                         k2b_status: effectiveStatus,
-                        k2b_send_date: isConfirmedNormal && /^\d{4}-\d{2}-\d{2}$/.test(String(gr.submissionDate || ''))
-                            ? gr.submissionDate ?? null : null,
+                        ...k2BSendDatePatchForReconciliation(reconciled),
                     };
                     const postUploadUpdate = selectChangedK2BPostUploadUpdate(
                         postUploadJournalByKey.get(finalizedTargetKey),
