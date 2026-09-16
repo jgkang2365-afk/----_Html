@@ -152,11 +152,11 @@ test("불완전한 post-upload grid는 정상 상태·전송일·캘린더를 �
   }], { completeness: "INCOMPLETE" });
 
   assert.equal(incompleteNormal.matchMethod, "exact_keys");
-  assert.equal(incompleteNormal.state, "YELLOW");
+  assert.equal(incompleteNormal.state, "RED");
   assert.equal(incompleteNormal.verdict, "확인 필요");
   assert.match(worker, /const isConfirmedNormal = isObservedNormal[\s\S]*?reconciled\.state === 'GREEN'[\s\S]*?reconciled\.verdict === '\\uC815\\uC0C1'/);
-  assert.match(worker, /if \(isConfirmedNormal \|\| !isObservedNormal\)[\s\S]*?updateGridData\.k2b_status = effectiveStatus/);
-  assert.match(worker, /if \(isConfirmedNormal && \/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\//);
+  assert.match(worker, /const desiredGridData = \{[\s\S]*?k2b_sender: '\\uB300\\uD45C\\uACC4\\uC815',[\s\S]*?k2b_status: effectiveStatus,/);
+  assert.match(worker, /\.\.\.k2BSendDatePatchForReconciliation\(reconciled\)/);
   assert.match(worker, /exactMatch: isConfirmedNormal/);
 });
 

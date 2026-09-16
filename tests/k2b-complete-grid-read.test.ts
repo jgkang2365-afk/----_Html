@@ -17,7 +17,7 @@ const makeRows = (size = 30) => Array.from({ length: size }, (_, index) => [
 ]);
 
 /** 10개 슬롯의 DOM 객체/id를 재사용하는 Nexacro 런타임 fixture. 외부 조회는 없다. */
-function browserFixture(options: { dataset?: boolean; size?: number; expected?: number | null; frozen?: boolean; fixtureHeaders?: string[]; fixtureRows?: string[][]; staticErrorColumn?: number; viewport?: number; deepApplication?: boolean } = {}) {
+function browserFixture(options: { dataset?: boolean; size?: number; expected?: number | null; frozen?: boolean; fixtureHeaders?: string[]; fixtureRows?: string[][]; staticErrorColumn?: number; errorBinding?: { id: string; column: number }; viewport?: number; deepApplication?: boolean } = {}) {
   const fixtureHeaders = [...(options.fixtureHeaders ?? headers)];
   const rows = options.fixtureRows ?? makeRows(options.size ?? 30);
   const pool = Array.from({ length: Math.min(options.viewport ?? 10, rows.length) }, (_, slot) => fixtureHeaders.map((_, col) => ({
@@ -46,8 +46,8 @@ function browserFixture(options: { dataset?: boolean; size?: number; expected?: 
     addEventHandler: (_name: string, handler: (sender: unknown, event: { reason: number; errorcode: number }) => void) => { loadHandlers.add(handler); },
     removeEventHandler: (_name: string, handler: (sender: unknown, event: { reason: number; errorcode: number }) => void) => { loadHandlers.delete(handler); },
     getRowCount: () => rows.length,
-    getColumnInfo: (id: string) => /^c\d+$/.test(id) && Number(id.slice(1)) < fixtureHeaders.length ? { id } : null,
-    getColumn: (row: number, id: string) => rows[row][Number(id.slice(1))],
+    getColumnInfo: (id: string) => id === options.errorBinding?.id || (/^c\d+$/.test(id) && Number(id.slice(1)) < fixtureHeaders.length) ? { id } : null,
+    getColumn: (row: number, id: string) => rows[row][id === options.errorBinding?.id ? options.errorBinding.column : Number(id.slice(1))],
   };
   // body cell 순서를 head와 반대로 배치해 고정 index/동일 cell index 가정을 검출한다.
   const grid = {
@@ -59,6 +59,7 @@ function browserFixture(options: { dataset?: boolean; size?: number; expected?: 
       const col = band === "head" ? cell : fixtureHeaders.length - 1 - cell;
       if (property === "col") return col;
       if (property === "colspan") return 1;
+      if (band !== "head" && col === options.errorBinding?.column) return "bind:" + options.errorBinding.id;
       return band === "head" ? fixtureHeaders[col] : col === (options.staticErrorColumn ?? fixtureHeaders.length - 1) ? "오류보기" : `bind:c${col}`;
     },
     getCellText: (row: number, cell: number) => rows[row][fixtureHeaders.length - 1 - cell],
@@ -144,6 +145,31 @@ test("정적 오류보기 컨트롤은 정상, Dataset 실제 오류내용/신�
   const bound = await fixture.service.readCurrentSubmissionResults();
   assert.equal(bound.rows[0].errorViewAvailable, false);
   assert.equal(bound.rows[2].errorViewAvailable, true);
+});
+
+test("실제 14-column Dataset ERR_BUT binding의 행별 오류보기 값은 오류 신호로 읽는다", async () => {
+  const rows = [
+    ["a.xml", "정상 업체", "정상처리", "2026-09-01", "2026", "하반기", "국고", "R-1", "내용보기", "", "", "31481904910", "00000000000", "1"],
+    ["b.xml", "오류 업체", "정상처리", "2026-09-01", "2026", "하반기", "국고", "R-2", "내용보기", "오류보기", "", "46988023690", "00000000000", "2"],
+  ];
+  const fixture = browserFixture({
+    fixtureHeaders: actualK2BHeaders,
+    fixtureRows: rows,
+    staticErrorColumn: 9,
+    errorBinding: { id: "ERR_BUT", column: 9 },
+  });
+  const result = await fixture.service.readCurrentSubmissionResults();
+  assert.equal(result.readMethod, "nexacro_dataset");
+  assert.equal(result.completeness, "COMPLETE");
+  assert.equal(result.rows[0].errorViewAvailable, false);
+  assert.equal(result.rows[0].errorDetail, null);
+  assert.equal(result.rows[1].errorViewAvailable, true);
+  assert.equal(result.rows[1].errorDetail, "오류 있음");
+  const [matched] = reconcileK2BSubmissionResults([{
+    code: "오류 업체", businessName: "오류 업체", industrialAccidentNumber: "46988023690", commencementNumber: "00000000000",
+    resultDate: "2026-09-01", measurementYear: 2026, measurementPeriod: "하반기", internalK2BSendDate: "2026-09-01",
+  }], result.rows.map(row => ({ ...row, submissionDate: row.actualSubmissionDate })), result);
+  assert.equal(matched.verdict, "오류");
 });
 
 test("Dataset binding/schema가 불명확하면 DOM으로 우회하여 성공시키지 않는다", async () => {

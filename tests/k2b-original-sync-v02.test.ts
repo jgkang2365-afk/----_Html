@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { buildK2BSyncRange, buildK2BSourceKey, inclusiveK2BDates, parseK2BSubmissionGrid, resolveK2BJournalScope } from "../lib/automation/k2b-original-sync";
+import { buildK2BSyncRange, buildK2BSourceKey, filterK2BObservedJournalCandidates, inclusiveK2BDates, parseK2BSubmissionGrid, resolveK2BJournalScope } from "../lib/automation/k2b-original-sync";
 
 const requiredHeaders = ["청구 파일명", "사업장명", "처리상태", "접수일", "사업년도", "반기", "지원구분", "접수번호", "관리번호", "개시번호", "순번"];
 const completeRow = ["alpha.xml", "알파", "정상처리", "2026-09-04", "2026", "하반기", "국고", "R-1", "M-1", "C-1", "1"];
@@ -29,6 +29,24 @@ test("K2B receipt business year and half scope는 canonical matching에 사용�
   assert.match(originalSync, /measurementYear: journal\.measurement_year, measurementPeriod: journal\.measurement_period/);
   assert.match(originalSync, /businessYear: receipt\.businessYear, half: receipt\.half/);
   assert.match(originalSync, /reconcileK2BSubmissionResults/);
+});
+
+test("scheduled 원본 동기화는 이번 receipt canonical 4-key에 없는 journal을 reconciliation 후보에서 제외한다", () => {
+  const receipts = [{
+    managementNumber: "123-45", commencementNumber: "00001", businessYear: "2026", half: "하반기",
+  }];
+  const journals = [
+    { id: 1, industrialAccidentNumber: "12345", commencementNumber: "00001", measurementYear: 2026, measurementPeriod: "하반기" },
+    { id: 2, industrialAccidentNumber: "12345", commencementNumber: "00001", measurementYear: 2026, measurementPeriod: "상반기" },
+    { id: 3, industrialAccidentNumber: "99999", commencementNumber: "00001", measurementYear: 2026, measurementPeriod: "하반기" },
+  ];
+  assert.deepEqual(filterK2BObservedJournalCandidates(journals, receipts).map(row => row.id), [1]);
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  const originalSync = worker.slice(worker.indexOf("private async processK2BOriginalSyncJob"), worker.indexOf("private async processK2BJob"));
+  assert.match(originalSync, /const observedJournals = filterK2BObservedJournalCandidates/);
+  assert.match(originalSync, /reconcileK2BSubmissionResults\(observedJournals\.map/);
+  assert.match(originalSync, /selectK2BStaleUpdates\(staleCandidates \|\| \[\]\)/);
+  assert.doesNotMatch(originalSync, /observedJournalIds\.has\(candidate\.id\)/);
 });
 
 test("K2B header mapping은 실제 필수 header와 submission number를 보존한다", () => {

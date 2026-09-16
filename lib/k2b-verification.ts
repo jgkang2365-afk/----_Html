@@ -30,7 +30,7 @@ export type K2BSubmissionResult = {
   half?: string | null;
 };
 
-export type K2BVerificationVerdict = "정상" | "오류" | "날짜 불일치" | "내부 전송일자 없음" | "미접수" | "확인 필요";
+export type K2BVerificationVerdict = "정상" | "사용자반송" | "오류" | "날짜 불일치" | "내부 전송일자 없음" | "미접수" | "확인 필요";
 
 export type K2BReconciliation = {
   target: K2BVerificationTarget;
@@ -52,9 +52,7 @@ const normalizePeriod = (value: unknown) => String(value ?? "").replace(/\s+/g, 
 
 const NORMAL_K2B_STATUS = /^정상처리$/;
 
-function isNormalReceipt(row: K2BSubmissionResult): boolean {
-  return NORMAL_K2B_STATUS.test(String(row.status ?? "").trim()) && !hasK2BReceiptError(row);
-}
+export type K2BFinalReceiptStatus = "NORMAL" | "USER_RETURN" | "ERROR_REVIEW" | "NEEDS_CONFIRMATION";
 
 /** 수집기가 산출한 실제 오류 신호와 오류내용을 함께 판정한다. */
 export function hasK2BReceiptError(row: Pick<K2BSubmissionResult, "errorViewAvailable" | "errorDetail">): boolean {
@@ -62,24 +60,27 @@ export function hasK2BReceiptError(row: Pick<K2BSubmissionResult, "errorViewAvai
 }
 
 /**
- * K2B는 같은 canonical 키에 과거 오류 행과 최종 정상 행을 함께 반환할 수 있다.
- * 접수번호/이름/날짜 순서를 임의 선택 기준으로 쓰지 않고, 정상 행이 정확히 하나일
- * 때만 그 행을 확정한다. 정상 행이 전혀 없고 모두 오류면 오류 사실만 유지한다.
+ * reader/parser가 전달한 K2B Grid 순서를 보존한 채 최신 실제 행 하나를 선택한다.
+ * 같은 날짜에서는 더 위(먼저 전달된) 행을 그대로 유지한다. 순번·접수번호·파일명과
+ * DB 저장 순서는 최신성 판단에 절대 사용하지 않는다.
  */
-function resolveExactReceipt(candidates: K2BSubmissionResult[]): K2BSubmissionResult | null {
-  if (candidates.some(row => row.identityConflict)) return null;
-  const normal = candidates.filter(isNormalReceipt);
-  if (normal.length === 1) return normal[0];
-  if (normal.length === 0 && candidates.length > 0 && candidates.every((row) => !isNormalReceipt(row))) {
-    // 오류만 있는 경우에도 Grid 행 순서가 final remote 상태를 바꾸지 않도록
-    // 실제 접수일, 상태, 접수번호 순으로 결정론적으로 최신 후보를 선택한다.
-    return [...candidates].sort((left, right) => [
-      String(right.submissionDate ?? ''), String(right.status ?? ''), String(right.submissionNumber ?? ''),
-    ].join('\u0000').localeCompare([
-      String(left.submissionDate ?? ''), String(left.status ?? ''), String(left.submissionNumber ?? ''),
-    ].join('\u0000')))[0];
+export function selectLatestK2BReceipt(candidates: readonly K2BSubmissionResult[]): K2BSubmissionResult | null {
+  if (candidates.length === 0 || candidates.some((row) => row.identityConflict)) return null;
+  let selected: K2BSubmissionResult | null = null;
+  for (const row of candidates) {
+    const date = String(row.submissionDate ?? "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    // strictly newer only: equal date preserves the first (Grid 상단) row.
+    if (!selected || date > String(selected.submissionDate)) selected = row;
   }
-  return null;
+  return selected;
+}
+
+export function finalReceiptStatus(row: K2BSubmissionResult | null, sourceComplete: boolean): K2BFinalReceiptStatus {
+  if (!sourceComplete || !row) return "NEEDS_CONFIRMATION";
+  if (String(row.submissionNumber ?? "").trim() === "반송파일") return "USER_RETURN";
+  if (hasK2BReceiptError(row)) return "ERROR_REVIEW";
+  return NORMAL_K2B_STATUS.test(String(row.status ?? "").trim()) ? "NORMAL" : "NEEDS_CONFIRMATION";
 }
 
 export function reconcileK2BSubmissionResults(targets: K2BVerificationTarget[], results: K2BSubmissionResult[], read?: { completeness: "COMPLETE" | "INCOMPLETE" | "UNKNOWN" }): K2BReconciliation[] {
@@ -98,7 +99,7 @@ export function reconcileK2BSubmissionResults(targets: K2BVerificationTarget[], 
       return !(targetYear || targetPeriod)
         || (targetYear === receiptYear && targetPeriod === receiptPeriod);
     });
-    const match = resolveExactReceipt(exact);
+    const match = selectLatestK2BReceipt(exact);
     if (match) return { target, match, matchMethod: "exact_keys" as const };
     return { target, match: null, matchMethod: exact.length > 1 ? "AMBIGUOUS" as const : "NONE" as const };
   });
@@ -108,18 +109,23 @@ export function reconcileK2BSubmissionResults(targets: K2BVerificationTarget[], 
     if (candidate.match && candidates.filter((other) => other.match === candidate.match).length > 1) {
       return { target: candidate.target, match: null, matchMethod: "AMBIGUOUS" as const, state: "YELLOW" as const, verdict: "확인 필요" as const };
     }
+    const sourceComplete = !read || read.completeness === "COMPLETE";
+    const finalStatus = finalReceiptStatus(candidate.match, sourceComplete);
     if (!candidate.match) {
-      return { target: candidate.target, match: null, matchMethod: candidate.matchMethod, state: "YELLOW" as const, verdict: candidate.matchMethod === "NONE" && read?.completeness === "COMPLETE" ? "미접수" as const : "확인 필요" as const };
+      return { target: candidate.target, match: null, matchMethod: candidate.matchMethod,
+        state: "RED" as const, verdict: candidate.matchMethod === "NONE" && read?.completeness === "COMPLETE" ? "미접수" as const : "확인 필요" as const };
     }
-    if (read && read.completeness !== "COMPLETE") {
-      return { target: candidate.target, match: candidate.match, matchMethod: candidate.matchMethod, state: "YELLOW" as const, verdict: "확인 필요" as const };
-    }
-    const verdict = verdictFor(candidate.target, candidate.match);
+    // 실제 Grid가 COMPLETE이고 최신 행이 정상 조건을 충족하면 이전 DB 날짜와
+    // 비교해 승인을 요구하지 않는다. 실제 접수일이 journal의 현재 원천값을 교체한다.
+    const verdict = finalStatus === "NORMAL" ? "정상" as const
+      : finalStatus === "USER_RETURN" ? "사용자반송" as const
+        : finalStatus === "ERROR_REVIEW" ? "오류" as const
+          : "확인 필요" as const;
     return {
       target: candidate.target,
       match: candidate.match,
       matchMethod: candidate.matchMethod,
-      state: verdict === "정상" ? "GREEN" : verdict === "오류" ? "RED" : "YELLOW",
+      state: finalStatus === "NORMAL" ? "GREEN" : finalStatus === "NEEDS_CONFIRMATION" ? "RED" : "YELLOW",
       verdict,
     };
   });
@@ -137,9 +143,22 @@ export function verdictFor(target: K2BVerificationTarget, row: K2BSubmissionResu
 /** 정상 receipt 또는 실제 비정상 remote status만 내부 상태에 반영한다.
  * 실제 상태는 정상인데 오류내용만 있는 경우에는 내부 상태를 정상으로 덮어쓰지 않는다. */
 export function shouldReflectActualK2BStatus(item: Pick<K2BReconciliation, "match" | "verdict">): boolean {
-  if (!item.match) return false;
-  if (item.verdict === "정상") return true;
-  return item.verdict === "오류" && !NORMAL_K2B_STATUS.test(String(item.match.status ?? "").trim());
+  return item.verdict === "정상" || item.verdict === "사용자반송" || item.verdict === "오류" || item.verdict === "확인 필요" || item.verdict === "미접수";
+}
+
+export function journalStatusForK2BReconciliation(item: K2BReconciliation): string {
+  if (item.verdict === "정상") return "정상처리";
+  if (item.verdict === "사용자반송") return "사용자반송";
+  if (item.verdict === "오류") return "오류/파일 재검토";
+  return "결과 확인 필요";
+}
+
+/** 실제 K2B 결과가 확정되지 않았으면 기존 접수일 원천값을 patch하지 않는다. */
+export function k2BSendDatePatchForReconciliation(item: K2BReconciliation): Record<string, string | null> {
+  const matched = item.match && item.matchMethod === "exact_keys";
+  if (item.verdict === "정상" && matched) return { k2b_send_date: item.match!.submissionDate ?? null };
+  if (item.verdict === "사용자반송" || item.verdict === "오류") return { k2b_send_date: null };
+  return {};
 }
 
 /** 원본 동기화와 일반/관리자 재검증이 공유하는 단일 journal 반영 정책이다. */
@@ -162,14 +181,35 @@ export function deriveK2BReconciliationUpdate(
     k2b_verification_error: null,
     k2b_verification_attempted_at: attemptedAt,
   };
+  update.k2b_status = journalStatusForK2BReconciliation(item);
+  // NORMAL/반송/오류와 판정불가의 접수일 정책을 post-upload 경로와 공유한다.
+  Object.assign(update, k2BSendDatePatchForReconciliation(item));
   if (!matched || !item.match) return update;
   update.k2b_verified_send_date = item.match.submissionDate ?? null;
-  update.k2b_verified_result_date = journal.internalK2BSendDate ?? null;
+  update.k2b_verified_result_date = item.match.submissionDate ?? null;
   update.k2b_verified_remote_status = item.match.status ?? null;
-  if (shouldReflectActualK2BStatus(item) && journal.internalK2BSendDate === item.match.submissionDate) {
-    update.k2b_status = item.match.status ?? null;
-  }
   return update;
+}
+
+/** 같은 계산 결과를 반복 실행할 때 journal write와 Supabase 사용량을 늘리지 않는다. */
+export function selectChangedK2BReconciliationUpdate(
+  item: K2BReconciliation,
+  journal: K2BReconciliationJournal & Record<string, string | null | undefined>,
+  attemptedAt: string,
+): Record<string, string | null> | null {
+  const desired = deriveK2BReconciliationUpdate(item, journal, attemptedAt);
+  const materialKeys = Object.keys(desired).filter((key) => key !== "k2b_verified_at" && key !== "k2b_verification_attempted_at");
+  if (materialKeys.every((key) => journal[key] === desired[key])) return null;
+  return desired;
+}
+
+/** 업로드 직후 Grid 재조회는 같은 실제 결과에 journal write를 반복하지 않는다. */
+export function selectChangedK2BPostUploadUpdate(
+  current: { k2b_status?: string | null; k2b_send_date?: string | null; k2b_sender?: string | null } | null | undefined,
+  desired: { k2b_status: string; k2b_send_date?: string | null; k2b_sender: string },
+): typeof desired | null {
+  if (current && Object.entries(desired).every(([key, value]) => current[key as keyof typeof current] === value)) return null;
+  return desired;
 }
 
 /**

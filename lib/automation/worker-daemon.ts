@@ -3,9 +3,9 @@ import { EmailService } from '../email/email-service';
 import { K2BService } from './k2b-service';
 import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-verification-service';
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
-import { deriveK2BReconciliationUpdate, hasK2BReceiptError, reconcileK2BSubmissionResults, selectK2BStaleUpdates, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
+import { hasK2BReceiptError, journalStatusForK2BReconciliation, k2BSendDatePatchForReconciliation, reconcileK2BSubmissionResults, selectChangedK2BPostUploadUpdate, selectChangedK2BReconciliationUpdate, selectK2BStaleUpdates, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
 import { decideK2BCalendarSync } from './k2b-calendar-sync-policy';
-import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, inclusiveK2BDates, shouldSweepK2BStale, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
+import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, filterK2BObservedJournalCandidates, inclusiveK2BDates, resolveK2BJournalScope, shouldSweepK2BStale, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
 import os from 'node:os';
 import {
@@ -16,6 +16,7 @@ import {
 import { findReportFiles } from '../utils/findReportFiles';
 import { getKSTISOString, getKSTDateString } from '../utils/date-utils';
 import { requestK2BCalendarSync } from "./k2b-calendar-sync-client";
+import { beginK2BPostUploadResult, finalizeK2BPostUploadResult, markK2BGridConfirmationFailure, type K2BPostUploadResult } from "./k2b-post-upload-result";
 import { processNationalSupportJob } from "./national-support-worker";
 import { enqueueAutomationJob } from "./jobs";
 import {
@@ -544,16 +545,27 @@ export class WorkerDaemon {
                 else if (disposition === 'updated') executionResult.rawReceiptPersistence.updatedCount += 1;
                 else if (disposition === 'unchanged') executionResult.rawReceiptPersistence.unchangedCount += 1;
             }
-            // 2) range의 모든 내부 전송 일지를 한 번에 가져온 뒤, 원본 receipt 전체 집합으로
-            // canonical(산재관리번호+개시번호+사업년도+반기) reconciliation을 정확히 한 번 수행한다.
-            // 원본 Grid의 행 순서가 journal 최종 상태에 영향을 줄 수 없다.
-            const journalFields = 'id, code, business_name, industrial_accident_number, commencement_number, measurement_year, measurement_period, k2b_status, k2b_send_date, k2b_verified_status, k2b_verified_at';
-            const { data: journals, error: journalError } = await admin.from('measurement_journal')
-                .select(journalFields)
-                .gte('k2b_send_date', range.fromDate)
-                .lte('k2b_send_date', range.toDate);
+            // 2) receipt의 사업년도/반기 scope로 일지를 한 번에 가져온 뒤 canonical 4-key로
+            // 결합한다. 과거 정상 접수일이 range 밖이어도 최신 반송/재접수를 놓치지 않는다.
+            const journalFields = 'id, code, business_name, industrial_accident_number, commencement_number, measurement_year, measurement_period, k2b_status, k2b_send_date, k2b_verified_status, k2b_verified_at, k2b_verified_send_date, k2b_verified_result_date, k2b_verified_remote_status, k2b_consistency_status, k2b_consistency_note, k2b_verification_error, k2b_verification_attempted_at';
+            const scopes = receipts.map(resolveK2BJournalScope);
+            const years = Array.from(new Set(scopes.map((scope) => scope.measurementYear)));
+            const periods = Array.from(new Set(scopes.map((scope) => scope.measurementPeriod)));
+            const journalResult = years.length > 0
+                ? await admin.from('measurement_journal').select(journalFields).in('measurement_year', years).in('measurement_period', periods)
+                : { data: [], error: null };
+            const { data: journals, error: journalError } = journalResult;
             if (journalError) throw journalError;
-            const reconciled = reconcileK2BSubmissionResults((journals || []).map((journal: any) => ({
+            // bulk year/period 조회 결과는 넓은 Cartesian 후보일 수 있다. 이번 COMPLETE Grid에서
+            // 실제 관측한 canonical 4-key에 정확히 속한 일지 외에는 어떤 상태도 바꾸지 않는다.
+            const observedJournals = filterK2BObservedJournalCandidates((journals || []).map((journal: any) => ({
+                ...journal,
+                industrialAccidentNumber: journal.industrial_accident_number,
+                commencementNumber: journal.commencement_number,
+                measurementYear: journal.measurement_year,
+                measurementPeriod: journal.measurement_period,
+            })), receipts);
+            const reconciled = reconcileK2BSubmissionResults(observedJournals.map((journal: any) => ({
                 journalId: journal.id, code: String(journal.code ?? ''), businessName: String(journal.business_name ?? ''),
                 industrialAccidentNumber: journal.industrial_accident_number, commencementNumber: journal.commencement_number,
                 measurementYear: journal.measurement_year, measurementPeriod: journal.measurement_period,
@@ -569,14 +581,15 @@ export class WorkerDaemon {
             })), { completeness: 'COMPLETE' });
             for (let index = 0; index < reconciled.length; index += 1) {
                 const item = reconciled[index];
-                const journal = (journals || [])[index] as any;
+                const journal = observedJournals[index] as any;
                 const attemptedAt = getKSTISOString();
                 if (item.match) executionResult.journalVerification.matched += 1;
-                const { error: updateError } = await admin.from('measurement_journal').update(
-                    deriveK2BReconciliationUpdate(item, { internalK2BSendDate: journal.k2b_send_date, k2bStatus: journal.k2b_status }, attemptedAt),
-                ).eq('id', journal.id);
-                if (updateError) throw updateError;
-                executionResult.journalVerification.saved += 1;
+                const update = selectChangedK2BReconciliationUpdate(item, journal, attemptedAt);
+                if (update) {
+                    const { error: updateError } = await admin.from('measurement_journal').update(update).eq('id', journal.id);
+                    if (updateError) throw updateError;
+                    executionResult.journalVerification.saved += 1;
+                }
             }
             // STALE sweep은 scheduled에만 실행한다. cursor/manual range가 아닌 KST 7일
             // canonical cutoff를 사용하고, 기존 실제 관측 필드는 update에 포함하지 않는다.
@@ -633,7 +646,7 @@ export class WorkerDaemon {
             queriedDates: [],
             remoteRowCount: 0,
             matchCounts: { matched: 0, ambiguous: 0, unmatched: 0, green: 0, yellow: 0, red: 0 },
-            persistence: { attempted: 0, saved: 0, failed: 0 },
+            persistence: { attempted: 0, saved: 0, unchanged: 0, failed: 0 },
             databaseSaveCompleted: false,
             uploadExecuted: false,
             failureStage: null,
@@ -650,7 +663,7 @@ export class WorkerDaemon {
         const verificationRange = job.payload?.fromDate && job.payload?.toDate
             ? { fromDate: String(job.payload.fromDate), toDate: String(job.payload.toDate) }
             : buildGeneralK2BVerificationRange(resultDate);
-        const journalFields = 'id, code, business_name, industrial_accident_number, commencement_number, measurement_year, measurement_period, k2b_status, k2b_send_date, k2b_verified_status, k2b_verified_at';
+        const journalFields = 'id, code, business_name, industrial_accident_number, commencement_number, measurement_year, measurement_period, k2b_status, k2b_send_date, k2b_verified_status, k2b_verified_at, k2b_verified_send_date, k2b_verified_result_date, k2b_verified_remote_status, k2b_consistency_status, k2b_consistency_note, k2b_verification_error, k2b_verification_attempted_at';
         const { data: datedJournals, error: datedJournalError } = await supabase.from('measurement_journal')
             .select(journalFields)
             // measurement_journal DATE는 KST 업무일이다. UTC 시각 범위로 변환하지 않는다.
@@ -751,12 +764,13 @@ export class WorkerDaemon {
             for (const { sendDate, journal, item } of reconciledWithJournal) {
                 const attemptedAt = getKSTISOString();
                 executionResult.persistence.attempted += 1;
-                const { data: updatedRows, error: updateError } = await supabase.from('measurement_journal').update(
-                    deriveK2BReconciliationUpdate(item, { internalK2BSendDate: journal.k2b_send_date, k2bStatus: journal.k2b_status }, attemptedAt),
-                ).eq('id', journal.id).select('id');
-                if (updateError) throw updateError;
-                if (updatedRows?.length !== 1) throw new K2BJournalPersistenceError(`검증 결과 저장 대상이 정확히 1건이 아닙니다: ${journal.id}`);
-                executionResult.persistence.saved += 1;
+                const update = selectChangedK2BReconciliationUpdate(item, journal, attemptedAt);
+                if (update) {
+                    const { data: updatedRows, error: updateError } = await supabase.from('measurement_journal').update(update).eq('id', journal.id).select('id');
+                    if (updateError) throw updateError;
+                    if (updatedRows?.length !== 1) throw new K2BJournalPersistenceError(`검증 결과 저장 대상이 정확히 1건이 아닙니다: ${journal.id}`);
+                    executionResult.persistence.saved += 1;
+                } else executionResult.persistence.unchanged += 1;
             }
             executionResult.verificationRows = reconciledWithJournal.map(({ journal, item }) => ({
                 journalId: journal.id,
@@ -777,7 +791,7 @@ export class WorkerDaemon {
                 errorDetail: item.match?.errorDetail ?? null,
                 approvalRequired: item.verdict === '날짜 불일치' || item.verdict === '내부 전송일자 없음',
             }));
-            executionResult.databaseSaveCompleted = executionResult.persistence.saved === executionResult.persistence.attempted;
+            executionResult.databaseSaveCompleted = executionResult.persistence.saved + executionResult.persistence.unchanged === executionResult.persistence.attempted;
             await this.updateK2BExecutionResult(job.id, executionResult);
             await this.updateJobStatus(job.id, 'success');
         } catch (error: any) {
@@ -808,8 +822,24 @@ export class WorkerDaemon {
         }
     }
 
+    private async createK2BJobSupabaseClient() {
+        return createClient();
+    }
+
+    private createK2BJobService() {
+        return new K2BService();
+    }
+
+    private findK2BJobReportFiles(input: Parameters<typeof findReportFiles>[0]) {
+        return findReportFiles(input);
+    }
+
+    private async waitForK2BPostUploadGrid() {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+    }
+
     private async processK2BJob(job: any) {
-        const supabase = await createClient();
+        const supabase = await this.createK2BJobSupabaseClient();
         const payload = job.payload || {};
         const targets = payload.targets || [];
         const requestUser = payload.requestUser || null;
@@ -826,10 +856,9 @@ export class WorkerDaemon {
             return;
         }
 
-        const k2b = new K2BService();
+        const k2b = this.createK2BJobService();
         this.currentK2BService = k2b; // Graceful Shutdown을 위해 등록
-        const results: any[] = [];
-        let successCount = 0;
+        const results: K2BPostUploadResult[] = [];
 
         try {
             await k2b.init();
@@ -850,7 +879,7 @@ export class WorkerDaemon {
                 }
                 try {
                     // 1. Z드라이브 파일 찾기
-                    const files = findReportFiles({
+                    const files = this.findK2BJobReportFiles({
                         year: target.year.toString(),
                         semester: target.period,
                         companyName: target.business_name
@@ -858,7 +887,7 @@ export class WorkerDaemon {
 
                     const previousTarget = targets[targetIndex - 1];
                     const previousFiles = previousTarget
-                        ? findReportFiles({
+                        ? this.findK2BJobReportFiles({
                             year: previousTarget.year.toString(),
                             semester: previousTarget.period,
                             companyName: previousTarget.business_name
@@ -882,51 +911,35 @@ export class WorkerDaemon {
                         `[WorkerDaemon][K2B][${businessCode}] 첨부 결과: ${uploadRes.success ? '성공' : '실패'} / 상태=${uploadRes.status}`
                     );
 
-                    // 3. DB 상태 업데이트
-                    const now = getKSTDateString();
-                    const updateData: Record<string, any> = {
-                        k2b_status: uploadRes.status
-                    };
-
-                    if (uploadRes.success) {
-                        updateData.k2b_send_date = now;
-                        updateData.k2b_sender = '대표계정';
-                    }
-
-                    await requireK2BJournalPersistence(
-                        supabase
-                            .from('measurement_journal')
-                            .update(updateData)
-                            .eq('code', target.code)
-                            .eq('measurement_year', target.year)
-                            .eq('measurement_period', target.period)
-                    );
-
-                    results.push({
+                    // uploadReport 결과는 실행 결과일 뿐 K2B 실제 접수현황이 아니다.
+                    // COMPLETE Grid 재조회 전에는 journal의 K2B 상태/접수일/발신자를 건드리지 않는다.
+                    results.push(beginK2BPostUploadResult({
                         code: target.code,
                         companyName: target.business_name,
-                        success: uploadRes.success,
-                        status: uploadRes.status,
+                        year: target.year,
+                        period: target.period,
+                        uploadSucceeded: uploadRes.success,
+                        uploadStatus: uploadRes.status,
                         error: uploadRes.error,
                         failureStage: uploadRes.failureStage
-                    });
+                    }));
 
-                    if (uploadRes.success) {
-                        successCount++;
-                    } else {
+                    if (!uploadRes.success) {
                         // 개별 업체 실패 알림
                         await this.notifyAllManagers('error', `[K2B 업로드 실패] ${target.business_name} 실패: ${uploadRes.error}`);
                     }
 
                 } catch (err: any) {
                     console.error(`[WorkerDaemon K2B Fail] ${target.business_name}:`, err);
-                    results.push({
+                    results.push(beginK2BPostUploadResult({
                         code: target.code,
                         companyName: target.business_name,
-                        success: false,
+                        year: target.year,
+                        period: target.period,
+                        uploadSucceeded: false,
                         failureStage: 'attachment-confirm',
                         error: err.message || '알 수 없는 업로드 에러'
-                    });
+                    }));
                     await this.notifyAllManagers('error', `[K2B 업로드 오류] ${target.business_name}: ${err.message}`);
                 } finally {
                     console.log(
@@ -944,10 +957,31 @@ export class WorkerDaemon {
                 return;
             }
 
+            let grid: Awaited<ReturnType<typeof k2b.readCurrentSubmissionResults>> | null = null;
             try {
                 console.log("[WorkerDaemon K2B] 전송 후 10초 대기 중...");
-                await new Promise(resolve => setTimeout(resolve, 10000));
-                const grid = await k2b.readCurrentSubmissionResults();
+                await this.waitForK2BPostUploadGrid();
+                grid = await k2b.readCurrentSubmissionResults();
+            } catch (gridReadErr: any) {
+                console.error("[WorkerDaemon K2B] 접수 현황 그리드 조회 실패:", gridReadErr.message);
+                const confirmationError = `K2B 접수현황 Grid 확인 실패: ${gridReadErr.message || '알 수 없는 조회 오류'}`;
+                for (let resultIndex = 0; resultIndex < results.length; resultIndex++) {
+                    results[resultIndex] = markK2BGridConfirmationFailure(results[resultIndex], confirmationError);
+                }
+            }
+
+            if (grid) {
+                if (grid.completeness !== 'COMPLETE') {
+                    // 불완전/시스템 실패성 Grid는 이전 정상 결과를 결과 확인 필요로 덮어쓰지 않는다.
+                    for (let resultIndex = 0; resultIndex < results.length; resultIndex++) {
+                        results[resultIndex] = markK2BGridConfirmationFailure(
+                            results[resultIndex],
+                            'K2B 접수현황 전체 조회가 완료되지 않아 최종 상태를 반영하지 않음',
+                        );
+                    }
+                    console.warn('[WorkerDaemon K2B] post-upload Grid incomplete; final journal reconciliation skipped: ' + grid.completeness);
+                }
+                if (grid.completeness === 'COMPLETE') {
                 const gridResults = grid.rows.map((row) => ({
                     managementNumber: row.managementNumber,
                     commencementNumber: row.commencementNumber,
@@ -962,6 +996,24 @@ export class WorkerDaemon {
                     half: row.half,
                 }));
 
+                // 최종 Grid 결과는 대상 전체의 현재 값과 한 번만 대조한다. code/year/period
+                // 의 Cartesian 범위에서 조회하되, 아래 Map은 정확한 세 키로만 사용한다.
+                const targetCodes = Array.from(new Set(targets.map((target: any) => String(target.code ?? ''))));
+                const targetYears = Array.from(new Set(targets.map((target: any) => target.year)));
+                const targetPeriods = Array.from(new Set(targets.map((target: any) => target.period)));
+                const { data: postUploadJournals, error: postUploadJournalError } = await supabase
+                    .from('measurement_journal')
+                    .select('code, measurement_year, measurement_period, k2b_status, k2b_send_date, k2b_sender')
+                    .in('code', targetCodes)
+                    .in('measurement_year', targetYears)
+                    .in('measurement_period', targetPeriods);
+                if (postUploadJournalError) throw postUploadJournalError;
+                const postUploadJournalByKey = new Map((postUploadJournals || []).map((journal: any) => [
+                    [journal.code, journal.measurement_year, journal.measurement_period]
+                        .map((value) => String(value ?? '').trim()).join('\u0000'),
+                    journal,
+                ]));
+
                 const finalizedTargetKeys = new Set<string>();
                 for (const matchTarget of targets) {
                     const finalizedTargetKey = [matchTarget.code, matchTarget.year, matchTarget.period]
@@ -970,8 +1022,12 @@ export class WorkerDaemon {
                     if (finalizedTargetKeys.has(finalizedTargetKey)) continue;
                     finalizedTargetKeys.add(finalizedTargetKey);
 
-                    const rIdx = results.findIndex(r => r.code === matchTarget.code);
-                    if (rIdx !== -1) results[rIdx].success = false;
+                    const rIdx = results.findIndex((result) => result.code === matchTarget.code
+                        && result.year === matchTarget.year
+                        && result.period === matchTarget.period);
+                    const uploadResult = rIdx === -1 ? null : results[rIdx];
+                    // 과거 Grid의 정상 행은 이번 업로드가 실패한 target을 성공으로 바꾸지 않는다.
+                    if (!uploadResult?.uploadSucceeded) continue;
                     const [reconciled] = reconcileK2BSubmissionResults([{
                         code: String(matchTarget.code || ''),
                         industrialAccidentNumber: matchTarget.industrial_accident_number,
@@ -986,6 +1042,13 @@ export class WorkerDaemon {
                     const gr = reconciled?.match;
                     if (!gr || reconciled.matchMethod !== 'exact_keys') {
                         console.log(`[WorkerDaemon K2B] exact-key result unresolved: target=${matchTarget.code} method=${reconciled?.matchMethod || 'NONE'}`);
+                        results[rIdx] = finalizeK2BPostUploadResult(uploadResult, {
+                            gridComplete: true,
+                            exactCanonicalMatch: false,
+                            latestNormal: false,
+                            status: '결과 확인 필요',
+                            error: 'K2B 접수현황에서 이번 업로드 target의 canonical 4-key 결과를 확인하지 못함',
+                        });
                         continue;
                     }
 
@@ -998,35 +1061,32 @@ export class WorkerDaemon {
                         receipt: gr,
                         measurementPeriod: matchTarget.period,
                     });
-                    const effectiveStatus = hasK2BReceiptError(gr)
-                        ? `${String(gr.status || 'status-missing').trim()} / \uC624\uB958\uBCF4\uAE30`
-                        : String(gr.status || 'status-missing').trim();
-                    const updateGridData: Record<string, any> = {
+                    const effectiveStatus = journalStatusForK2BReconciliation(reconciled);
+                    // 업로드 진행 상태를 저장하지 않는다. 방금 읽은 실제 K2B 결과만 공통 정책으로 반영한다.
+                    const desiredGridData = {
                         k2b_sender: '\uB300\uD45C\uACC4\uC815',
+                        k2b_status: effectiveStatus,
+                        ...k2BSendDatePatchForReconciliation(reconciled),
                     };
-                    // 정상 상태는 COMPLETE grid에서 GREEN/정상으로 확정된 경우에만 반영한다.
-                    // 오류 receipt는 기존 정책대로 관측 상태를 계속 반영한다.
-                    if (isConfirmedNormal || !isObservedNormal) {
-                        updateGridData.k2b_status = effectiveStatus;
-                    }
-                    if (isConfirmedNormal && /^\d{4}-\d{2}-\d{2}$/.test(String(gr.submissionDate || ''))) {
-                        updateGridData.k2b_send_date = gr.submissionDate;
-                    }
-                    await requireK2BJournalPersistence(
-                        supabase.from('measurement_journal').update(updateGridData)
+                    const postUploadUpdate = selectChangedK2BPostUploadUpdate(
+                        postUploadJournalByKey.get(finalizedTargetKey),
+                        desiredGridData,
+                    );
+                    if (postUploadUpdate) await requireK2BJournalPersistence(
+                        supabase.from('measurement_journal').update(postUploadUpdate)
                             .eq('code', matchTarget.code)
                             .eq('measurement_year', matchTarget.year)
                             .eq('measurement_period', matchTarget.period)
                     );
 
-                    if (rIdx !== -1) {
-                        results[rIdx].status = effectiveStatus;
-                        results[rIdx].success = isConfirmedNormal;
-                        if (!isConfirmedNormal) {
-                            results[rIdx].error = gr.errorDetail
-                                || (isObservedNormal ? 'K2B 접수현황 전체 조회가 완료되지 않아 정상 확정하지 않음' : effectiveStatus);
-                        }
-                    }
+                    results[rIdx] = finalizeK2BPostUploadResult(uploadResult, {
+                        gridComplete: true,
+                        exactCanonicalMatch: true,
+                        latestNormal: isConfirmedNormal,
+                        status: effectiveStatus,
+                        error: gr.errorDetail
+                            || (isObservedNormal ? 'K2B 접수현황 전체 조회가 완료되지 않아 정상 확정하지 않음' : effectiveStatus),
+                    });
 
                     if (calendarSyncDecision.shouldSync) {
                         const apiPeriod = calendarSyncDecision.period;
@@ -1036,24 +1096,16 @@ export class WorkerDaemon {
                             matchTarget.year,
                             apiPeriod
                         );
-                        if (rIdx !== -1) {
-                            results[rIdx].calendarSyncSuccess = calendarSync.success;
-                            results[rIdx].calendarSyncError = calendarSync.error;
-                        }
+                        results[rIdx].calendarSyncSuccess = calendarSync.success;
+                        results[rIdx].calendarSyncError = calendarSync.error;
                     } else if (calendarSyncDecision.reason === 'unsupported_period') {
                         const periodErr = `Unsupported measurement_period: ${matchTarget.period}`;
                         console.error(`[WorkerDaemon K2B] calendar sync skipped: code=${matchTarget.code} period=${String(matchTarget.period)}`);
-                        if (rIdx !== -1) {
-                            results[rIdx].calendarSyncSuccess = false;
-                            results[rIdx].calendarSyncError = periodErr;
-                        }
+                        results[rIdx].calendarSyncSuccess = false;
+                        results[rIdx].calendarSyncError = periodErr;
                     }
                 }
-            } catch (gridErr: any) {
-                console.error("[WorkerDaemon K2B] 접수 현황 그리드 조회 실패:", gridErr.message);
-                // 실제 K2B 업로드는 끝났더라도 그리드 상태를 DB에 저장하지 못했으면
-                // 성공으로 집계하면 안 된다. 조회 자체의 일시 실패만 기존처럼 경고로 남긴다.
-                if (gridErr instanceof K2BJournalPersistenceError) throw gridErr;
+                }
             }
 
             // 브라우저 닫기
@@ -1061,6 +1113,9 @@ export class WorkerDaemon {
 
             // 최종 Job 상태 업데이트
             const finalSuccessCount = results.filter(r => r.success).length;
+            const gridConfirmationFailures = results.filter((result) => result.uploadSucceeded
+                && !result.success
+                && result.failureStage === 'grid-confirmation');
             for (const result of results) {
                 console.log(
                     `[K2B][${result.code}] FINAL=${result.success ? 'SUCCESS' : 'FAILED'}` +
@@ -1085,21 +1140,32 @@ export class WorkerDaemon {
                 );
                 await this.notifyAllManagers('error', `[캘린더 동기화 실패] ${warning}`);
             } else if (finalSuccessCount > 0) {
-                await this.updateJobStatus(job.id, 'success', `일부 성공: ${finalSuccessCount}/${targets.length}개 완료`);
+                const partialMessage = gridConfirmationFailures.length > 0
+                    ? `일부 최종 확인: ${finalSuccessCount}/${targets.length}개 완료, ${gridConfirmationFailures.length}개 Grid 결과 확인 필요`
+                    : `일부 성공: ${finalSuccessCount}/${targets.length}개 완료`;
+                await this.updateJobStatus(job.id, 'success', partialMessage);
                 await this.createInAppNotification(
                     requestUser.id, 
                     'warning', 
-                    `[K2B 일부 업로드] ${finalSuccessCount}개 성공, ${targets.length - finalSuccessCount}개 실패하였습니다.`
+                    `[K2B 일부 업로드] ${partialMessage}`
                 );
             } else {
                 const failDetails = targets.map((t: any) => t.business_name).join(', ');
                 const errorReason = results[0]?.error || '자동화 프로세스 오류';
-                await this.updateJobStatus(job.id, 'failed', `K2B 업로드 실패: ${errorReason}`);
+                const gridConfirmationOnly = gridConfirmationFailures.length > 0;
+                const jobMessage = gridConfirmationOnly
+                    ? `K2B 업로드 결과 확인 필요: ${errorReason}`
+                    : `K2B 업로드 실패: ${errorReason}`;
+                await this.updateJobStatus(job.id, 'failed', jobMessage);
 
-                const errorMsg = `[K2B 업로드 실패] ${failDetails} 업로드 실패. 사유: ${errorReason}`;
+                const errorMsg = gridConfirmationOnly
+                    ? `[K2B 업로드 결과 확인 필요] ${failDetails}의 Grid 확인 실패. 사유: ${errorReason}`
+                    : `[K2B 업로드 실패] ${failDetails} 업로드 실패. 사유: ${errorReason}`;
                 await this.createInAppNotification(requestUser.id, 'error', errorMsg);
                 await this.notifyAllManagers('error', errorMsg);
             }
+
+            return results;
 
         } catch (error: any) {
             console.error("[WorkerDaemon] K2B 전체 작업 실패:", error);

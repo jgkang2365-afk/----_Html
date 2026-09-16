@@ -90,29 +90,29 @@ test("정합성 전체 결과에는 정상 행을 포함해 전체/이상건 필
   assert.deepEqual(rows.map((row) => [row.type, row.status]), [["정합성 이상 없음", "정상"]]);
 });
 
-test("K2B 재검증은 canonical 두 키로만 연계하고 날짜와 내부 전송일을 보수적으로 분류한다", () => {
+test("K2B 재검증은 canonical 키로 연계하고 최신 실제 정상은 내부 날짜를 자동 교체한다", () => {
   const exactTarget = { code: "A", businessName: "알파", industrialAccidentNumber: "123-45", commencementNumber: "00001", resultDate: "2026-09-05", internalK2BStatus: "정상처리", internalK2BSendDate: "2026-09-05" };
   const exactResult = { managementNumber: "12345", commencementNumber: "00001", status: "정상처리", submissionDate: "2026-09-05" };
   const [green] = reconcileK2BSubmissionResults([exactTarget], [exactResult]);
   assert.equal(green.matchMethod, "exact_keys"); assert.equal(green.state, "GREEN");
   const [internalMismatch] = reconcileK2BSubmissionResults([{ ...exactTarget, internalK2BSendDate: "2026-09-04" }], [exactResult]);
-  assert.equal(internalMismatch.state, "YELLOW");
+  assert.equal(internalMismatch.state, "GREEN");
   const [remoteFailure] = reconcileK2BSubmissionResults([exactTarget], [{ ...exactResult, status: "반려" }]);
   assert.equal(remoteFailure.state, "RED");
   const [notFound] = reconcileK2BSubmissionResults([exactTarget], []);
-  assert.equal(notFound.state, "YELLOW");
+  assert.equal(notFound.state, "RED");
   const [manualMissing] = reconcileK2BSubmissionResults([
     { ...exactTarget, code: "B", businessName: "수동처리", internalK2BStatus: null, internalK2BSendDate: null },
   ], [exactResult]);
   assert.equal(manualMissing.matchMethod, "exact_keys");
-  assert.equal(manualMissing.state, "YELLOW");
+  assert.equal(manualMissing.state, "GREEN");
   const [ambiguousManual] = reconcileK2BSubmissionResults([
     { ...exactTarget, code: "C", businessName: "중복후보", internalK2BStatus: null, internalK2BSendDate: null },
   ], [
     exactResult, exactResult,
   ]);
-  assert.equal(ambiguousManual.matchMethod, "AMBIGUOUS");
-  assert.equal(ambiguousManual.match, null);
+  assert.equal(ambiguousManual.matchMethod, "exact_keys");
+  assert.equal(ambiguousManual.match, exactResult);
   const duplicateInternalCandidates = reconcileK2BSubmissionResults([
     { ...exactTarget, code: "D", businessName: "동일사업장", internalK2BStatus: null, internalK2BSendDate: null },
     { ...exactTarget, code: "E", businessName: "동일사업장", internalK2BStatus: null, internalK2BSendDate: null },
@@ -195,23 +195,24 @@ test("새 K2B 검증은 대표계정 read-only 범위 조회와 업로드 직렬
   const failurePath = worker.slice(worker.indexOf("} catch (error: any) {", verifyStart), worker.indexOf("private async processK2BJob", verifyStart));
   assert.match(failurePath, /k2b_verification_error/); assert.doesNotMatch(failurePath, /k2b_verified_status:/);
   const verificationPath = worker.slice(verifyStart, worker.indexOf("private async processK2BJob", verifyStart));
-  assert.match(verificationPath, /deriveK2BReconciliationUpdate\(item, \{ internalK2BSendDate: journal\.k2b_send_date/);
-  assert.doesNotMatch(verificationPath, /k2b_send_date\s*:/);
+  assert.match(verificationPath, /selectChangedK2BReconciliationUpdate\(item, journal, attemptedAt\)/);
+  assert.match(verificationPath, /k2b_send_date/);
   assert.doesNotMatch(verificationPath, /k2b_sender\s*:/);
   assert.match(migration, /k2b_verified_send_date/); assert.match(migration, /k2b_consistency_status/); assert.match(migration, /k2b_consistency_note/); assert.match(migration, /enqueue_k2b_automation_job/); assert.match(migration, /enqueue_k2b_upload_job/); assert.match(migration, /TO service_role/); assert.doesNotMatch(migration, /GRANT EXECUTE[^;]+authenticated/);
   assert.match(queue, /checkPermission\('journal:write'\)/); assert.match(queue, /createAdminClient/); assert.match(queue, /enqueueSerializedK2BUpload/); assert.match(directUpload, /enqueueSerializedK2BUpload/); assert.match(directUpload, /status: 202/); assert.doesNotMatch(directUpload, /K2BService|\.login\(|\.init\(/); assert.match(verifyRoute, /checkPermission\("journal:write"\)/); assert.match(verifyRoute, /createAdminClient/); assert.match(scheduler, /createAdminClient/);
 });
 
-test("K2B 정합성 UI의 주 표시는 내부 enum이 아닌 신호등과 사용자 문구다", () => {
+test("K2B 정합성 UI는 업무상태와 신호등 presentation을 분리한다", () => {
   const page = readFileSync("app/(dashboard)/report-processing/page.tsx", "utf8");
-  assert.match(page, /GREEN: \{ icon: '🟢', label: '정상' \}/);
-  assert.match(page, /YELLOW: \{ icon: '🟡', label: '확인 필요' \}/);
-  assert.match(page, /RED: \{ icon: '🔴', label: '오류' \}/);
-  assert.match(page, /UNVERIFIED: \{ icon: '⚪', label: '미검증' \}/);
-  assert.match(page, /STALE: \{ icon: '⚪', label: '검증 지연' \}/);
-  assert.match(page, /function k2bStatusPresentation/);
-  assert.match(page, /return \{ label: '진행', className: 'border-slate-200 bg-slate-50 text-slate-700' \}/);
-  assert.doesNotMatch(page, /record\.k2b_status === '정상처리' \? '성공' : '실패'/);
+  const presentation = readFileSync("lib/report-processing/k2b-result-presentation.ts", "utf8");
+  assert.match(page, /presentK2BBusinessStatus/);
+  assert.match(page, /presentK2BConsistency/);
+  assert.match(presentation, /case "GREEN": return \{ icon: "🟢", label: "정상"/);
+  assert.match(presentation, /case "YELLOW": return \{ icon: "🟡", label: "확인 필요"/);
+  assert.match(presentation, /case "RED": return \{ icon: "🔴", label: "확인 필요"/);
+  assert.match(presentation, /정상처리와 legacy 업로드 완료/);
+  assert.match(presentation, /return \{ label: null/);
+  assert.doesNotMatch(presentation, /진행 \(업로드 완료\)/);
   assert.match(page, /aria-label=\{`K2B 실제결과 \$\{consistencySignal\.label\}`\}/);
   assert.doesNotMatch(page, />실제결과 \{record\.k2b_consistency_status/);
 });

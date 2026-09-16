@@ -62,6 +62,41 @@ export function resolveK2BJournalScope(receipt: Pick<K2BOriginalReceipt, "busine
   return { measurementYear: Number(yearText), measurementPeriod: periodText };
 }
 
+type K2BCanonicalJournalCandidate = {
+  industrialAccidentNumber?: unknown;
+  commencementNumber?: unknown;
+  measurementYear?: unknown;
+  measurementPeriod?: unknown;
+};
+
+function canonicalK2BIdentityPart(value: unknown): string {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+export function buildK2BReceiptCanonicalKey(receipt: Pick<K2BOriginalReceipt, "managementNumber" | "commencementNumber" | "businessYear" | "half">): string {
+  const scope = resolveK2BJournalScope(receipt as Pick<K2BOriginalReceipt, "businessYear" | "half">);
+  const management = canonicalK2BIdentityPart(receipt.managementNumber);
+  const commencement = canonicalK2BIdentityPart(receipt.commencementNumber);
+  if (!management || !commencement) throw new Error("K2B_GRID_SCHEMA_MISMATCH:missing_canonical_identity");
+  return [management, commencement, scope.measurementYear, scope.measurementPeriod].join("\u0000");
+}
+
+/** 이번 원본 Grid에 실제 관측된 canonical 4-key journal만 상태 조정 후보로 남긴다. */
+export function filterK2BObservedJournalCandidates<T extends K2BCanonicalJournalCandidate>(
+  journals: readonly T[],
+  receipts: readonly Pick<K2BOriginalReceipt, "managementNumber" | "commencementNumber" | "businessYear" | "half">[],
+): T[] {
+  const observed = new Set(receipts.map(buildK2BReceiptCanonicalKey));
+  return journals.filter((journal) => {
+    const management = canonicalK2BIdentityPart(journal.industrialAccidentNumber);
+    const commencement = canonicalK2BIdentityPart(journal.commencementNumber);
+    const year = String(journal.measurementYear ?? "").replace(/\D/g, "");
+    const period = normalized(journal.measurementPeriod);
+    return Boolean(management && commencement && /^\d{4}$/.test(year) && (period === "상반기" || period === "하반기")
+      && observed.has([management, commencement, year, period].join("\u0000")));
+  });
+}
+
 function asKstDate(value: unknown): string | null {
   const digits = String(value ?? "").replace(/\D/g, "");
   if (digits.length !== 8) return null;
