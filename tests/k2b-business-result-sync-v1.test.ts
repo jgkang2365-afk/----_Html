@@ -160,7 +160,8 @@ test("scheduled 원본 동기화는 7일을 지난 non-GREEN을 관측값 보존
   assert.match(worker, /shouldSweepK2BStale\(trigger\)/);
   assert.match(worker, /buildK2BStaleCutoff\(getKSTDateString\(\)\)/);
   assert.match(worker, /\.lt\('k2b_send_date', staleCutoff\)/);
-  assert.match(worker, /selectK2BStaleUpdates\(\(staleCandidates \|\| \[\]\)\.filter\(\(candidate: any\) => observedJournalIds\.has\(candidate\.id\)\)\)/);
+  assert.match(worker, /selectK2BStaleUpdates\(staleCandidates \|\| \[\]\)/);
+  assert.doesNotMatch(worker, /selectK2BStaleUpdates\(\(staleCandidates \|\| \[\]\)\.filter/);
   assert.doesNotMatch(worker, /\.lt\('k2b_send_date', range\.fromDate\)/);
   assert.match(worker, /k2b_verified_status\.is\.null,k2b_verified_status\.neq\.GREEN/);
 });
@@ -194,12 +195,21 @@ test("웹 upload route는 Selenium을 실행하지 않고 local worker queue로�
   assert.doesNotMatch(currentUser, /\bk2b_id\b|\bk2b_pw\b/);
 });
 
+test("STALE1-3: scheduled sweep은 미관측 eligible 행도 포함하고, manual은 전체 sweep을 하지 않으며 반복 실행은 무변경이다", () => {
+  const unseenEligible = { id: 9, k2b_verified_status: "YELLOW", k2b_consistency_status: "YELLOW", k2b_consistency_note: "기존 확인 필요" };
+  const [first] = selectK2BStaleUpdates([unseenEligible]);
+  assert.equal(first.id, 9);
+  assert.equal(shouldSweepK2BStale("scheduled"), true);
+  assert.equal(shouldSweepK2BStale("manual"), false);
+  assert.deepEqual(selectK2BStaleUpdates([{ ...unseenEligible, ...first.update }]), []);
+});
+
 test("uploadReport 성공은 COMPLETE Grid 실제 판정 전 journal K2B 상태를 쓰지 않는다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
-  const upload = worker.slice(worker.indexOf("private async processK2BJob"), worker.indexOf("const grid = await k2b.readCurrentSubmissionResults()"));
+  const upload = worker.slice(worker.indexOf("private async processK2BJob"), worker.indexOf("let grid: Awaited<ReturnType<typeof k2b.readCurrentSubmissionResults>> | null = null"));
   assert.doesNotMatch(upload, /from\('measurement_journal'\)\s*\.update\(/);
   assert.doesNotMatch(upload, /k2b_status:\s*uploadRes\.status|k2b_send_date\s*=\s*now/);
-  const postGrid = worker.slice(worker.indexOf("const grid = await k2b.readCurrentSubmissionResults()"), worker.indexOf("// 브라우저 닫기"));
+  const postGrid = worker.slice(worker.indexOf("let grid: Awaited<ReturnType<typeof k2b.readCurrentSubmissionResults>> | null = null"), worker.indexOf("// 브라우저 닫기"));
   assert.match(postGrid, /if \(grid\.completeness !== 'COMPLETE'\)[\s\S]*?final journal reconciliation skipped/);
   assert.match(postGrid, /if \(grid\.completeness === 'COMPLETE'\)[\s\S]*?selectChangedK2BPostUploadUpdate/);
 });

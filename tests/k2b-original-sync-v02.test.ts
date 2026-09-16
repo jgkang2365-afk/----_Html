@@ -45,7 +45,8 @@ test("scheduled 원본 동기화는 이번 receipt canonical 4-key에 없는 jou
   const originalSync = worker.slice(worker.indexOf("private async processK2BOriginalSyncJob"), worker.indexOf("private async processK2BJob"));
   assert.match(originalSync, /const observedJournals = filterK2BObservedJournalCandidates/);
   assert.match(originalSync, /reconcileK2BSubmissionResults\(observedJournals\.map/);
-  assert.match(originalSync, /observedJournalIds\.has\(candidate\.id\)/);
+  assert.match(originalSync, /selectK2BStaleUpdates\(staleCandidates \|\| \[\]\)/);
+  assert.doesNotMatch(originalSync, /observedJournalIds\.has\(candidate\.id\)/);
 });
 
 test("K2B header mapping은 실제 필수 header와 submission number를 보존한다", () => {
