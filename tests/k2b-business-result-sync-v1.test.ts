@@ -160,7 +160,7 @@ test("scheduled 원본 동기화는 7일을 지난 non-GREEN을 관측값 보존
   assert.match(worker, /shouldSweepK2BStale\(trigger\)/);
   assert.match(worker, /buildK2BStaleCutoff\(getKSTDateString\(\)\)/);
   assert.match(worker, /\.lt\('k2b_send_date', staleCutoff\)/);
-  assert.match(worker, /selectK2BStaleUpdates\(staleCandidates \|\| \[\]\)/);
+  assert.match(worker, /selectK2BStaleUpdates\(\(staleCandidates \|\| \[\]\)\.filter\(\(candidate: any\) => observedJournalIds\.has\(candidate\.id\)\)\)/);
   assert.doesNotMatch(worker, /\.lt\('k2b_send_date', range\.fromDate\)/);
   assert.match(worker, /k2b_verified_status\.is\.null,k2b_verified_status\.neq\.GREEN/);
 });
@@ -184,7 +184,7 @@ test("웹 upload route는 Selenium을 실행하지 않고 local worker queue로�
   const currentUser = readFileSync("lib/auth/get-user.ts", "utf8");
   assert.match(route, /enqueueSerializedK2BUpload/); assert.doesNotMatch(route, /K2BService|\.login\(|\.init\(/);
   const service = readFileSync("lib/automation/k2b-service.ts", "utf8");
-  assert.doesNotMatch(worker, /select\('name, k2b_id, k2b_pw'\)/); assert.match(worker, /k2b_sender = '대표계정'|k2b_sender: '대표계정'/);
+  assert.doesNotMatch(worker, /select\('name, k2b_id, k2b_pw'\)/); assert.match(worker, /k2b_sender: '\\uB300\\uD45C\\uACC4\\uC815'/);
   assert.match(service, /async login\(\)/); assert.match(service, /process\.env\.K2B_ID/); assert.match(service, /process\.env\.K2B_PW/);
   assert.doesNotMatch(service, /async login\(id\?: string, pw\?: string\)/);
   assert.match(worker, /readCurrentSubmissionResults/);
@@ -192,6 +192,16 @@ test("웹 upload route는 Selenium을 실행하지 않고 local worker queue로�
   assert.match(worker, /!hasK2BReceiptError\(gr\)/);
 
   assert.doesNotMatch(currentUser, /\bk2b_id\b|\bk2b_pw\b/);
+});
+
+test("uploadReport 성공은 COMPLETE Grid 실제 판정 전 journal K2B 상태를 쓰지 않는다", () => {
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  const upload = worker.slice(worker.indexOf("private async processK2BJob"), worker.indexOf("const grid = await k2b.readCurrentSubmissionResults()"));
+  assert.doesNotMatch(upload, /from\('measurement_journal'\)\s*\.update\(/);
+  assert.doesNotMatch(upload, /k2b_status:\s*uploadRes\.status|k2b_send_date\s*=\s*now/);
+  const postGrid = worker.slice(worker.indexOf("const grid = await k2b.readCurrentSubmissionResults()"), worker.indexOf("// 브라우저 닫기"));
+  assert.match(postGrid, /if \(grid\.completeness !== 'COMPLETE'\)[\s\S]*?final journal reconciliation skipped/);
+  assert.match(postGrid, /if \(grid\.completeness === 'COMPLETE'\)[\s\S]*?selectChangedK2BPostUploadUpdate/);
 });
 
 test("실제결과 화면은 저장된 결과만 사용하고 활성·표시 중인 경우에만 30초 polling 및 그룹 승인한다", () => {

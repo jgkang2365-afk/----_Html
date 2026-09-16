@@ -120,7 +120,9 @@ ${K2B_SUBMISSION_GRID_RUNTIME_SCRIPT}
   const errorValue = value => {
     if (/^(|0|false|n|no)$/i.test(text(value))) return '';
     if (/^(1|true|y|yes)$/i.test(text(value))) return '오류 있음';
-    if (/^(오류보기|보기|확인)$/.test(normalize(value))) fail('error_control_not_value');
+    // Dataset에 실제 ERR_BUT 같은 binding이 있으면 행별 빈 값/오류보기 값은 오류 신호다.
+    // binding 없는 정적 오류보기 label은 아래 Dataset column 생성 단계에서 제외된다.
+    if (/^(오류보기|보기|확인)$/.test(normalize(value))) return '오류 있음';
     return text(value);
   };
 
