@@ -194,6 +194,18 @@ export function selectChangedK2BReconciliationUpdate(
   return desired;
 }
 
+/** 업로드 직후 Grid 재조회는 같은 실제 결과에 journal write를 반복하지 않는다. */
+export function selectChangedK2BPostUploadUpdate(
+  current: { k2b_status?: string | null; k2b_send_date?: string | null; k2b_sender?: string | null } | null | undefined,
+  desired: { k2b_status: string; k2b_send_date: string | null; k2b_sender: string },
+): typeof desired | null {
+  if (current
+    && current.k2b_status === desired.k2b_status
+    && current.k2b_send_date === desired.k2b_send_date
+    && current.k2b_sender === desired.k2b_sender) return null;
+  return desired;
+}
+
 /**
  * STALE은 마지막 실제 관측값을 무효화하지 않는다. 기존 정합성 사유 뒤에 안내만 한 번
  * 덧붙이며, 반복 scheduled 실행에서도 같은 안내를 중복 누적하지 않는다.

@@ -155,8 +155,8 @@ test("불완전한 post-upload grid는 정상 상태·전송일·캘린더를 �
   assert.equal(incompleteNormal.state, "RED");
   assert.equal(incompleteNormal.verdict, "확인 필요");
   assert.match(worker, /const isConfirmedNormal = isObservedNormal[\s\S]*?reconciled\.state === 'GREEN'[\s\S]*?reconciled\.verdict === '\\uC815\\uC0C1'/);
-  assert.match(worker, /updateGridData\.k2b_status = effectiveStatus/);
-  assert.match(worker, /updateGridData\.k2b_send_date = isConfirmedNormal/);
+  assert.match(worker, /const desiredGridData = \{[\s\S]*?k2b_sender: '\\uB300\\uD45C\\uACC4\\uC815',[\s\S]*?k2b_status: effectiveStatus,/);
+  assert.match(worker, /k2b_send_date: isConfirmedNormal/);
   assert.match(worker, /exactMatch: isConfirmedNormal/);
 });
 

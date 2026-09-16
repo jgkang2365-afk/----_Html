@@ -3,7 +3,7 @@ import { EmailService } from '../email/email-service';
 import { K2BService } from './k2b-service';
 import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-verification-service';
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
-import { hasK2BReceiptError, journalStatusForK2BReconciliation, reconcileK2BSubmissionResults, selectChangedK2BReconciliationUpdate, selectK2BStaleUpdates, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
+import { hasK2BReceiptError, journalStatusForK2BReconciliation, reconcileK2BSubmissionResults, selectChangedK2BPostUploadUpdate, selectChangedK2BReconciliationUpdate, selectK2BStaleUpdates, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
 import { decideK2BCalendarSync } from './k2b-calendar-sync-policy';
 import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, inclusiveK2BDates, resolveK2BJournalScope, shouldSweepK2BStale, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
@@ -966,6 +966,24 @@ export class WorkerDaemon {
                     half: row.half,
                 }));
 
+                // 최종 Grid 결과는 대상 전체의 현재 값과 한 번만 대조한다. code/year/period
+                // 의 Cartesian 범위에서 조회하되, 아래 Map은 정확한 세 키로만 사용한다.
+                const targetCodes = Array.from(new Set(targets.map((target: any) => String(target.code ?? ''))));
+                const targetYears = Array.from(new Set(targets.map((target: any) => target.year)));
+                const targetPeriods = Array.from(new Set(targets.map((target: any) => target.period)));
+                const { data: postUploadJournals, error: postUploadJournalError } = await supabase
+                    .from('measurement_journal')
+                    .select('code, measurement_year, measurement_period, k2b_status, k2b_send_date, k2b_sender')
+                    .in('code', targetCodes)
+                    .in('measurement_year', targetYears)
+                    .in('measurement_period', targetPeriods);
+                if (postUploadJournalError) throw postUploadJournalError;
+                const postUploadJournalByKey = new Map((postUploadJournals || []).map((journal: any) => [
+                    [journal.code, journal.measurement_year, journal.measurement_period]
+                        .map((value) => String(value ?? '').trim()).join('\u0000'),
+                    journal,
+                ]));
+
                 const finalizedTargetKeys = new Set<string>();
                 for (const matchTarget of targets) {
                     const finalizedTargetKey = [matchTarget.code, matchTarget.year, matchTarget.period]
@@ -1003,15 +1021,19 @@ export class WorkerDaemon {
                         measurementPeriod: matchTarget.period,
                     });
                     const effectiveStatus = journalStatusForK2BReconciliation(reconciled);
-                    const updateGridData: Record<string, any> = {
-                        k2b_sender: '\uB300\uD45C\uACC4\uC815',
-                    };
                     // 업로드 진행 상태를 저장하지 않는다. 방금 읽은 실제 K2B 결과만 공통 정책으로 반영한다.
-                    updateGridData.k2b_status = effectiveStatus;
-                    updateGridData.k2b_send_date = isConfirmedNormal && /^\d{4}-\d{2}-\d{2}$/.test(String(gr.submissionDate || ''))
-                        ? gr.submissionDate : null;
-                    await requireK2BJournalPersistence(
-                        supabase.from('measurement_journal').update(updateGridData)
+                    const desiredGridData = {
+                        k2b_sender: '\uB300\uD45C\uACC4\uC815',
+                        k2b_status: effectiveStatus,
+                        k2b_send_date: isConfirmedNormal && /^\d{4}-\d{2}-\d{2}$/.test(String(gr.submissionDate || ''))
+                            ? gr.submissionDate ?? null : null,
+                    };
+                    const postUploadUpdate = selectChangedK2BPostUploadUpdate(
+                        postUploadJournalByKey.get(finalizedTargetKey),
+                        desiredGridData,
+                    );
+                    if (postUploadUpdate) await requireK2BJournalPersistence(
+                        supabase.from('measurement_journal').update(postUploadUpdate)
                             .eq('code', matchTarget.code)
                             .eq('measurement_year', matchTarget.year)
                             .eq('measurement_period', matchTarget.period)

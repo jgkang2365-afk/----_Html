@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { assertAdminK2BVerificationRange, buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, isK2BStaleCandidate, shouldSweepK2BStale } from "../lib/automation/k2b-original-sync";
-import { deriveK2BReconciliationUpdate, deriveK2BStaleUpdate, K2B_STALE_NOTICE, reconcileK2BSubmissionResults, selectK2BStaleUpdates, shouldReflectActualK2BStatus } from "../lib/k2b-verification";
+import { deriveK2BReconciliationUpdate, deriveK2BStaleUpdate, K2B_STALE_NOTICE, reconcileK2BSubmissionResults, selectChangedK2BPostUploadUpdate, selectK2BStaleUpdates, shouldReflectActualK2BStatus } from "../lib/k2b-verification";
 import { selectStoredK2BVerificationApprovalRows } from "../lib/automation/k2b-verification-approval";
 
 const target = { journalId: 1, code: "A", businessName: "동명이인", resultDate: "2026-09-09", industrialAccidentNumber: "123-45", commencementNumber: "00001", internalK2BStatus: "정상처리", internalK2BSendDate: "2026-09-09" };
@@ -50,6 +50,16 @@ test("최신 실제 상태는 공통 patch로 반영하고 오류는 노랑 확�
   const [normalWithError] = reconcileK2BSubmissionResults([target], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리", errorDetail: "실제 오류" }]);
   assert.equal(normalWithError.state, "YELLOW");
   assert.equal(shouldReflectActualK2BStatus(normalWithError), true);
+});
+
+test("업로드 직후 같은 실제 Grid 결과를 반복하면 journal write patch를 만들지 않는다", () => {
+  const desired = { k2b_status: "정상처리", k2b_send_date: "2026-09-09", k2b_sender: "대표계정" };
+  assert.equal(selectChangedK2BPostUploadUpdate({ ...desired }, desired), null);
+  assert.deepEqual(selectChangedK2BPostUploadUpdate({ ...desired, k2b_send_date: null }, desired), desired);
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  assert.match(worker, /select\('code, measurement_year, measurement_period, k2b_status, k2b_send_date, k2b_sender'\)/);
+  assert.match(worker, /const postUploadUpdate = selectChangedK2BPostUploadUpdate\([\s\S]*?postUploadJournalByKey\.get\(finalizedTargetKey\)/);
+  assert.match(worker, /if \(postUploadUpdate\) await requireK2BJournalPersistence/);
 });
 
 test("일반 범위는 KST 오늘 포함 7일, 관리자 직접 범위는 최대 31일이다", () => {
