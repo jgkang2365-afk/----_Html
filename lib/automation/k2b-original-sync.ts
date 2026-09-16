@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
+import { K2B_VERIFY_UNRESOLVED_DAYS } from "../constants/k2b-verification";
 
-export const K2B_SYNC_OVERLAP_DAYS = 3;
 export type K2BSyncTrigger = "manual" | "scheduled" | "unknown";
 
 export type K2BOriginalReceipt = {
@@ -91,7 +91,7 @@ export function buildK2BSourceKey(receipt: Pick<K2BOriginalReceipt, "submissionN
   return { sourceKey: `k2b:fallback:${createHash("sha256").update(canonical).digest("hex")}`, identityFallback: true };
 }
 
-/** 수동은 명시 range만, scheduled는 cursor+3일 overlap 또는 D-3..D-1 bootstrap만 허용한다. */
+/** 수동은 명시 range만, scheduled는 cursor catch-up과 완료된 최근 7일 재확인을 함께 수행한다. */
 export function buildK2BSyncRange(input: {
   trigger: K2BSyncTrigger;
   today: string;
@@ -108,9 +108,10 @@ export function buildK2BSyncRange(input: {
   }
   const through = subtractDays(input.today, 1);
   const cursor = input.lastSuccessfulThroughDate;
-  // scheduled는 새 cursor 구간(cursor+1..D-1)과 D-3..D-1 overlap의 합집합이다.
-  if (cursor && asKstDate(cursor)) return { fromDate: [subtractDays(cursor, -1), subtractDays(input.today, K2B_SYNC_OVERLAP_DAYS)].sort()[0], toDate: through };
-  return { fromDate: subtractDays(input.today, 3), toDate: through };
+  const reverifyFrom = subtractDays(input.today, K2B_VERIFY_UNRESOLVED_DAYS);
+  // scheduled는 새 cursor 구간(cursor+1..D-1)과 완료된 최근 7일(D-7..D-1)의 합집합이다.
+  if (cursor && asKstDate(cursor)) return { fromDate: [subtractDays(cursor, -1), reverifyFrom].sort()[0], toDate: through };
+  return { fromDate: reverifyFrom, toDate: through };
 }
 
 export function inclusiveK2BDates(range: K2BRange): string[] {
@@ -120,10 +121,10 @@ export function inclusiveK2BDates(range: K2BRange): string[] {
   return dates;
 }
 
-/** 일반 재검증은 KST 오늘을 포함한 정확히 7 calendar days를 한 번에 조회한다. */
+/** 일반 재검증은 KST 오늘을 포함한 canonical 기간만큼 조회한다. */
 export function buildGeneralK2BVerificationRange(today: string): K2BRange {
   if (!asKstDate(today)) throw new Error("K2B_VERIFY_INVALID_TODAY");
-  return { fromDate: subtractDays(today, 6), toDate: today };
+  return { fromDate: subtractDays(today, K2B_VERIFY_UNRESOLVED_DAYS - 1), toDate: today };
 }
 
 /** 관리자 직접 기간은 31 calendar days를 넘길 수 없다. */

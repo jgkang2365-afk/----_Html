@@ -8,6 +8,8 @@ export type K2BVerificationTarget = {
   commencementNumber?: string | null;
   businessName: string;
   resultDate: string;
+  measurementYear?: number | null;
+  measurementPeriod?: string | null;
   previousVerifiedStatus?: K2BVerificationState | null;
   previousVerifiedAt?: string | null;
   internalK2BStatus?: string | null;
@@ -24,6 +26,8 @@ export type K2BSubmissionResult = {
   errorDetail?: string | null;
   submissionNumber?: string | null;
   identityConflict?: boolean;
+  businessYear?: string | number | null;
+  half?: string | null;
 };
 
 export type K2BVerificationVerdict = "정상" | "오류" | "날짜 불일치" | "내부 전송일자 없음" | "미접수" | "확인 필요";
@@ -36,7 +40,13 @@ export type K2BReconciliation = {
   verdict: K2BVerificationVerdict;
 };
 
+export type K2BReconciliationJournal = Pick<K2BVerificationTarget, "internalK2BSendDate"> & {
+  k2bStatus: string | null | undefined;
+};
+
 const normalizeKey = (value: unknown) => String(value ?? "").replace(/\D/g, "");
+const normalizeYear = (value: unknown) => String(value ?? "").replace(/\D/g, "");
+const normalizePeriod = (value: unknown) => String(value ?? "").replace(/\s+/g, "").trim();
 
 const NORMAL_K2B_STATUS = /^정상처리$/;
 
@@ -59,7 +69,13 @@ function resolveExactReceipt(candidates: K2BSubmissionResult[]): K2BSubmissionRe
   const normal = candidates.filter(isNormalReceipt);
   if (normal.length === 1) return normal[0];
   if (normal.length === 0 && candidates.length > 0 && candidates.every((row) => !isNormalReceipt(row))) {
-    return candidates[0];
+    // 오류만 있는 경우에도 Grid 행 순서가 final remote 상태를 바꾸지 않도록
+    // 실제 접수일, 상태, 접수번호 순으로 결정론적으로 최신 후보를 선택한다.
+    return [...candidates].sort((left, right) => [
+      String(right.submissionDate ?? ''), String(right.status ?? ''), String(right.submissionNumber ?? ''),
+    ].join('\u0000').localeCompare([
+      String(left.submissionDate ?? ''), String(left.status ?? ''), String(left.submissionNumber ?? ''),
+    ].join('\u0000')))[0];
   }
   return null;
 }
@@ -69,7 +85,17 @@ export function reconcileK2BSubmissionResults(targets: K2BVerificationTarget[], 
     const management = normalizeKey(target.industrialAccidentNumber);
     const commencement = normalizeKey(target.commencementNumber);
     if (!management || !commencement) return { target, match: null, matchMethod: "MISSING_KEY" as const };
-    const exact = results.filter((row) => normalizeKey(row.managementNumber) === management && normalizeKey(row.commencementNumber) === commencement);
+    const targetYear = normalizeYear(target.measurementYear);
+    const targetPeriod = normalizePeriod(target.measurementPeriod);
+    const exact = results.filter((row) => {
+      if (normalizeKey(row.managementNumber) !== management || normalizeKey(row.commencementNumber) !== commencement) return false;
+      const receiptYear = normalizeYear(row.businessYear);
+      const receiptPeriod = normalizePeriod(row.half);
+      // 실제 원본 row에는 사업년도와 반기가 반드시 있으므로 네 키가 모두 같아야 한다.
+      // 기존 단위 테스트 fixture처럼 scope가 전혀 없는 경우에만 legacy two-key fixture를 허용한다.
+      return !(targetYear || targetPeriod)
+        || (targetYear === receiptYear && targetPeriod === receiptPeriod);
+    });
     const match = resolveExactReceipt(exact);
     if (match) return { target, match, matchMethod: "exact_keys" as const };
     return { target, match: null, matchMethod: exact.length > 1 ? "AMBIGUOUS" as const : "NONE" as const };
@@ -82,6 +108,9 @@ export function reconcileK2BSubmissionResults(targets: K2BVerificationTarget[], 
     }
     if (!candidate.match) {
       return { target: candidate.target, match: null, matchMethod: candidate.matchMethod, state: "YELLOW" as const, verdict: candidate.matchMethod === "NONE" && read?.completeness === "COMPLETE" ? "미접수" as const : "확인 필요" as const };
+    }
+    if (read && read.completeness !== "COMPLETE") {
+      return { target: candidate.target, match: candidate.match, matchMethod: candidate.matchMethod, state: "YELLOW" as const, verdict: "확인 필요" as const };
     }
     const verdict = verdictFor(candidate.target, candidate.match);
     return {
@@ -103,16 +132,42 @@ export function verdictFor(target: K2BVerificationTarget, row: K2BSubmissionResu
   return "정상";
 }
 
-export function statusToState(status: string | null | undefined, target?: Pick<K2BVerificationTarget, "internalK2BStatus" | "internalK2BSendDate" | "resultDate">, hasActualError = false): K2BVerificationState {
-  const actual = String(status ?? "").trim();
-  const internal = String(target?.internalK2BStatus ?? "").trim();
-  const hasExactInternalDate = Boolean(target?.internalK2BSendDate) && target?.internalK2BSendDate === target?.resultDate;
-  const internalIsNormal = NORMAL_K2B_STATUS.test(internal);
-  // 업무 판정에서 정상은 오직 "정상처리 + 실제 오류내용 없음"이다. 그 밖의 실제
-  // 상태는 내부 날짜/상태와 관계없이 오류 관측으로 표시한다.
-  if (!actual || !NORMAL_K2B_STATUS.test(actual) || hasActualError) return "RED";
-  if (NORMAL_K2B_STATUS.test(actual) && internalIsNormal && hasExactInternalDate) return "GREEN";
-  return "YELLOW";
+/** 정상 receipt 또는 실제 비정상 remote status만 내부 상태에 반영한다.
+ * 실제 상태는 정상인데 오류내용만 있는 경우에는 내부 상태를 정상으로 덮어쓰지 않는다. */
+export function shouldReflectActualK2BStatus(item: Pick<K2BReconciliation, "match" | "verdict">): boolean {
+  if (!item.match) return false;
+  if (item.verdict === "정상") return true;
+  return item.verdict === "오류" && !NORMAL_K2B_STATUS.test(String(item.match.status ?? "").trim());
+}
+
+/** 원본 동기화와 일반/관리자 재검증이 공유하는 단일 journal 반영 정책이다. */
+export function deriveK2BReconciliationUpdate(
+  item: K2BReconciliation,
+  journal: K2BReconciliationJournal,
+  attemptedAt: string,
+): Record<string, string | null> {
+  const matched = item.match && item.matchMethod === "exact_keys";
+  const note = matched
+    ? `K2B 실제결과 ${item.verdict}${item.match?.errorDetail ? `: ${item.match.errorDetail}` : ""}`
+    : item.matchMethod === "AMBIGUOUS"
+      ? "K2B 결과가 복수 후보여서 자동 확정하지 않음"
+      : "K2B 실제결과를 명확히 연결하지 못함";
+  const update: Record<string, string | null> = {
+    k2b_verified_status: item.state,
+    k2b_verified_at: attemptedAt,
+    k2b_consistency_status: item.state,
+    k2b_consistency_note: note,
+    k2b_verification_error: null,
+    k2b_verification_attempted_at: attemptedAt,
+  };
+  if (!matched || !item.match) return update;
+  update.k2b_verified_send_date = item.match.submissionDate ?? null;
+  update.k2b_verified_result_date = journal.internalK2BSendDate ?? null;
+  update.k2b_verified_remote_status = item.match.status ?? null;
+  if (shouldReflectActualK2BStatus(item) && journal.internalK2BSendDate === item.match.submissionDate) {
+    update.k2b_status = item.match.status ?? null;
+  }
+  return update;
 }
 
 export function verificationFailureState(previous: K2BVerificationState | null | undefined): "STALE" | "UNVERIFIED" {

@@ -96,6 +96,19 @@ const K2B_CONSISTENCY_SIGNAL: Record<BusinessRecord['k2b_consistency_status'], {
     STALE: { icon: '⚪', label: '검증 지연' },
 };
 
+function k2bStatusPresentation(record: Pick<BusinessRecord, 'k2b_status' | 'k2b_verified_status' | 'k2b_consistency_status' | 'k2b_verified_remote_status'>) {
+    const hasActualError = record.k2b_verified_status === 'RED'
+        || record.k2b_consistency_status === 'RED'
+        || Boolean(record.k2b_verified_remote_status && record.k2b_verified_remote_status !== '정상처리');
+    if (record.k2b_status === '정상처리' && !hasActualError) {
+        return { label: '성공', className: 'border-green-200 bg-green-50 text-green-600' };
+    }
+    if (hasActualError) {
+        return { label: '오류', className: 'border-red-200 bg-red-50 text-red-600' };
+    }
+    return { label: '진행', className: 'border-slate-200 bg-slate-50 text-slate-700' };
+}
+
 function restoreReportProcessingFilters(value: string | null) {
     if (!value) return DEFAULT_REPORT_PROCESSING_FILTERS;
 
@@ -1029,12 +1042,8 @@ export default function ReportProcessingPage() {
                                         </TableCell>
                                         <TableCell>
                                             {record.k2b_status ? (
-                                                <span className={`text-sm font-semibold px-2 py-1 rounded border ${record.k2b_status === '정상처리'
-                                                    ? 'text-green-600 bg-green-50 border-green-200'
-                                                    : 'text-red-600 bg-red-50 border-red-200'
-                                                    }`}>
-                                                    {record.k2b_status === '정상처리' ? '성공' : '실패'}
-                                                    {' '}({record.k2b_status})
+                                                <span className={`rounded border px-2 py-1 text-sm font-semibold ${k2bStatusPresentation(record).className}`}>
+                                                    {k2bStatusPresentation(record).label} ({record.k2b_status})
                                                 </span>
                                             ) : (
                                                 <span className="text-muted-foreground text-sm">-</span>

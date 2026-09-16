@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { assertAdminK2BVerificationRange, buildGeneralK2BVerificationRange } from "../lib/automation/k2b-original-sync";
-import { reconcileK2BSubmissionResults, statusToState } from "../lib/k2b-verification";
+import { assertAdminK2BVerificationRange, buildGeneralK2BVerificationRange, buildK2BSyncRange } from "../lib/automation/k2b-original-sync";
+import { deriveK2BReconciliationUpdate, reconcileK2BSubmissionResults, shouldReflectActualK2BStatus } from "../lib/k2b-verification";
 import { selectStoredK2BVerificationApprovalRows } from "../lib/automation/k2b-verification-approval";
 
 const target = { journalId: 1, code: "A", businessName: "동명이인", resultDate: "2026-09-09", industrialAccidentNumber: "123-45", commencementNumber: "00001", internalK2BStatus: "정상처리", internalK2BSendDate: "2026-09-09" };
@@ -38,16 +38,18 @@ test("정상처리라도 실제 오류 신호가 있으면 오류이고 날짜 �
   assert.equal(mismatch.verdict, "날짜 불일치");
   const [errorBeforeDate] = reconcileK2BSubmissionResults([{ ...target, internalK2BSendDate: "2026-09-08" }], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리", errorViewAvailable: true }]);
   assert.equal(errorBeforeDate.verdict, "오류");
-  assert.equal(statusToState("정상처리", { internalK2BStatus: "정상처리", internalK2BSendDate: "2026-09-09", resultDate: "2026-09-09" }, true), "RED");
-  assert.equal(statusToState("처리중", { internalK2BStatus: null, internalK2BSendDate: null, resultDate: "2026-09-09" }), "RED");
+  const [uploadedInternally] = reconcileK2BSubmissionResults([{ ...target, internalK2BStatus: "업로드 완료" }], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리" }]);
+  assert.equal(uploadedInternally.state, "GREEN");
 });
 
-test("내부 전송일이 같은 정상·오류만 실제 처리상태를 자동 반영하고 승인 대상 날짜는 보존한다", () => {
+test("내부 전송일이 같은 실제 상태만 자동 반영하고 오류내용만 있는 정상 문자열은 보존한다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
-  assert.match(worker, /const reflectActualStatus = \['정상', '오류'\]\.includes\(item\.verdict\)/);
-  assert.match(worker, /journal\.k2b_send_date === item\.match\.submissionDate/);
-  assert.match(worker, /\.\.\.\(reflectActualStatus \? \{ k2b_status: item\.match\.status \} : \{\}\)/);
-  assert.match(worker, /날짜 불일치·내부 날짜 없음은 승인 endpoint까지 기존 값을 보존/);
+  assert.match(worker, /deriveK2BReconciliationUpdate\(item, \{ internalK2BSendDate: journal\.k2b_send_date/);
+  const [normal] = reconcileK2BSubmissionResults([{ ...target, internalK2BStatus: "업로드 완료" }], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리" }]);
+  assert.equal(shouldReflectActualK2BStatus(normal), true);
+  const [normalWithError] = reconcileK2BSubmissionResults([target], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리", errorDetail: "실제 오류" }]);
+  assert.equal(normalWithError.state, "RED");
+  assert.equal(shouldReflectActualK2BStatus(normalWithError), false);
 });
 
 test("일반 범위는 KST 오늘 포함 7일, 관리자 직접 범위는 최대 31일이다", () => {
@@ -67,6 +69,50 @@ test("일반 범위는 KST 오늘 포함 7일, 관리자 직접 범위는 최대
   assert.match(panel, /isAdmin && adminRangeOpen &&/);
   assert.match(panel, /관리자 기간 재검증/);
   assert.match(panel, /최대 31일 재검증/);
+});
+
+test("scheduled 원본 동기화는 완료된 최근 7일과 cursor catch-up을 합친다", () => {
+  assert.deepEqual(buildK2BSyncRange({ trigger: "scheduled", today: "2026-09-16", lastSuccessfulThroughDate: "2026-09-15" }), { fromDate: "2026-09-09", toDate: "2026-09-15" });
+  assert.deepEqual(buildK2BSyncRange({ trigger: "scheduled", today: "2026-09-16", lastSuccessfulThroughDate: "2026-09-01" }), { fromDate: "2026-09-02", toDate: "2026-09-15" });
+  assert.deepEqual(buildK2BSyncRange({ trigger: "scheduled", today: "2026-09-16" }), { fromDate: "2026-09-09", toDate: "2026-09-15" });
+});
+
+test("canonical scope까지 같은 receipt만 자동 확정하고 결과 행 순서에 의존하지 않는다", () => {
+  const scoped = { ...target, measurementYear: 2026, measurementPeriod: "하반기", internalK2BStatus: "업로드 완료" };
+  const error = { managementNumber: "12345", commencementNumber: "00001", businessYear: "2026", half: "하반기", submissionDate: "2026-09-09", status: "오류" };
+  const normal = { ...error, status: "정상처리" };
+  const [forward] = reconcileK2BSubmissionResults([scoped], [error, normal]);
+  const [reverse] = reconcileK2BSubmissionResults([scoped], [normal, error]);
+  assert.deepEqual([forward.state, forward.verdict, reverse.state, reverse.verdict], ["GREEN", "정상", "GREEN", "정상"]);
+  const olderError = { ...error, submissionDate: "2026-09-08", status: "파일오류" };
+  const newerError = { ...error, submissionDate: "2026-09-09", status: "반려" };
+  const [errorForward] = reconcileK2BSubmissionResults([scoped], [olderError, newerError]);
+  const [errorReverse] = reconcileK2BSubmissionResults([scoped], [newerError, olderError]);
+  assert.deepEqual([errorForward.match?.status, errorReverse.match?.status], ["반려", "반려"]);
+  const [differentPeriod] = reconcileK2BSubmissionResults([scoped], [{ ...normal, half: "상반기" }], { completeness: "COMPLETE" });
+  assert.equal(differentPeriod.state, "YELLOW");
+});
+
+test("공통 반영 helper는 정상·실제오류·날짜불일치의 내부 상태 쓰기 정책을 구분한다", () => {
+  const journal = { internalK2BSendDate: "2026-09-09", k2bStatus: "업로드 완료" };
+  const [green] = reconcileK2BSubmissionResults([{ ...target, internalK2BStatus: "업로드 완료" }], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리" }]);
+  const greenUpdate = deriveK2BReconciliationUpdate(green, journal, "2026-09-09T01:00:00+09:00");
+  assert.equal(greenUpdate.k2b_status, "정상처리");
+  assert.equal(greenUpdate.k2b_verified_status, "GREEN");
+  const [remoteError] = reconcileK2BSubmissionResults([target], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "반려" }]);
+  assert.equal(deriveK2BReconciliationUpdate(remoteError, journal, "now").k2b_status, "반려");
+  const [normalWithError] = reconcileK2BSubmissionResults([target], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리", errorDetail: "실제 오류" }]);
+  assert.equal(deriveK2BReconciliationUpdate(normalWithError, journal, "now").k2b_status, undefined);
+  const [mismatch] = reconcileK2BSubmissionResults([{ ...target, internalK2BSendDate: "2026-09-08" }], [{ managementNumber: "12345", commencementNumber: "00001", submissionDate: "2026-09-09", status: "정상처리" }]);
+  assert.equal(deriveK2BReconciliationUpdate(mismatch, { ...journal, internalK2BSendDate: "2026-09-08" }, "now").k2b_status, undefined);
+});
+
+test("scheduled 원본 동기화는 7일을 지난 non-GREEN을 관측값 보존형 STALE로 전이한다", () => {
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  assert.match(worker, /k2b_verified_status: 'STALE'/);
+  assert.match(worker, /k2b_consistency_status: 'STALE'/);
+  assert.match(worker, /자동 재확인 기간 7일이 경과했습니다/);
+  assert.match(worker, /k2b_verified_status\.is\.null,k2b_verified_status\.neq\.GREEN/);
 });
 
 test("승인은 client code/date/status가 아닌 저장 job verificationRows와 journal id만 사용한다", () => {
