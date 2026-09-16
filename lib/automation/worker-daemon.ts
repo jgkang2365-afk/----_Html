@@ -822,8 +822,24 @@ export class WorkerDaemon {
         }
     }
 
+    private async createK2BJobSupabaseClient() {
+        return createClient();
+    }
+
+    private createK2BJobService() {
+        return new K2BService();
+    }
+
+    private findK2BJobReportFiles(input: Parameters<typeof findReportFiles>[0]) {
+        return findReportFiles(input);
+    }
+
+    private async waitForK2BPostUploadGrid() {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+    }
+
     private async processK2BJob(job: any) {
-        const supabase = await createClient();
+        const supabase = await this.createK2BJobSupabaseClient();
         const payload = job.payload || {};
         const targets = payload.targets || [];
         const requestUser = payload.requestUser || null;
@@ -840,7 +856,7 @@ export class WorkerDaemon {
             return;
         }
 
-        const k2b = new K2BService();
+        const k2b = this.createK2BJobService();
         this.currentK2BService = k2b; // Graceful Shutdown을 위해 등록
         const results: K2BPostUploadResult[] = [];
 
@@ -863,7 +879,7 @@ export class WorkerDaemon {
                 }
                 try {
                     // 1. Z드라이브 파일 찾기
-                    const files = findReportFiles({
+                    const files = this.findK2BJobReportFiles({
                         year: target.year.toString(),
                         semester: target.period,
                         companyName: target.business_name
@@ -871,7 +887,7 @@ export class WorkerDaemon {
 
                     const previousTarget = targets[targetIndex - 1];
                     const previousFiles = previousTarget
-                        ? findReportFiles({
+                        ? this.findK2BJobReportFiles({
                             year: previousTarget.year.toString(),
                             semester: previousTarget.period,
                             companyName: previousTarget.business_name
@@ -944,7 +960,7 @@ export class WorkerDaemon {
             let grid: Awaited<ReturnType<typeof k2b.readCurrentSubmissionResults>> | null = null;
             try {
                 console.log("[WorkerDaemon K2B] 전송 후 10초 대기 중...");
-                await new Promise(resolve => setTimeout(resolve, 10000));
+                await this.waitForK2BPostUploadGrid();
                 grid = await k2b.readCurrentSubmissionResults();
             } catch (gridReadErr: any) {
                 console.error("[WorkerDaemon K2B] 접수 현황 그리드 조회 실패:", gridReadErr.message);
@@ -1149,6 +1165,8 @@ export class WorkerDaemon {
                 await this.createInAppNotification(requestUser.id, 'error', errorMsg);
                 await this.notifyAllManagers('error', errorMsg);
             }
+
+            return results;
 
         } catch (error: any) {
             console.error("[WorkerDaemon] K2B 전체 작업 실패:", error);
