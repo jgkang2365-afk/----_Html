@@ -324,7 +324,8 @@ test("2026년 하반기 자격 대상은 상태 조회 중에도 버튼을 보�
   assert.match(management, /editingItem\.document_generation_enabled === true/);
   assert.match(management, /editingItem\.has_actual_measurement_journal === false/);
   assert.match(component, /canShowWhileLoading/);
-  assert.match(component, /disabled=\{loading \|\| isRunning\}/);
+  assert.match(component, /\{!isRunning && \(\s*<Button/);
+  assert.match(component, /disabled=\{loading\}/);
   assert.match(component, /loading\s*\?\s*"문서 생성"/);
 });
 

@@ -379,25 +379,27 @@ export function NewBusinessDocumentGeneration({
             {cancelling ? "취소 요청 중..." : "생성 중단"}
           </Button>
         )}
-        <Button
-          type="button"
-          variant={isComplete ? "secondary" : "primary"}
-          disabled={loading || isRunning}
-          onClick={open}
-          className="whitespace-nowrap"
-        >
-          {loading || (isRunning && !isCancellationRequested) ? (
-            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-          ) : isComplete ||
-            status === "FAILED" ||
-            status === "PARTIAL_SUCCESS" ||
-            status === "CANCELLED" ? (
-            <RotateCcw className="mr-1.5 h-4 w-4" />
-          ) : (
-            <FilePlus2 className="mr-1.5 h-4 w-4" />
-          )}
-          {loading ? "문서 생성" : DOCUMENT_GENERATION_STATUS_LABELS[status] || "문서 생성"}
-        </Button>
+        {!isRunning && (
+          <Button
+            type="button"
+            variant={isComplete ? "secondary" : "primary"}
+            disabled={loading}
+            onClick={open}
+            className="whitespace-nowrap"
+          >
+            {loading ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : isComplete ||
+              status === "FAILED" ||
+              status === "PARTIAL_SUCCESS" ||
+              status === "CANCELLED" ? (
+              <RotateCcw className="mr-1.5 h-4 w-4" />
+            ) : (
+              <FilePlus2 className="mr-1.5 h-4 w-4" />
+            )}
+            {loading ? "문서 생성" : DOCUMENT_GENERATION_STATUS_LABELS[status] || "문서 생성"}
+          </Button>
+        )}
       </div>
       <Modal
         isOpen={isOpen}

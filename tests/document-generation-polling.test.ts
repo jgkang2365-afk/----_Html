@@ -23,6 +23,12 @@ test("문서 생성 상태 7종은 실행 여부와 버튼 문구를 정확히 �
   }
 });
 
+test("running state hides the legacy document generation button", () => {
+  assert.match(component, /\{!isRunning && \(\s*<Button/);
+  assert.match(component, /disabled=\{loading\}/);
+  assert.doesNotMatch(component, /disabled=\{loading \|\| isRunning\}/);
+});
+
 test("Realtime이 primary이며 idle interval polling을 만들지 않는다", () => {
   assert.match(component, /subscribeAutomationJob\(automationJobId/);
   assert.doesNotMatch(component, /window\.setTimeout/);
