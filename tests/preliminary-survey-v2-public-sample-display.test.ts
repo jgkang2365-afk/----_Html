@@ -9,7 +9,7 @@ const users = new Map<number, string>([[1, "이태환"], [2, "한기문"], [3, "
 
 test("V2 assignment가 찐확정 legacy 값보다 우선한다", () => {
   assert.deepEqual(resolveMeasurementPublicSampleDisplay({
-    v2Assignment: { assigneeUserId: 1, surveyCode: "A" },
+    v2Assignment: { assigneeUserId: 1, publicSampleCode: "A" },
     trueConfirmed: true,
     legacyAssignment: { measurer: "김민영", surveyCode: "GG" },
     userNameById: users,
@@ -32,7 +32,7 @@ test("찐확정이고 V2 assignment가 없을 때만 legacy 값을 표시한다"
 
 test("복원 assignment와 snapshot은 live fallback보다 우선하며 원문 FF/GG를 보존한다", () => {
   assert.deepEqual(resolveMeasurementPublicSampleDisplay({
-    v2Assignment: { assigneeUserId: 5, surveyCode: "F" }, v2AssignmentId: "assignment-1",
+    v2Assignment: { assigneeUserId: 5, publicSampleCode: "F" }, v2AssignmentId: "assignment-1",
     reconciliation: { measurer: "고유빈", surveyCode: "FF", appliedAssignmentId: "assignment-1" },
     trueConfirmed: true, legacyAssignment: { measurer: "다른값", surveyCode: "G" }, userNameById: users,
   }), { label: "고유빈(FF)", source: "legacy_reconciled" });
@@ -62,17 +62,27 @@ test("legacy historical survey_code FF/GG를 변환하지 않는다", () => {
   }
 });
 
-test("신규 V2 6개 공시료 코드는 legacy와 무관하게 그대로 표시한다", () => {
+test("신규 V2 공시료 코드는 survey_code와 무관하게 저장값 그대로 표시한다", () => {
   const assignments = [[1, "A", "이태환(A)"], [5, "F", "고유빈(F)"], [2, "B", "한기문(B)"],
-    [6, "G", "김민영(G)"], [1, "A", "이태환(A)"], [3, "C", "강종구(C)"]] as const;
-  for (const [assigneeUserId, surveyCode, expected] of assignments) {
+    [6, "G", "김민영(G)"], [6, "GG", "김민영(GG)"], [6, "GGG", "김민영(GGG)"]] as const;
+  for (const [assigneeUserId, publicSampleCode, expected] of assignments) {
     const result = resolveMeasurementPublicSampleDisplay({
-      v2Assignment: { assigneeUserId, surveyCode }, trueConfirmed: false,
+      v2Assignment: { assigneeUserId, publicSampleCode }, trueConfirmed: false,
       legacyAssignment: { measurer: "과거담당자", surveyCode: "GG" }, userNameById: users,
     });
     assert.equal(result.label, expected);
     assert.equal(result.source, "v2");
   }
+});
+
+test("V2 public_sample_code 누락은 survey_code로 fallback하지 않고 결측으로 표시한다", () => {
+  const result = resolveMeasurementPublicSampleDisplay({
+    v2Assignment: { assigneeUserId: 6, publicSampleCode: null },
+    trueConfirmed: false,
+    legacyAssignment: null,
+    userNameById: users,
+  });
+  assert.deepEqual(result, { label: "-", source: "v2" });
 });
 
 test("legacy 연결은 exact 복합키 우선이며 모호한 정규화 후보는 사용하지 않는다", () => {
