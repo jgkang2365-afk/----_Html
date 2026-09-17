@@ -138,7 +138,7 @@ def start_mes_and_login(read_only: bool = False):
     except Exception as error:
         raise RuntimeError("MES_DESKTOP_DISCOVERY_FAILED") from error
     try:
-        owned_mes_process = subprocess.Popen([MES_EXE])
+        owned_mes_process = subprocess.Popen([MES_EXE], cwd=os.path.dirname(MES_EXE) or None)
     except Exception as error:
         raise RuntimeError("MES_PROCESS_START_FAILED") from error
 

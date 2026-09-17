@@ -43,6 +43,21 @@ class MesDownloadRuntimeTest(unittest.TestCase):
                 mes_download.start_mes_and_login()
         self.assertNotIn("{VK_MENU}", [call.args[0] for call in keys.call_args_list])
 
+    def test_mes_process_starts_in_executable_directory(self):
+        process = Mock(pid=1234)
+        login = Mock()
+        app = Mock()
+        app.connect.return_value.window.return_value = login
+        with patch("mes_download.MES_EXE", r"C:\\HWS\\MEA\\hwsmes.exe"), \
+             patch("mes_download.Desktop", return_value=Mock(windows=Mock(return_value=[]))), \
+             patch("mes_download.subprocess.Popen", return_value=process) as popen, \
+             patch("mes_download.Application", return_value=app), \
+             patch("mes_download.wait_for_logged_in_main", side_effect=RuntimeError("MES_MAIN_WINDOW_NOT_FOUND")), \
+             patch("mes_download.send_keys"):
+            with self.assertRaisesRegex(RuntimeError, "MES_MAIN_WINDOW_NOT_FOUND"):
+                mes_download.start_mes_and_login()
+        popen.assert_called_once_with([r"C:\\HWS\\MEA\\hwsmes.exe"], cwd=r"C:\\HWS\\MEA")
+
     def test_owned_cleanup_is_pid_tree_scoped_and_idempotent(self):
         process = Mock(pid=1234)
         mes_download.owned_mes_process = process
