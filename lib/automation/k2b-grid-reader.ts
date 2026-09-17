@@ -105,16 +105,21 @@ ${K2B_SUBMISSION_GRID_RUNTIME_SCRIPT}
       if (matches.length !== 1) fail('identity_schema:' + aliases[0] + '_matches_' + matches.length);
       return matches[0];
     };
-    const submission = fieldIndex(['접수번호', '제출번호', '파일접수번호']);
-    const sequence = fieldIndex(['순번', '일련번호', '시퀀스번호']);
-    const management = fieldIndex(['산재관리번호', '관리번호']);
-    const commencement = fieldIndex(['개시번호']);
-    const file = fieldIndex(['청구파일명', '파일명']);
+    const submission = fieldIndex(['\uC811\uC218\uBC88\uD638', '\uC81C\uCD9C\uBC88\uD638', '\uD30C\uC77C\uC811\uC218\uBC88\uD638']);
+    const management = fieldIndex(['\uC0B0\uC7AC\uAD00\uB9AC\uBC88\uD638', '\uAD00\uB9AC\uBC88\uD638']);
+    const submissionDate = fieldIndex(['\uC811\uC218\uC77C', '\uC811\uC218\uC77C\uC790', '\uC2E4\uC81C\uC811\uC218\uC77C', '\uC81C\uCD9C\uC77C', '\uC81C\uCD9C\uC77C\uC790']);
+    const file = fieldIndex(['\uCCAD\uAD6C\uD30C\uC77C\uBA85', '\uD30C\uC77C\uBA85']);
+    const status = fieldIndex(['\uCC98\uB9AC\uC0C1\uD0DC', '\uC811\uC218\uC0C1\uD0DC', '\uC0C1\uD0DC']);
     return row => {
       if (text(row[submission])) return JSON.stringify(['submission', text(row[submission])]);
-      const parts = [text(row[management]).replace(/\D/g, ''), text(row[commencement]).replace(/\D/g, ''), text(row[sequence]), text(row[file])];
-      if (parts.some(value => !value)) fail('missing_row_identity');
-      return JSON.stringify(parts);
+      const fileValue = normalize(row[file]);
+      const dateValue = normalize(row[submissionDate]);
+      const managementValue = normalize(row[management]);
+      if (!fileValue || !dateValue) fail('missing_row_identity');
+      // K2B can expose a file-error row before it has business identity fields.
+      // It still counts toward a COMPLETE grid, but must never be matched to a journal.
+      if (!managementValue) return JSON.stringify(['unmatchable', fileValue, dateValue, normalize(row[status])]);
+      return JSON.stringify(['fallback', fileValue, dateValue, managementValue]);
     };
   };
   const errorValue = value => {

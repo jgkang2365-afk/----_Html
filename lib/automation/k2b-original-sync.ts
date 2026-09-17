@@ -22,6 +22,8 @@ export type K2BOriginalReceipt = {
   identityFallback: boolean;
   /** 동일 접수 고유키에서 서로 다른 값이 관측되면 자동 후보 선택을 금지한다. */
   identityConflict?: boolean;
+  /** K2B file-error row that has no business identity and must never reconcile to a journal. */
+  unmatchableError?: boolean;
 };
 
 export type K2BRange = { fromDate: string; toDate: string };
@@ -35,7 +37,7 @@ export type K2BGridRead = K2BGridReadEvidence & (
   | { outcome: "SUCCESS"; rows: K2BOriginalReceipt[]; headers: string[] }
   | { outcome: "SUCCESS_EMPTY"; rows: []; headers: string[] });
 
-const HEADER_ALIASES: Record<keyof Omit<K2BOriginalReceipt, "raw" | "sourceKey" | "identityFallback" | "identityConflict" | "errorViewAvailable" | "errorDetail">, string[]> = {
+const HEADER_ALIASES: Record<keyof Omit<K2BOriginalReceipt, "raw" | "sourceKey" | "identityFallback" | "identityConflict" | "unmatchableError" | "errorViewAvailable" | "errorDetail">, string[]> = {
   fileName: ["청구 파일명", "파일명", "파일 명"],
   companyName: ["사업장명", "사업장 명", "업체명"],
   actualSubmissionDate: ["접수일", "접수일자", "실제접수일", "제출일", "제출일자"],
@@ -225,21 +227,36 @@ export function parseK2BSubmissionGrid(headers: readonly string[], rows: readonl
     const raw = Object.fromEntries(headers.map((header, index) => [header, String(row[index] ?? "").trim()]));
     const date = asKstDate(row[fieldIndexes.actualSubmissionDate]);
     const required = (field: keyof typeof fieldIndexes) => String(row[fieldIndexes[field]] ?? "").trim();
-    const errorDetail = Object.entries(raw).filter(([header]) => /오류(내용|상세|사유)/.test(normalized(header)))
+    const errorDetail = Object.entries(raw).filter(([header]) => /\uC624\uB958(\uB0B4\uC6A9|\uC0C1\uC138|\uC0AC\uC720)/.test(normalized(header)))
       .map(([, value]) => value.trim()).filter(Boolean).join('; ');
     const receipt = { fileName: required("fileName"), companyName: required("companyName"), actualSubmissionDate: date ?? "",
       businessYear: required("businessYear"), half: required("half"), supportType: required("supportType"), submissionNumber: required("submissionNumber"),
       managementNumber: required("managementNumber"), commencementNumber: required("commencementNumber"), sequenceNumber: required("sequenceNumber"),
-      // 오류보기 버튼/라벨은 모든 정상 행에도 있을 수 있다. 실제 오류값만 관측한다.
+      // Static error controls are present on normal rows too; only actual error data counts.
       status: required("status"), errorViewAvailable: Boolean(errorDetail), errorDetail: errorDetail || null,
       raw, sourceKey: "", identityFallback: false };
+    const missingBusinessIdentity = !receipt.companyName && !receipt.businessYear && !receipt.half
+      && !receipt.supportType && !receipt.managementNumber && !receipt.commencementNumber && !receipt.sequenceNumber;
+    const unmatchableError = Boolean(date && receipt.fileName && receipt.status && !receipt.submissionNumber
+      && missingBusinessIdentity && (errorDetail || /\uC624\uB958|\uC2E4\uD328/.test(normalized(receipt.status))));
+    if (unmatchableError) {
+      const canonical = [receipt.fileName, receipt.actualSubmissionDate, receipt.status, errorDetail].map(normalized).join("|");
+      return {
+        ...receipt,
+        sourceKey: `k2b:unmatchable:${createHash("sha256").update(canonical).digest("hex")}`,
+        identityFallback: true,
+        unmatchableError: true,
+      };
+    }
     if (!date || !receipt.fileName || !receipt.companyName || !receipt.businessYear || !receipt.half || !receipt.supportType || !receipt.managementNumber || !receipt.commencementNumber || !receipt.sequenceNumber || !receipt.status) throw new Error(`K2B_GRID_SCHEMA_MISMATCH:invalid_required_row_${rowIndex}`);
     const identity = buildK2BSourceKey(receipt);
     return { ...receipt, ...identity };
   });
   const rowKey = (row: K2BOriginalReceipt) => row.submissionNumber
     ? JSON.stringify(["submission", row.submissionNumber.trim()])
-    : JSON.stringify([row.managementNumber.replace(/\D/g, ""), row.commencementNumber.replace(/\D/g, ""), row.sequenceNumber.trim(), row.fileName.trim()]);
+    : row.unmatchableError
+      ? JSON.stringify(["unmatchable", row.sourceKey])
+      : JSON.stringify(["fallback", normalized(row.fileName), normalized(row.actualSubmissionDate), normalized(row.managementNumber)]);
   const identities = new Map<string, number>();
   for (const row of parsed) {
     const key = rowKey(row);

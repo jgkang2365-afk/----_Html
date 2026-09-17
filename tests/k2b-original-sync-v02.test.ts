@@ -82,6 +82,33 @@ test("0 row는 성공 빈 결과이며 접수번호 없는 문서화된 fallback
   assert.deepEqual(buildK2BSourceKey({ submissionNumber: "", fileName: "alpha.xml", actualSubmissionDate: "2026-09-04", managementNumber: "M-1" }), buildK2BSourceKey({ submissionNumber: "", fileName: "alpha.xml", actualSubmissionDate: "2026-09-04", managementNumber: "M-1" }));
 });
 
+test("grid reader fallback identity matches persisted receipt identity and isolates unmatchable file-error rows", () => {
+  const reader = readFileSync("lib/automation/k2b-grid-reader.ts", "utf8");
+  const start = reader.indexOf("const identityReader = headers =>");
+  const end = reader.indexOf("const errorValue = value =>", start);
+  const identity = reader.slice(start, end);
+  assert.match(identity, /const submissionDate = fieldIndex/);
+  assert.match(identity, /const status = fieldIndex/);
+  assert.match(identity, /if \(!managementValue\) return JSON\.stringify\(\['unmatchable'/);
+  assert.match(identity, /return JSON\.stringify\(\['fallback', fileValue, dateValue, managementValue\]\)/);
+  assert.doesNotMatch(identity, /const sequence = fieldIndex/);
+  assert.doesNotMatch(identity, /const commencement = fieldIndex/);
+});
+
+test("business-identity-free K2B file-error row is preserved as unmatchable without poisoning a COMPLETE grid", () => {
+  const orphan = ["bad.xml", "", "\uD30C\uC77C\uC624\uB958", "2026-08-20", "", "", "", "", "", "", ""];
+  const parsed = parseK2BSubmissionGrid(requiredHeaders, [orphan], {
+    expectedRowCount: 1, collectedUniqueRowCount: 1, readMethod: "nexacro_dataset", completeness: "COMPLETE",
+  });
+  assert.equal(parsed.outcome, "SUCCESS");
+  assert.equal(parsed.completeness, "COMPLETE");
+  assert.equal(parsed.rows[0].unmatchableError, true);
+  assert.equal(parsed.rows[0].managementNumber, "");
+  assert.match(parsed.rows[0].sourceKey, /^k2b:unmatchable:/);
+  const malformed = ["bad.xml", "partial company", "\uD30C\uC77C\uC624\uB958", "2026-08-20", "2026", "\uD558\uBC18\uAE30", "x", "", "", "", ""];
+  assert.throws(() => parseK2BSubmissionGrid(requiredHeaders, [malformed]), /K2B_GRID_SCHEMA_MISMATCH:invalid_required_row_0/);
+});
+
 test("worker/migration은 날짜별 결과, cursor guard, idempotency disposition과 legacy 계약을 함께 보존한다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
   const migration = readFileSync("supabase/migrations/20260907110000_add_k2b_original_sync_v02.sql", "utf8");
@@ -89,6 +116,7 @@ test("worker/migration은 날짜별 결과, cursor guard, idempotency dispositio
   // 0-row 결과를 포함한 parser outcome을 worker가 그대로 execution result에 보존한다.
   // 특정 outcome 문자열을 중복 하드코딩하지 않아도 SUCCESS_EMPTY를 loss 없이 전달한다.
   assert.match(worker, /dateResults/); assert.match(worker, /outcome: grid\.outcome/); assert.match(worker, /QUERY_FAILED/); assert.match(worker, /cursorEligible/); assert.match(worker, /fallbackKeyCount/);
+  assert.match(worker, /K2B_UNMATCHABLE_REMOTE_ROWS/); assert.match(worker, /unmatchableRemoteRowCount/);
   assert.match(migration, /submission_number TEXT,/); assert.match(migration, /last_successful_sync_at/); assert.match(migration, /created_at TIMESTAMPTZ/); assert.match(migration, /updated_at TIMESTAMPTZ/); assert.match(migration, /'unchanged'/);
   assert.match(legacyRoute, /enqueue_k2b_verify_job/);
 });

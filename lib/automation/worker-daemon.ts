@@ -531,6 +531,11 @@ export class WorkerDaemon {
                   throw new Error(`${executionResult.failureStage}:${message}`);
                 }
             });
+            const unmatchableRemoteRows = receipts.filter((receipt) => receipt.unmatchableError);
+            executionResult.unmatchableRemoteRowCount = unmatchableRemoteRows.length;
+            // Original-sync promises raw receipt preservation. A file-error row without business
+            // identity cannot satisfy the current receipt schema, so fail closed instead of dropping it.
+            if (unmatchableRemoteRows.length > 0) throw new Error(`K2B_UNMATCHABLE_REMOTE_ROWS:${unmatchableRemoteRows.length}`);
             executionResult.remoteReadState = receipts.length === 0 ? 'success_empty' : 'completed';
             executionResult.queriedRange = range;
             // 1) 원본 receipt를 전부 보존한다. journal 상태는 이 루프에서 건드리지 않는다.
@@ -727,6 +732,7 @@ export class WorkerDaemon {
             executionResult.remoteExpectedRowCount = rangeGrid.expectedRowCount;
             executionResult.gridReadMethod = rangeGrid.readMethod;
             executionResult.gridReadComplete = rangeGrid.completeness;
+            executionResult.unmatchableRemoteRowCount = rangeGrid.rows.filter((row) => row.unmatchableError).length;
             const rangeResults = rangeGrid.rows.map((row) => ({ managementNumber: row.managementNumber, commencementNumber: row.commencementNumber, companyName: row.companyName, submissionDate: row.actualSubmissionDate, status: row.status, errorViewAvailable: row.errorViewAvailable, errorDetail: row.errorDetail, submissionNumber: row.submissionNumber, identityConflict: row.identityConflict, businessYear: row.businessYear, half: row.half }));
             // 과거 미해결 건은 오늘 날짜에 억지로 대입하지 않고 각 내부 전송일별로 재조회한다.
             const journalsBySendDate = new Map<string, any[]>();
