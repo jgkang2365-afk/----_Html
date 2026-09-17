@@ -1,11 +1,12 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchAutomationJob, subscribeAutomationJob } from "@/lib/automation/job-client";
 import type { AutomationJob } from "@/lib/automation/jobs";
 import RemoteJobProgressDialog, { type RemoteJobProgressDetail, type RemoteJobProgressView } from "@/components/features/RemoteJobProgressDialog";
 
 type Props = { jobId: string; title: string; processingMessage: string; nationalSupport?: boolean; mes?: boolean; visible?: boolean; onClose: () => void; onTerminal?: () => void; onCancel?: () => void | Promise<void>; cancelLabel?: string; cancelDisabled?: boolean };
 const terminal = new Set(["COMPLETED", "FAILED", "CANCELLED", "CONFIRM_REQUIRED"]);
+export const AUTOMATION_PROGRESS_FALLBACK_POLL_MS = 5000;
 export type AutomationProgressView = RemoteJobProgressView;
 export function automationProgressView(job: (Pick<AutomationJob, "status" | "progress_percent"> & Partial<Pick<AutomationJob, "error_message" | "started_at">>) | null, processingMessage: string): AutomationProgressView {
   const status = job?.status || "PENDING", percent = job?.progress_percent ?? 0;
@@ -78,13 +79,57 @@ export function mesProgressView(job: Pick<AutomationJob, "status" | "progress_pe
 
 export default function AutomationProgressModal(props: Props) {
   const [job, setJob] = useState<AutomationJob | null>(null); const [error, setError] = useState<string | null>(null);
-  const refresh = useCallback(async () => { try { setJob(await fetchAutomationJob(props.jobId)); setError(null); } catch (cause) { setError(cause instanceof Error ? cause.message : "작업 상태를 가져오지 못했습니다."); } }, [props.jobId]);
+  const refreshSequence = useRef(0);
+  const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
+    try {
+      const nextJob = await fetchAutomationJob(props.jobId);
+      if (sequence !== refreshSequence.current) return;
+      setJob(nextJob);
+      setError(null);
+    } catch (cause) {
+      if (sequence !== refreshSequence.current) return;
+      setError(cause instanceof Error ? cause.message : "작업 상태를 가져오지 못했습니다.");
+    }
+  }, [props.jobId]);
   useEffect(() => { void refresh(); return subscribeAutomationJob(props.jobId, () => void refresh()); }, [props.jobId, refresh]);
   useEffect(() => {
     if (job && terminal.has(job.status) && props.visible === false) props.onTerminal?.();
   }, [job, props]);
   const view = error ? { step: 0, heading: props.nationalSupport ? "건강디딤돌 작업 상태를 가져오지 못했습니다" : props.mes ? "MES 작업 상태를 가져오지 못했습니다" : error, detail: "잠시 후 다시 시도해 주세요.", tone: "red" as const } : props.nationalSupport ? nationalSupportProgressView(job, props.processingMessage) : props.mes ? mesProgressView(job, props.processingMessage) : automationProgressView(job, props.processingMessage);
   const running = !terminal.has(job?.status || "PENDING");
+  useEffect(() => {
+    if (props.visible === false || !running) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const clearTimer = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+    const scheduleFallback = () => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      timer = window.setTimeout(async () => {
+        await refresh();
+        if (!cancelled) scheduleFallback();
+      }, AUTOMATION_PROGRESS_FALLBACK_POLL_MS);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        clearTimer();
+        return;
+      }
+      void refresh().finally(scheduleFallback);
+    };
+    scheduleFallback();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      clearTimer();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [props.visible, refresh, running]);
   const cancelAction = running ? props.onCancel : undefined;
   useEffect(() => {
     if (!props.visible || !running || !cancelAction || props.cancelDisabled) return;

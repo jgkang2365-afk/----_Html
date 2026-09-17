@@ -332,6 +332,10 @@ export function NewBusinessDocumentGeneration({
             title="문서를 생성하고 있습니다"
             processingMessage="깡통컴에서 문서를 생성 중입니다"
             onClose={() => setShowProgress(false)}
+            onTerminal={() => {
+              setShowProgress(false);
+              void load(true);
+            }}
             onCancel={requestCancellation}
             cancelLabel="생성 중단"
             cancelDisabled={cancelling || isCancellationRequested}

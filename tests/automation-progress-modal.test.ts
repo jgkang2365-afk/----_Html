@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { automationProgressView, handleVisibleAutomationEscape, mesProgressDetails, mesProgressView } from "../components/features/AutomationProgressModal";
+import { AUTOMATION_PROGRESS_FALLBACK_POLL_MS, automationProgressView, handleVisibleAutomationEscape, mesProgressDetails, mesProgressView } from "../components/features/AutomationProgressModal";
 
 const processingMessage = "깡통컴에서 문서를 생성 중입니다";
 
@@ -31,6 +31,24 @@ test("terminal 결과는 열린 진행 모달에 남고, 닫힌 진행 화면만
   assert.match(component, /const handleClose = \(\) => \{/);
   assert.match(component, /if \(props\.onTerminal\) props\.onTerminal\(\);/);
   assert.match(component, /else props\.onClose\(\);/);
+});
+
+test("Realtime 누락 시 열린 실행 모달만 5초 안전 조회하고 terminal에서 즉시 중단한다", () => {
+  const component = readFileSync("components/features/AutomationProgressModal.tsx", "utf8");
+  assert.equal(AUTOMATION_PROGRESS_FALLBACK_POLL_MS, 5000);
+  assert.match(component, /if \(props\.visible === false \|\| !running\) return/);
+  assert.match(component, /document\.visibilityState !== "visible"/);
+  assert.match(component, /window\.setTimeout\(async \(\) => \{/);
+  assert.match(component, /AUTOMATION_PROGRESS_FALLBACK_POLL_MS/);
+  assert.match(component, /window\.clearTimeout\(timer\)/);
+  assert.match(component, /document\.removeEventListener\("visibilitychange", handleVisibilityChange\)/);
+  assert.match(component, /sequence !== refreshSequence\.current/);
+});
+
+test("문서 진행 모달 terminal 확인 시 목록 상태를 즉시 다시 읽는다", () => {
+  const component = readFileSync("components/features/NewBusinessDocumentGeneration.tsx", "utf8");
+  assert.match(component, /onTerminal=\{\(\) => \{/);
+  assert.match(component, /setShowProgress\(false\);\s+void load\(true\);/);
 });
 
 test("MES 실패와 확인 필요는 traceback 대신 사용자 메시지와 구조화 상세를 사용한다", () => {
