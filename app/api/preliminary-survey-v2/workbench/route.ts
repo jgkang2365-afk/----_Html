@@ -743,7 +743,7 @@ export async function GET(request: NextRequest) {
     // fallback 저장을 허용하지 않고 새 원자 RPC를 요구한다.
     const { data: assignmentRows, error: assignmentError } = targetIds.length
       ? await supabase.from("preliminary_survey_v2_measurement_assignments").select(
-        "id, plan_id, measurement_date, assignee_user_id, survey_code, approval_required",
+        "id, plan_id, measurement_date, assignee_user_id, public_sample_code, approval_required",
       )
       : { data: [], error: null };
     if (assignmentError && !isMeasurementAssignmentSchemaMissing(assignmentError)) throw assignmentError;
@@ -868,7 +868,7 @@ export async function GET(request: NextRequest) {
       const measurementAssigneeDisplay = resolveMeasurementPublicSampleDisplay({
         v2Assignment: persistedAssignment ? {
           assigneeUserId: Number(persistedAssignment.assignee_user_id),
-          surveyCode: persistedAssignment.survey_code == null ? null : String(persistedAssignment.survey_code),
+          publicSampleCode: persistedAssignment.public_sample_code == null ? null : String(persistedAssignment.public_sample_code),
         } : null,
         v2AssignmentId: persistedAssignment?.id == null ? null : String(persistedAssignment.id),
         reconciliation: reconciliationByTargetDate.get(
@@ -897,7 +897,7 @@ export async function GET(request: NextRequest) {
         const dayMeasurementAssigneeDisplay = resolveMeasurementPublicSampleDisplay({
           v2Assignment: dayAssignment ? {
             assigneeUserId: Number(dayAssignment.assignee_user_id),
-            surveyCode: dayAssignment.survey_code == null ? null : String(dayAssignment.survey_code),
+            publicSampleCode: dayAssignment.public_sample_code == null ? null : String(dayAssignment.public_sample_code),
           } : null,
           v2AssignmentId: dayAssignment?.id == null ? null : String(dayAssignment.id),
           reconciliation: reconciliationByTargetDate.get(

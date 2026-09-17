@@ -1,6 +1,7 @@
 export interface V2MeasurementPublicSampleAssignment {
   assigneeUserId: number;
-  surveyCode: string | null;
+  /** 실제 공시료 표시 원천. users.survey_code의 snapshot과 구분한다. */
+  publicSampleCode: string | null;
 }
 
 export interface LegacyMeasurementPublicSampleAssignment {
@@ -84,7 +85,7 @@ export function resolveMeasurementPublicSampleDisplay(input: {
   }
   if (input.v2Assignment) {
     return {
-      label: label(input.userNameById.get(input.v2Assignment.assigneeUserId), input.v2Assignment.surveyCode),
+      label: label(input.userNameById.get(input.v2Assignment.assigneeUserId), input.v2Assignment.publicSampleCode),
       source: "v2",
     };
   }
