@@ -144,7 +144,7 @@ def start_mes_and_login(read_only: bool = False):
 
     app = Application(backend="win32")
     try:
-        login_win = app.connect(title_re=LOGIN_TITLE, timeout=30).window(title_re=LOGIN_TITLE)
+        login_win = app.connect(process=owned_mes_process.pid, timeout=30).window(title_re=LOGIN_TITLE)
         login_win.set_focus()
     except Exception as error:
         raise RuntimeError("MES_LOGIN_WINDOW_NOT_FOUND") from error

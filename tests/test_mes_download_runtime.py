@@ -42,6 +42,7 @@ class MesDownloadRuntimeTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "MES_MAIN_WINDOW_NOT_FOUND"):
                 mes_download.start_mes_and_login()
         self.assertNotIn("{VK_MENU}", [call.args[0] for call in keys.call_args_list])
+        app.connect.assert_called_once_with(process=1234, timeout=30)
 
     def test_mes_process_starts_in_executable_directory(self):
         process = Mock(pid=1234)
