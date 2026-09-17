@@ -31,16 +31,35 @@ export async function GET(req: NextRequest) {
             'K2B 실제 접수일',
         );
         const search = searchParams.get('search');
+        const reportWriter = searchParams.get('reportWriter') || 'all';
+        const reportWriterId = reportWriter === 'all' ? null : Number(reportWriter);
 
         if (!year || !period) {
             return NextResponse.json({ error: '년도와 반기를 입력해주세요.' }, { status: 400 });
         }
         if (!measurementDateRange.ok) return NextResponse.json({ error: measurementDateRange.error }, { status: 400 });
         if (!k2bReceiptDateRange.ok) return NextResponse.json({ error: k2bReceiptDateRange.error }, { status: 400 });
+        if (reportWriter !== 'all' && (!/^\d+$/.test(reportWriter) || !Number.isSafeInteger(reportWriterId) || Number(reportWriterId) <= 0)) {
+            return NextResponse.json({ error: '보고서 담당자 필터를 확인해주세요.' }, { status: 400 });
+        }
         const { from: measurementDateFrom, to: measurementDateTo } = measurementDateRange.range;
         const { from: k2bReceiptDateFrom, to: k2bReceiptDateTo } = k2bReceiptDateRange.range;
 
         const supabase = await createClient();
+        const { data: reportWriterRows, error: reportWriterError } = await supabase
+            .from('users')
+            .select('id, name')
+            .eq('job', '측정')
+            .eq('is_active', true)
+            .order('name', { ascending: true });
+        if (reportWriterError) {
+            console.error('[API Error] report writer lookup failed:', reportWriterError);
+            return NextResponse.json({ error: '보고서 담당자 목록을 불러오지 못했습니다.' }, { status: 500 });
+        }
+        const reportWriters = (reportWriterRows || []).map((writer) => ({ id: writer.id, name: writer.name }));
+        if (reportWriterId !== null && !reportWriters.some((writer) => writer.id === reportWriterId)) {
+            return NextResponse.json({ error: '선택한 보고서 담당자는 현재 측정 직무 사용자가 아닙니다.' }, { status: 400 });
+        }
         
         // 1. 기본 쿼리 생성
         let query = supabase
@@ -75,7 +94,7 @@ export async function GET(req: NextRequest) {
         }
 
         if (data.length === 0) {
-            return NextResponse.json({ records: [] });
+            return NextResponse.json({ records: [], reportWriters });
         }
 
         // 4. 여러 연도/주기가 섞여 있을 수 있으므로 code, year, period로 매칭한다.
@@ -84,7 +103,7 @@ export async function GET(req: NextRequest) {
         // 측정일은 업체별 추가 조회가 아닌 target 일정 일괄 조회로 가져온다.
         let targetQuery = supabase
             .from('measurement_target_business')
-            .select('code, year, period, measurement_date, daily_staff, is_registered')
+            .select('code, year, period, measurement_date, daily_staff, measurer_id, is_registered')
             .in('code', codes);
 
         if (year !== 'all') targetQuery = targetQuery.eq('year', parseInt(year));
@@ -128,6 +147,7 @@ export async function GET(req: NextRequest) {
         const mergedData = data.flatMap(record => {
             const target = targetsByRecord.get(`${record.code}-${record.year}-${record.period}`);
             if (target && !isReportProcessingTargetActive(target)) return [];
+            if (reportWriterId !== null && (!target || target.measurer_id !== reportWriterId)) return [];
 
             const journal = journals?.find(j => 
                 j.code === record.code && 
@@ -154,7 +174,7 @@ export async function GET(req: NextRequest) {
             }];
         });
 
-        const response = NextResponse.json({ records: mergedData });
+        const response = NextResponse.json({ records: mergedData, reportWriters });
         response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
         response.headers.set('Pragma', 'no-cache');
         response.headers.set('Expires', '0');

@@ -5,6 +5,7 @@ export type ReportProcessingQueryFilters = {
   measurementDateTo: string;
   k2bReceiptDateFrom: string;
   k2bReceiptDateTo: string;
+  reportWriter: string;
   search: string;
 };
 
@@ -48,6 +49,7 @@ export function clearReportProcessingSearchFilters<T extends ReportProcessingQue
     measurementDateTo: "",
     k2bReceiptDateFrom: "",
     k2bReceiptDateTo: "",
+    reportWriter: "all",
     search: "",
   };
 }
@@ -57,4 +59,44 @@ export function reportProcessingDateRangeError(from: string, to: string, label: 
   if (!from) return `${label} 시작일을 입력해주세요.`;
   if (from > (to || from)) return `${label} 시작일은 종료일보다 늦을 수 없습니다.`;
   return null;
+}
+
+
+export type ReportProcessingSortKey = "measurementDate" | "k2bSendDate";
+export type ReportProcessingSortDirection = "asc" | "desc";
+
+function reportProcessingSortValue(
+  record: { measurement_dates?: readonly string[]; k2b_send_date?: string | null },
+  key: ReportProcessingSortKey,
+): string {
+  if (key === "k2bSendDate") return record.k2b_send_date || "";
+  const dates = (record.measurement_dates ?? []).filter(Boolean);
+  return dates.reduce((earliest, date) => (!earliest || date < earliest ? date : earliest), "");
+}
+
+/** Sort the complete result set before pagination. Missing dates always stay at the end. */
+export function sortReportProcessingRecords<T extends {
+  measurement_dates?: readonly string[];
+  k2b_send_date?: string | null;
+  business_name?: string;
+  code?: string;
+}>(
+  records: readonly T[],
+  key: ReportProcessingSortKey = "measurementDate",
+  direction: ReportProcessingSortDirection = "asc",
+): T[] {
+  return [...records].sort((a, b) => {
+    const aValue = reportProcessingSortValue(a, key);
+    const bValue = reportProcessingSortValue(b, key);
+    if (!aValue && !bValue) {
+      const nameOrder = String(a.business_name ?? "").localeCompare(String(b.business_name ?? ""), "ko");
+      return nameOrder || String(a.code ?? "").localeCompare(String(b.code ?? ""), "ko");
+    }
+    if (!aValue) return 1;
+    if (!bValue) return -1;
+    const valueOrder = aValue.localeCompare(bValue);
+    if (valueOrder !== 0) return direction === "asc" ? valueOrder : -valueOrder;
+    const nameOrder = String(a.business_name ?? "").localeCompare(String(b.business_name ?? ""), "ko");
+    return nameOrder || String(a.code ?? "").localeCompare(String(b.code ?? ""), "ko");
+  });
 }

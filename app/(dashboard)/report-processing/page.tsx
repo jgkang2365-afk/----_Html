@@ -37,6 +37,7 @@ import {
     reportProcessingDateRangeError,
     restoreReportProcessingDateRangeInputState,
     shouldRunInitialReportProcessingQuery,
+    sortReportProcessingRecords,
 } from '@/lib/report-processing/query-control';
 import type {
     ReportExplorerConnectionStatus,
@@ -70,6 +71,11 @@ interface BusinessRecord {
     delivery_status?: 'success' | 'bounced'; // 신규: 수신 성공/반송 여부
     delivery_error?: string | null;         // 신규: 반송 사유
 }
+interface ReportWriterOption {
+    id: number;
+    name: string;
+}
+
 
 const REPORT_PROCESSING_FILTERS_STORAGE_KEY = 'reportProcessingFilters';
 const DEFAULT_REPORT_PROCESSING_FILTERS = {
@@ -79,6 +85,7 @@ const DEFAULT_REPORT_PROCESSING_FILTERS = {
     measurementDateTo: '',
     k2bReceiptDateFrom: '',
     k2bReceiptDateTo: '',
+    reportWriter: 'all',
     search: ''
 };
 const PAGE_SIZE = 10;
@@ -99,6 +106,7 @@ function restoreReportProcessingFilters(value: string | null) {
                 : typeof saved.measurementDate === 'string' ? saved.measurementDate : '',
             k2bReceiptDateFrom: typeof saved.k2bReceiptDateFrom === 'string' ? saved.k2bReceiptDateFrom : '',
             k2bReceiptDateTo: typeof saved.k2bReceiptDateTo === 'string' ? saved.k2bReceiptDateTo : '',
+            reportWriter: typeof saved.reportWriter === 'string' ? saved.reportWriter : DEFAULT_REPORT_PROCESSING_FILTERS.reportWriter,
             search: typeof saved.search === 'string' ? saved.search : DEFAULT_REPORT_PROCESSING_FILTERS.search
         };
     } catch {
@@ -135,6 +143,7 @@ export default function ReportProcessingPage() {
     const [k2bExecutionRefreshKey, setK2BExecutionRefreshKey] = useState<string | null>(null);
     const [refreshing, setRefreshing] = useState(false);
     const [records, setRecords] = useState<BusinessRecord[]>([]);
+    const [reportWriters, setReportWriters] = useState<ReportWriterOption[]>([]);
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]); // 기기: code 기반 -> key `${code}-${year}-${period}` 기반
     const [filters, setFilters] = useState(DEFAULT_REPORT_PROCESSING_FILTERS);
     const [filtersReady, setFiltersReady] = useState(false);
@@ -146,6 +155,8 @@ export default function ReportProcessingPage() {
     const [explorerPeriod, setExplorerPeriod] = useState<ReportExplorerPeriod | ''>('');
     const jobMonitorIntervalRef = useRef<number | null>(null);
     const [reportPage, setReportPage] = useState(1);
+    const [reportSortKey, setReportSortKey] = useState<'measurementDate' | 'k2bSendDate'>('measurementDate');
+    const [reportSortDirection, setReportSortDirection] = useState<'asc' | 'desc'>('asc');
     const [explorerPage, setExplorerPage] = useState(1);
     const [explorerResults, setExplorerResults] = useState<ReportExplorerQueryResult[]>([]);
     const [explorerHasSearched, setExplorerHasSearched] = useState(false);
@@ -182,6 +193,7 @@ export default function ReportProcessingPage() {
                 measurementDateTo: queryFilters.measurementDateTo,
                 k2bReceiptDateFrom: queryFilters.k2bReceiptDateFrom,
                 k2bReceiptDateTo: queryFilters.k2bReceiptDateTo,
+                reportWriter: queryFilters.reportWriter,
                 search: queryFilters.search,
                 t: Date.now().toString()
             });
@@ -194,6 +206,9 @@ export default function ReportProcessingPage() {
                     classification: (r.year === CURRENT_YEAR && r.period === CURRENT_PERIOD) ? '정규' : '추가'
                 }));
                 setRecords(enrichedRecords);
+                if (Array.isArray(data.reportWriters)) {
+                    setReportWriters(data.reportWriters.filter((writer: ReportWriterOption) => Number.isInteger(writer.id) && Boolean(writer.name)));
+                }
                 const availableKeys = new Set(enrichedRecords.map((record: BusinessRecord) =>
                     `${record.code}-${record.year}-${record.period}`));
                 setSelectedKeys((current) => current.filter((key) => availableKeys.has(key)));
@@ -280,10 +295,23 @@ export default function ReportProcessingPage() {
     const explorerBasisCount = selectedRecords.length > 0 ? selectedRecords.length : records.length;
     const effectiveExplorerYear = filters.year === 'all' ? explorerYear : filters.year;
     const effectiveExplorerPeriod = filters.period === 'all' ? explorerPeriod : filters.period as ReportExplorerPeriod;
-    const reportPageCount = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
-    const visibleRecords = records.slice((reportPage - 1) * PAGE_SIZE, reportPage * PAGE_SIZE);
+    const sortedRecords = useMemo(
+        () => sortReportProcessingRecords(records, reportSortKey, reportSortDirection),
+        [records, reportSortKey, reportSortDirection],
+    );
+    const reportPageCount = Math.max(1, Math.ceil(sortedRecords.length / PAGE_SIZE));
+    const visibleRecords = sortedRecords.slice((reportPage - 1) * PAGE_SIZE, reportPage * PAGE_SIZE);
     const visibleRecordKeys = visibleRecords.map((record) => `${record.code}-${record.year}-${record.period}`);
     const allVisibleRecordsSelected = visibleRecordKeys.length > 0 && visibleRecordKeys.every((key) => selectedKeys.includes(key));
+    const changeReportSort = (key: 'measurementDate' | 'k2bSendDate') => {
+        setReportPage(1);
+        if (reportSortKey === key) {
+            setReportSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc');
+            return;
+        }
+        setReportSortKey(key);
+        setReportSortDirection('asc');
+    };
     const explorerRows = useMemo(() => explorerResults.reduce<Array<{
         result: ReportExplorerQueryResult;
         match: ReportExplorerMatch | null;
@@ -817,7 +845,7 @@ export default function ReportProcessingPage() {
                 }}
             />
 
-            <Card className="grid gap-2 p-3 sm:grid-cols-2 min-[1320px]:grid-cols-[6rem_6.25rem_19rem_19rem_minmax(17.5rem,1fr)_auto_auto] min-[1320px]:items-end">
+            <Card className="grid gap-2 p-3 sm:grid-cols-2 min-[1320px]:grid-cols-[6rem_6.25rem_17rem_17rem_10rem_minmax(14rem,1fr)_auto_auto] min-[1320px]:items-end">
                 <div>
                     <Select
                         label="년도"
@@ -885,6 +913,18 @@ export default function ReportProcessingPage() {
                         />
                     </div>
                 </fieldset>
+                <div className="min-w-0">
+                    <Select
+                        label="보고서 담당"
+                        value={filters.reportWriter}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFilters(prev => ({ ...prev, reportWriter: e.target.value }))}
+                        className="h-10 py-0 text-center text-sm"
+                        options={[
+                            { value: 'all', label: '전체' },
+                            ...reportWriters.map((writer) => ({ value: String(writer.id), label: writer.name })),
+                        ]}
+                    />
+                </div>
                 <div className="relative min-w-0 sm:col-span-2 min-[1320px]:col-span-1">
                     <Input
                         label="사업장 검색"
@@ -916,7 +956,7 @@ export default function ReportProcessingPage() {
                     <h2 className="text-base font-bold text-slate-800">검색 결과 {records.length}건</h2>
                     <span aria-label="페이지당 10개 고정 표시" className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600">10개씩 보기</span>
                 </div>
-                <Table className="table-fixed text-sm" maxHeight="max-h-[32rem]">
+                <Table className="table-fixed text-sm [&_th]:h-10 [&_td]:px-3 [&_td]:py-1.5">
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-10">
@@ -928,12 +968,28 @@ export default function ReportProcessingPage() {
                             <TableHead className="w-14 text-center">구분</TableHead>
                             <TableHead className="w-16 text-center">년도</TableHead>
                             <TableHead className="w-16 text-center">주기</TableHead>
-                            <TableHead className="w-32 text-center">측정일</TableHead>
+                            <TableHead
+                                className="w-32 text-center"
+                                aria-sort={reportSortKey === 'measurementDate' ? (reportSortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                            >
+                                <button type="button" onClick={() => changeReportSort('measurementDate')} className="inline-flex w-full items-center justify-center gap-1 rounded px-1 py-1 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500">
+                                    <span>측정일</span>
+                                    <span aria-hidden="true" className="text-[10px] text-slate-500">{reportSortKey === 'measurementDate' ? (reportSortDirection === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                </button>
+                            </TableHead>
                             <TableHead className="w-20">업체코드</TableHead>
                             <TableHead className="w-28">사업장명</TableHead>
                             <TableHead className="w-36">담당자 이메일</TableHead>
                             <TableHead className="w-28">이메일 발송 상태</TableHead>
-                            <TableHead className="w-24">K2B 전송일자</TableHead>
+                            <TableHead
+                                className="w-24 text-center"
+                                aria-sort={reportSortKey === 'k2bSendDate' ? (reportSortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+                            >
+                                <button type="button" onClick={() => changeReportSort('k2bSendDate')} className="inline-flex w-full items-center justify-center gap-1 rounded px-1 py-1 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500">
+                                    <span>K2B 전송일자</span>
+                                    <span aria-hidden="true" className="text-[10px] text-slate-500">{reportSortKey === 'k2bSendDate' ? (reportSortDirection === 'asc' ? '▲' : '▼') : '↕'}</span>
+                                </button>
+                            </TableHead>
                             <TableHead className="w-24">K2B 상태</TableHead>
                             <TableHead className="w-28">실제결과 정합성</TableHead>
                         </TableRow>
@@ -971,7 +1027,7 @@ export default function ReportProcessingPage() {
                                     ? `날짜 불일치: 내부 ${record.k2b_send_date} / 실제 ${record.k2b_verified_send_date}`
                                     : record.k2b_consistency_note || '실제결과 미검증';
                                 return (
-                                    <TableRow key={rowKey} className="h-12">
+                                    <TableRow key={rowKey} className="h-10">
                                         <TableCell className="px-4 py-2">
                                             <Checkbox
                                                 checked={selectedKeys.includes(rowKey)}
