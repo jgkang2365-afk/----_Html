@@ -286,6 +286,70 @@ class DynamicDocumentWorkerTest(unittest.TestCase):
             self.assertEqual(hwpx.calls[0][2], ["business_name"])
             self.assertEqual(len(excel.calls), 0)
 
+    def test_field_preliminary_survey_regeneration_accepts_unique_published_filename(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            template_path = root / "field.hwpx"
+            template_path.write_bytes(b"field-template")
+            template = {
+                "template_id": "field-template",
+                "size_bytes": template_path.stat().st_size,
+                "sha256": hashlib.sha256(template_path.read_bytes()).hexdigest(),
+                "version": 1,
+                "extension": ".hwpx",
+            }
+            document = {
+                "document_definition_id": "field-id",
+                "code": "FIELD_PRELIMINARY_SURVEY",
+                "name": "Field Survey",
+                "file_format": "HWPX",
+                "filename_pattern": "{business_name}(field-{short_year}{short_period})",
+                "template": template,
+                "mappings": [
+                    {
+                        "source_field": "business_name",
+                        "target_type": "HWPX_FIELD",
+                        "target_address": "business_name",
+                        "required": True,
+                        "sort_order": 1,
+                    }
+                ],
+            }
+            job = {
+                "id": "field-regeneration-job",
+                "payload": {
+                    "snapshot": self.snapshot,
+                    "documents": [document],
+                    "templates": {document["code"]: template},
+                    "selected_documents": [document["code"]],
+                },
+            }
+            output_root = root / "output"
+            final_folder = build_output_path(output_root, self.snapshot)
+            final_folder.mkdir(parents=True)
+            original_name = build_filename_from_definition(document, self.snapshot)
+            original = final_folder / original_name
+            original.write_bytes(b"old-generated-file")
+
+            status, results, error = process_job(
+                job,
+                LocalClient({"field-template": template_path}),
+                output_root,
+                HwpxMock(),
+                ExcelMock(),
+            )
+
+            self.assertEqual(status, "COMPLETED")
+            self.assertIsNone(error)
+            self.assertEqual(results[0]["status"], "COMPLETED")
+            self.assertNotEqual(results[0]["filename"], original.name)
+            self.assertTrue(results[0]["filename"].startswith(original.stem + "_"))
+            self.assertTrue(results[0]["filename"].endswith(".hwpx"))
+            self.assertEqual(original.read_bytes(), b"old-generated-file")
+            published = final_folder / results[0]["filename"]
+            self.assertTrue(published.exists())
+            self.assertGreater(published.stat().st_size, 0)
+
     def test_industrial_shop_uses_existing_dynamic_hwpx_pipeline(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

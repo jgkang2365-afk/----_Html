@@ -16,6 +16,7 @@ from document_worker import (
     publish_file,
     process_job,
     unique_destination,
+    verify_published_file,
 )
 
 
@@ -106,6 +107,38 @@ class DocumentWorkerTest(unittest.TestCase):
             self.assertEqual(published, destination)
             self.assertEqual(destination.read_bytes(), b"new")
             self.assertEqual(list(root.glob("ABC산업(예비조사표-26하)_*.hwpx")), [])
+
+    def test_published_file_verification_accepts_unique_name_and_rejects_invalid_destination(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            work = root / "work"
+            final = root / "final"
+            work.mkdir()
+            final.mkdir()
+            working = work / "field-survey.hwpx"
+            working.write_bytes(b"new-generated-file")
+            requested = final / working.name
+            requested.write_bytes(b"old-generated-file")
+
+            published = publish_file(working, requested, overwrite=False)
+
+            self.assertNotEqual(published.name, working.name)
+            self.assertEqual(
+                verify_published_file(published, working, final, overwrite=False),
+                len(b"new-generated-file"),
+            )
+            outside = root / "outside.hwpx"
+            outside.write_bytes(b"outside")
+            with self.assertRaises(RuntimeError):
+                verify_published_file(outside, working, final, overwrite=False)
+            wrong_extension = final / "wrong.xlsx"
+            wrong_extension.write_bytes(b"wrong-extension")
+            with self.assertRaises(RuntimeError):
+                verify_published_file(wrong_extension, working, final, overwrite=False)
+            renamed_overwrite = final / "renamed.hwpx"
+            renamed_overwrite.write_bytes(b"renamed")
+            with self.assertRaises(RuntimeError):
+                verify_published_file(renamed_overwrite, working, final, overwrite=True)
 
     def test_locked_preliminary_survey_returns_clear_overwrite_error(self):
         with tempfile.TemporaryDirectory() as temporary:

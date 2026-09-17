@@ -342,6 +342,28 @@ def publish_file(
     raise RuntimeError("생성 파일 게시에 실패했습니다.")
 
 
+def verify_published_file(
+    destination: Path,
+    working_file: Path,
+    final_folder: Path,
+    overwrite: bool = False,
+) -> int:
+    """Verify the actual path returned by publish_file without rejecting valid unique names."""
+    error_message = "최종 게시 파일 검증에 실패했습니다."
+    if not destination.exists() or not destination.is_file():
+        raise RuntimeError(error_message)
+    size_bytes = destination.stat().st_size
+    if size_bytes <= 0:
+        raise RuntimeError(error_message)
+    if destination.parent.resolve() != final_folder.resolve():
+        raise RuntimeError(error_message)
+    if destination.suffix.lower() != working_file.suffix.lower():
+        raise RuntimeError(error_message)
+    if overwrite and destination.name != working_file.name:
+        raise RuntimeError(error_message)
+    return size_bytes
+
+
 def mask_email(value: Any) -> str:
     text = normalize_text(value)
     if "@" not in text:
@@ -903,13 +925,15 @@ def process_job(
                     raise_if_job_cancellation_requested(client, job_id)
                     mark_final_publish_effect(client, job_id)
                     publish_effect_started = True
+                    overwrite_existing = document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES
                     destination = publish_file(
                         working_file,
                         final_folder / working_file.name,
-                        overwrite=document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES,
+                        overwrite=overwrite_existing,
                     )
-                    if not destination.exists() or destination.stat().st_size <= 0 or destination.name != working_file.name:
-                        raise RuntimeError("최종 게시 파일 검증에 실패했습니다.")
+                    published_size = verify_published_file(
+                        destination, working_file, final_folder, overwrite=overwrite_existing
+                    )
                     result.update(
                         {
                             "input_fields": [
@@ -918,7 +942,7 @@ def process_job(
                             "status": "COMPLETED",
                             "filename": destination.name,
                             "path": str(destination),
-                            "size_bytes": destination.stat().st_size,
+                            "size_bytes": published_size,
                         }
                     )
                     results.append(result)
@@ -968,14 +992,16 @@ def process_job(
                 raise_if_job_cancellation_requested(client, job_id)
                 mark_final_publish_effect(client, job_id)
                 publish_effect_started = True
+                overwrite_existing = document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES
                 destination = publish_file(
                     working_file,
                     final_folder / working_file.name,
-                    overwrite=document_type in PRELIMINARY_SURVEY_OVERWRITE_CODES,
+                    overwrite=overwrite_existing,
                 )
-                if not destination.exists() or destination.stat().st_size <= 0 or destination.name != working_file.name:
-                    raise RuntimeError("최종 게시 파일 검증에 실패했습니다.")
-                result.update({"status": "COMPLETED", "filename": destination.name, "path": str(destination), "size_bytes": destination.stat().st_size})
+                published_size = verify_published_file(
+                    destination, working_file, final_folder, overwrite=overwrite_existing
+                )
+                result.update({"status": "COMPLETED", "filename": destination.name, "path": str(destination), "size_bytes": published_size})
             except DocumentGenerationCancelled:
                 result.update(
                     {
