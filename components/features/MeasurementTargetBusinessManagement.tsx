@@ -300,6 +300,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [data, setData] = useState<BusinessEntry[]>([]);
     const [filteredData, setFilteredData] = useState<BusinessEntry[]>([]);
     const dataFetchInFlightRef = useRef(false);
+    const tableHeaderScrollRef = useRef<HTMLDivElement | null>(null);
+    const tableBodyScrollRef = useRef<HTMLDivElement | null>(null);
+    const syncTableHorizontalScroll = useCallback((source: HTMLDivElement, target: HTMLDivElement | null) => {
+        if (target && target.scrollLeft !== source.scrollLeft) {
+            target.scrollLeft = source.scrollLeft;
+        }
+    }, []);
 
 
     // 국고 일괄 조회를 위한 상태 정의
@@ -1772,7 +1779,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     // Grid Column Template
     // V2 예비조사 추천 결과는 목록에서 더 이상 노출하지 않는다 (예비조사 전용 영역으로 분리).
-    const gridTemplateCols = "40px 45px 60px 80px 100px 70px 90px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 40px";
+    const gridTemplateCols = "40px 45px 60px 80px 100px 70px 90px 90px minmax(140px, 1.5fr) minmax(160px, 2fr) 60px 50px 80px 80px 50px 80px 90px 110px 80px 56px";
+    const gridMinWidth = 1620;
 
     const renderSortIcon = (key: string) => {
         const isSorted = sortConfig?.key === key;
@@ -1812,13 +1820,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     return (
         <>
         {nationalSupportJob && <AutomationProgressModal jobId={nationalSupportJob.id} title="건강디딤돌 작업을 처리하고 있습니다" processingMessage={nationalSupportJob.applying ? "깡통컴에서 건강디딤돌 조회·신청을 처리 중입니다" : "깡통컴에서 건강디딤돌 조회를 처리 중입니다"} nationalSupport onClose={() => setNationalSupportJob(null)} />}
-        <div className="p-4 w-full min-w-[1400px]">
+        <div className="w-full min-w-0 max-w-full p-2 sm:p-4">
             {/* Sticky Container for Filter & Table Header */}
             <div className="sticky top-16 lg:top-[113px] z-40 space-y-4 bg-gray-50/95 backdrop-blur">
                 <Card className="p-4 bg-white shadow-sm border-surface-200">
                     <div className="flex items-center justify-between gap-4 flex-wrap overflow-visible p-1">
                         {/* Filters Group */}
-                        <div className="flex items-center gap-3 shrink-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-3">
                             <div className="flex items-center gap-2 shrink-0">
                                 <span className="text-sm font-semibold whitespace-nowrap text-slate-700">측정년도/주기</span>
                                 <CustomDropdown
@@ -1889,7 +1897,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         </div>
 
                         {/* Buttons Group */}
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
                             <Button onClick={() => setActiveView("integrity")} variant="secondary" className="h-9 px-3 text-sm font-medium whitespace-nowrap" title="현재 연도·주기 대상의 읽기 전용 정합성 점검">
                                 정합성 점검
                             </Button>
@@ -1968,7 +1976,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         </div>
 
                         {/* Right Filters */}
-                        <div className="flex items-center gap-4 shrink-0 mr-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-4 mr-1">
                             <div className="flex items-center gap-2">
                                 <span className="text-sm font-semibold whitespace-nowrap text-slate-700">업종분류 :</span>
                                 <Select
@@ -1991,7 +1999,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     </div>
 
                     {/* Grid Header Row */}
-                    <div className="bg-sky-100 font-bold text-sm text-black grid items-center text-center border-x border-t border-slate-200 border-b-2 border-sky-200" style={{ gridTemplateColumns: gridTemplateCols }}>
+                    <div
+                        ref={tableHeaderScrollRef}
+                        className="w-full max-w-full overflow-x-auto overscroll-x-contain"
+                        onScroll={(event) => syncTableHorizontalScroll(event.currentTarget, tableBodyScrollRef.current)}
+                    >
+                    <div className="bg-sky-100 font-bold text-sm text-black grid items-center text-center border-x border-t border-slate-200 border-b-2 border-sky-200" style={{ gridTemplateColumns: gridTemplateCols, minWidth: gridMinWidth }}>
                         <div className="py-3 flex items-center justify-center">
                             <input
                                 type="checkbox"
@@ -2065,15 +2078,20 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         <div className="py-3 flex items-center justify-center cursor-pointer hover:bg-sky-200/70 select-none transition-colors duration-150" onClick={() => handleSort("notes")}>
                             비고 {renderSortIcon("notes")}
                         </div>
-                        <div className="py-3 text-center">관리</div>
+                        <div className="sticky right-0 z-20 border-l border-sky-200 bg-sky-100 py-3 text-center shadow-[-6px_0_8px_-8px_rgba(15,23,42,0.45)]">관리</div>
+                    </div>
                     </div>
                 </div>
             </div>
 
             {/* Main List (DIV Grid) - Rows Only */}
-            <div className="w-full overflow-hidden rounded-b-xl border border-t-0 border-slate-200 shadow-sm bg-white">
+            <div
+                ref={tableBodyScrollRef}
+                className="w-full max-w-full overflow-x-auto overscroll-x-contain rounded-b-xl border border-t-0 border-slate-200 shadow-sm bg-white"
+                onScroll={(event) => syncTableHorizontalScroll(event.currentTarget, tableHeaderScrollRef.current)}
+            >
                 {/* Data Rows */}
-                <div className="divide-y divide-slate-100">
+                <div className="divide-y divide-slate-100" style={{ minWidth: gridMinWidth }}>
                     {loading ? (
                         <div className="h-40 flex items-center justify-center"><LoadingSpinner /></div>
                     ) : filteredData.length === 0 ? (
@@ -2279,8 +2297,14 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                         }}
                                     />
                                 </div>
-                                <div className="text-center">
-                                    <button onClick={() => handleEditClick(item)} className="p-1 hover:bg-surface-200 rounded text-slate-500">✎</button>
+                                <div className="sticky right-0 z-10 flex items-center justify-center border-l border-slate-100 bg-white px-1 text-center group-hover:bg-blue-50/40">
+                                    <button
+                                        onClick={() => handleEditClick(item)}
+                                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded text-slate-500 hover:bg-surface-200 sm:min-h-8 sm:min-w-8"
+                                        aria-label={`${item.business_name} 관리`}
+                                    >
+                                        ✎
+                                    </button>
                                 </div>
                             </div>
                         );

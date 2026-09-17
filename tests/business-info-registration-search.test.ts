@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   mapBusinessInfoToRegistrationSearchResult,
@@ -123,4 +124,18 @@ test("건강디딤돌 신청용 담당자명에서 직책만 제거한다", () =
   assert.equal(normalizeContactName("이영희 대리님"), "이영희");
   assert.equal(normalizeContactName("박민수"), "박민수");
   assert.equal(normalizeContactName("담당자"), null);
+});
+
+test("측정대상사업장 모바일 목록은 관리 열 접근성과 브라우저 확대를 보장한다", () => {
+  const source = readFileSync("components/features/MeasurementTargetBusinessManagement.tsx", "utf8");
+  const layout = readFileSync("app/layout.tsx", "utf8");
+
+  assert.doesNotMatch(source, /min-w-\[1400px\]/);
+  assert.match(source, /tableHeaderScrollRef/);
+  assert.match(source, /tableBodyScrollRef/);
+  assert.match(source, /overflow-x-auto overscroll-x-contain/);
+  assert.match(source, /sticky right-0 z-20/);
+  assert.match(source, /min-h-11 min-w-11/);
+  assert.match(layout, /userScalable:\s*true/);
+  assert.match(layout, /maximumScale:\s*5/);
 });
