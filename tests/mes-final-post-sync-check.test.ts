@@ -222,7 +222,8 @@ test("동시 drain은 한 action만 선점하고 알림을 한 번만 만든다"
 
 test("후속 점검은 idle cron 대신 작업 신호와 1회성 재시도를 사용한다", () => {
   const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), "vercel.json"), "utf8"));
-  const postSchedules = config.crons.filter((entry: { path: string }) => entry.path.startsWith("/api/cron/mes-post-sync/"));
+  const crons = Array.isArray(config.crons) ? config.crons : [];
+  const postSchedules = crons.filter((entry: { path: string }) => entry.path.startsWith("/api/cron/mes-post-sync/"));
   assert.equal(postSchedules.length, 0);
   const scheduler = fs.readFileSync(path.join(process.cwd(), "lib/scheduler/background-tasks.ts"), "utf8");
   assert.match(scheduler, /MES_POST_SYNC_CHECK/);

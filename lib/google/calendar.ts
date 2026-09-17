@@ -1,4 +1,5 @@
-import { google } from 'googleapis';
+import { calendar as createCalendar } from '@googleapis/calendar';
+import { GoogleAuth } from 'google-auth-library';
 import path from 'path';
 import fs from 'fs';
 
@@ -56,7 +57,7 @@ const getAuthClient = async () => {
             throw new Error(`Google credentials not found. Set GOOGLE_CREDENTIALS_JSON env var or place google-credentials.json at: ${KEY_FILE_PATH}`);
         }
 
-        const auth = new google.auth.GoogleAuth({
+        const auth = new GoogleAuth({
             credentials,
             scopes: SCOPES,
         });
@@ -139,7 +140,7 @@ export async function createSurveyEvent(eventData: {
     try {
         logDebug("Creating Calendar Event", eventData);
         const authClient = await getAuthClient();
-        const calendar = google.calendar({ version: 'v3', auth: authClient as any });
+        const calendar = createCalendar({ version: 'v3', auth: authClient as any });
 
         // Normalize date to YYYY-MM-DD to avoid API errors
         const normalizeDate = (d: string) => {
@@ -205,7 +206,7 @@ export async function updateSurveyEvent(eventId: string, eventData: {
     try {
         logDebug(`Updating Calendar Event: ${eventId}`, eventData);
         const authClient = await getAuthClient();
-        const calendar = google.calendar({ version: 'v3', auth: authClient as any });
+        const calendar = createCalendar({ version: 'v3', auth: authClient as any });
 
         // Normalize date to YYYY-MM-DD to avoid API errors
         const normalizeDate = (d: string) => {
@@ -269,7 +270,7 @@ export async function getSurveyEvent(eventId: string) {
 
     try {
         const authClient = await getAuthClient();
-        const calendar = google.calendar({ version: 'v3', auth: authClient as any });
+        const calendar = createCalendar({ version: 'v3', auth: authClient as any });
 
         const response = await withCalendarRetry('Google Calendar 일정 조회', () =>
             calendar.events.get({ calendarId, eventId })
@@ -292,7 +293,7 @@ export async function deleteSurveyEvent(eventId: string) {
     try {
         logDebug(`Deleting Calendar Event: ${eventId}`);
         const authClient = await getAuthClient();
-        const calendar = google.calendar({ version: 'v3', auth: authClient as any });
+        const calendar = createCalendar({ version: 'v3', auth: authClient as any });
 
         await withCalendarRetry('Google Calendar 일정 삭제', () =>
             calendar.events.delete({ calendarId, eventId })
@@ -317,7 +318,7 @@ export async function listEvents(timeMin: string, timeMax: string, q?: string) {
 
     try {
         const authClient = await getAuthClient();
-        const calendar = google.calendar({ version: 'v3', auth: authClient as any });
+        const calendar = createCalendar({ version: 'v3', auth: authClient as any });
 
         const response = await withCalendarRetry('Google Calendar 일정 목록 조회', () =>
             calendar.events.list({
