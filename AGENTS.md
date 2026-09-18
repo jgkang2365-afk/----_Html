@@ -42,6 +42,20 @@
 - service role, secret key, 비밀번호, 토큰 등 비밀값을 코드·문서·로그에 하드코딩하지 않는다.
 - `.env.local` 등 비밀 파일을 Git에 추가하지 않는다.
 
+### 3.1 Staging 운영 기준
+
+- Staging은 단순 임시 테스트 DB가 아니라 **Production-like baseline + next-release candidate + controlled test data**를 유지하는 검증 환경으로 취급한다.
+- DB 변경, migration, UAT, K2B·자동화 검증은 가능한 한 운영 DB와 유사한 기준 상태에서 수행한다. Staging의 오래된 drift나 테스트 잔재 때문에 결과 해석이 왜곡되지 않도록 작업 시작 전 baseline 상태를 확인한다.
+- Staging 테스트 종료 시 발생한 변경을 반드시 다음 세 부류로 분류한다.
+  1. 다음 Production Release 후보 schema/migration — 유지한다.
+  2. Pilot·queue/job·임시 row 등 테스트 전용 데이터 — 검증 증거 보존 필요성을 확인한 뒤 정리한다.
+  3. Production 승격 대상이 아닌 임시 function/table/column/index 등 실험 잔재 — 자동 삭제하지 말고 식별·보고 후 필요 시 별도 cleanup으로 처리한다.
+- 테스트가 끝났다는 이유만으로 Staging 전체를 자동 reset하거나 Production snapshot으로 덮어쓰지 않는다. 반대로 테스트 누적 때문에 Production-like 성격이 훼손되었거나 다음 UAT 기준이 달라지는 경우에는 Production 기준 재동기화 필요 여부를 반드시 판단한다.
+- Production 기준 재동기화, Staging 전체 reset/rebuild, snapshot overwrite처럼 광범위한 복구 작업은 별도 고위험 작업으로 취급하며 사용자 승인 없이 실행하지 않는다.
+- Staging 종료 Gate에서 최소한 release-candidate migration 목록, 테스트 데이터 잔존 여부, 임시 schema 잔재, migration history, 현재 candidate와 schema 정합성, 불필요한 queue/job 잔존 여부, Production DB write 0 여부를 확인한다.
+- Staging이 다음 테스트에 사용할 수 있는 Production-like baseline 상태로 정리되지 않았거나 drift의 원인을 설명할 수 없으면 `COMPLETE`로 보고하지 않고 `HOLD`로 남긴다.
+- Staging에서 발견된 오류는 Production 장애로 확대 해석하지 않되, 동일 migration/코드가 Production에 승격될 때 재현 가능한 release blocker인지 구분하여 기록한다.
+
 ## 4. Git 운영
 
 - 사용자의 기존 미커밋 변경을 임의로 reset, checkout, stash, 삭제하지 않는다.
