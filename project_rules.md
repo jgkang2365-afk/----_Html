@@ -5,7 +5,7 @@
 
 ## 1. 문서 역할
 
-- `AGENTS.md`: AI 에이전트의 작업·안전·Git·검증 원칙
+- `AGENTS.md`: 프로젝트 진입 Gate, 필독 문서, 업무 특수 제약
 - `project_rules.md`: 프로젝트 전반에 지속 적용되는 기술·운영 정책
 - `BUSINESS_LOGIC.md`: 업무 데이터, 계산, 분류, 우선순위 등 비즈니스 규칙
 - `docs/business-rules/preliminary-survey.md`: 예비조사 관련 업무 규칙의 기준 문서 (예비조사 개발 시 이 문서를 기준으로 한다)
