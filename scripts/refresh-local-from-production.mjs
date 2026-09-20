@@ -167,6 +167,11 @@ async function insertRows(postgres, table, rows) {
 }
 
 async function resetIdSequence(postgres, table) {
+  const idColumn = await postgres.query(
+    "select 1 from information_schema.columns where table_schema = 'public' and table_name = $1 and column_name = 'id'",
+    [table]
+  );
+  if (idColumn.rowCount !== 1) return;
   const sequence = await postgres.query(
     "select pg_get_serial_sequence($1, 'id') as sequence",
     [`public.${table}`]

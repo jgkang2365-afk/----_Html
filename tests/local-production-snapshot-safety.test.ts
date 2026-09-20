@@ -36,4 +36,19 @@ describe("Local Production snapshot safety", () => {
     assert.match(source, /SUPABASE_URL:\s*values\.API_URL/);
     assert.match(source, /LOCAL_SUPABASE_DB_URL:\s*values\.DB_URL/);
   });
+
+  it("uses a Windows shell when spawning npx.cmd for Supabase status", async () => {
+    const source = await readFile(configurePath, "utf8");
+    assert.match(source, /shell:\s*process\.platform\s*===\s*"win32"/);
+  });
+
+  it("skips sequence reset for snapshot tables without an id column", async () => {
+    const source = await readFile(refreshPath, "utf8");
+    const guard = source.indexOf("information_schema.columns");
+    const sequenceLookup = source.indexOf("pg_get_serial_sequence");
+    assert.ok(guard >= 0);
+    assert.ok(sequenceLookup > guard);
+    assert.match(source, /column_name = 'id'/);
+    assert.match(source, /if \(idColumn\.rowCount !== 1\) return;/);
+  });
 });

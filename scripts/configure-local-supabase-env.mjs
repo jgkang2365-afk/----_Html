@@ -9,7 +9,7 @@ const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 const status = spawnSync(
   npx,
   ["supabase", "status", "--workdir", ".supabase-local", "-o", "env"],
-  { cwd: root, encoding: "utf8" }
+  { cwd: root, encoding: "utf8", shell: process.platform === "win32" }
 );
 
 if (status.status !== 0) {
