@@ -5,6 +5,11 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import { classifyDesignatedOffice, shortNameToFullName } from "@/lib/utils/jurisdiction-matcher";
 import { toShortName } from "@/lib/constants/designated-offices";
 import {
+  journalMatchesMeasurementDate,
+  journalSearchKey,
+  targetMatchesJournalMeasurementDate,
+} from "@/lib/journal/search-date-filter";
+import {
   LaborOfficeDirectory,
   loadLaborOfficeDirectory,
   resolveLaborOfficeAddressFromDirectory,
@@ -38,7 +43,8 @@ function resolveJournalOfficePresentation(
  * 측정일지 검색 API
  * 핵심 요구사항: "직전(가장 최신 자료)의 자료를 불러와야 한다"
  * - measurement_journal이 있으면 그것을 우선 사용
- * - 없으면 measurement_business에서 최신 데이터를 가져와서 반환
+ * - 없으면 measurement_target_business의 확정/실시 대상만 등록 후보로 반환
+ * - preliminary_survey는 legacy 보완 원천으로 사용하지 않음
  */
 export async function GET(request: NextRequest) {
   try {
@@ -109,58 +115,20 @@ export async function GET(request: NextRequest) {
     }
     const laborOfficeDirectory = await loadLaborOfficeDirectory(supabase);
 
-    // 0. measurementDate가 있으면 preliminary_survey에서 해당 날짜의 사업장 코드/년도/주기 조회
-    let dateFilteredCodes: string[] | null = null;
-    let dateFilteredKeys: Set<string> | null = null;
-    let validSurveys: any[] = [];
+    // 측정일 검색은 현재 canonical 일정인 measurement_target_business를 기준으로 판정한다.
+    // preliminary_survey는 legacy mirror이므로 검색 후보 생성/날짜 판정에 사용하지 않는다.
+    const dateMatchedTargetKeys = new Set<string>();
 
-    if (measurementDate) {
-      const { data: surveys, error: surveyError } = await supabase
-        .from("preliminary_survey")
-        .select("code, year, period")
-        .eq("measurement_date", measurementDate);
-
-      if (surveyError) {
-        console.error("예비조사 측정일 검색 오류:", surveyError);
-        return NextResponse.json(
-          { error: "측정일 검색 중 오류가 발생했습니다.", details: surveyError.message },
-          { status: 500 }
-        );
-      }
-
-      const surveysList = surveys || [];
-      if (surveysList.length === 0) {
-        return NextResponse.json({ results: [] });
-      }
-
-      validSurveys = surveysList;
-
-      // DB 쿼리 최적화를 위한 코드 리스트
-      dateFilteredCodes = surveysList.map((s: any) => s.code).filter(Boolean);
-
-      // 정확한 매칭을 위한 (code-year-period) 키 집합
-      dateFilteredKeys = new Set(
-        surveysList.map((s: any) => `${s.code}-${s.year}-${s.period}`)
-      );
-      console.log("[DEBUG] Date Filter Keys:", Array.from(dateFilteredKeys));
-    }
-
-    // 1. measurement_target_business에서 검색 (확정된 사업장만)
-    // 기존 measurement_business 대신 최신 테이블 사용
+    // 1. canonical target을 조회한다.
+    // 날짜 판정에는 종료/미실시를 포함한 target 전체를 쓰고,
+    // 신규 측정일지 등록 후보는 아래에서 확정/실시 상태만 남긴다.
     let businessQuery = supabase
       .from("measurement_target_business")
       .select("*")
       .not("business_name", "ilike", "%번외%")
-      .in("is_registered", ["확정", "실시"]) // 확정된 사업장만 조회
       .order("year", { ascending: false })
       .order("period", { ascending: false })
       .order("created_at", { ascending: false });
-
-    // 측정일 필터 적용 (코드 기준 1차 필터링)
-    if (dateFilteredCodes !== null) {
-      console.log("[DEBUG] Filtering by codes:", dateFilteredCodes);
-      businessQuery = businessQuery.in("code", dateFilteredCodes);
-    }
 
     // 검색 조건 적용
     if (code) {
@@ -235,20 +203,24 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Direct use of result
-    let businessData = businessDataRaw || [];
+    const targetRows = businessDataRaw || [];
 
-    if (dateFilteredKeys !== null) {
-      console.log("[DEBUG] Business Data before key filter:", businessData.length);
-      if (businessData.length > 0) {
-        console.log("[DEBUG] Sample Business Data Key:", `${businessData[0].code}-${businessData[0].year}-${businessData[0].period}`);
+    if (measurementDate) {
+      for (const target of targetRows) {
+        if (targetMatchesJournalMeasurementDate(target, measurementDate)) {
+          dateMatchedTargetKeys.add(journalSearchKey(target.code, target.year, target.period));
+        }
       }
+    }
 
-      const originalCount = businessData.length;
+    // 신규 등록 후보는 canonical target 중 확정/실시 상태만 허용한다.
+    let businessData = targetRows.filter((b: any) =>
+      b.is_registered === "확정" || b.is_registered === "실시"
+    );
+    if (measurementDate) {
       businessData = businessData.filter((b: any) =>
-        dateFilteredKeys!.has(`${b.code}-${b.year}-${b.period}`)
+        dateMatchedTargetKeys.has(journalSearchKey(b.code, b.year, b.period))
       );
-      console.log(`[DEBUG] Business Data filtered: ${originalCount} -> ${businessData.length}`);
     }
 
     // 디버깅: 측정사업장 검색 결과 로그
@@ -280,11 +252,6 @@ export async function GET(request: NextRequest) {
       .not("business_name", "ilike", "%번외%")
       .order("updated_at", { ascending: false })
       .order("created_at", { ascending: false });
-
-    // 측정일 필터 적용
-    if (dateFilteredCodes !== null) {
-      journalQuery = journalQuery.in("code", dateFilteredCodes);
-    }
 
     if (code) {
       if (code.includes(",")) {
@@ -373,11 +340,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 측정일 필터 적용 (Year/Period 정밀 필터링)
+    // 등록된 측정일지는 자체 시작일 또는 canonical target의 실제 다일 일정으로 날짜를 판정한다.
     let journalData = journalDataRaw || [];
-    if (dateFilteredKeys !== null) {
+    if (measurementDate) {
       journalData = journalData.filter((j: any) =>
-        dateFilteredKeys!.has(`${j.code}-${j.measurement_year}-${j.measurement_period}`)
+        journalMatchesMeasurementDate(j, measurementDate, dateMatchedTargetKeys)
       );
     }
 
@@ -385,10 +352,6 @@ export async function GET(request: NextRequest) {
     const allCodes = new Set<string>();
     (journalData || []).forEach((j: any) => allCodes.add(j.code));
     (businessData || []).forEach((b: any) => allCodes.add(b.code));
-    // 예비조사 코드도 포함 (데이터가 없는 경우를 대비해)
-    if (dateFilteredCodes) {
-      dateFilteredCodes.forEach(c => allCodes.add(c));
-    }
 
     const businessInfoMap = new Map<string, any>();
     if (allCodes.size > 0) {
@@ -448,7 +411,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 4. measurement_journal이 있으면 우선 사용, 없으면 measurement_business 데이터를 변환
+    // 4. measurement_journal이 있으면 우선 사용, 없으면 canonical target 등록 후보를 변환
     // 중복 제거: 같은 code-year-period 조합 중 가장 최신 것만 사용
     const journalMap = new Map<string, any>();
     (journalData || []).forEach((journal: any) => {
@@ -460,7 +423,7 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // measurement_business 데이터를 measurement_journal 형식으로 변환
+    // canonical target 데이터를 measurement_journal 형식으로 변환
     const results: any[] = [];
     const processedKeys = new Set<string>();
 
@@ -677,91 +640,8 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // 예비조사 데이터 중 아직 결과에 없는 것 추가 (measurement_business에도 없는 경우)
-    if (validSurveys.length > 0) {
-      validSurveys.forEach((survey: any) => {
-        const key = `${survey.code}-${survey.year}-${survey.period}`;
-        if (!processedKeys.has(key)) {
-          // business_info 정보 가져오기
-          const businessInfo = businessInfoMap.get(survey.code);
-
-          if (!businessInfo) return; // 사업장 정보가 없으면 스킵
-
-          // 주소 가져오기
-          const address = [businessInfo.address1, businessInfo.address2].filter(Boolean).join(" ").trim();
-
-          const businessInfoOffice = resolveJournalOfficePresentation(
-            address,
-            businessInfo.office_jurisdiction,
-            laborOfficeDirectory
-          );
-          let autoDesignatedOffice = businessInfoOffice.designatedOffice;
-
-          // 2순위: 관할청 기반
-          if (!autoDesignatedOffice && !address && businessInfo.office_jurisdiction) {
-            const officeJurisdictionRaw = businessInfo.office_jurisdiction || "";
-            const officeJurisdictionFullName = shortNameToFullName(officeJurisdictionRaw) || officeJurisdictionRaw || "";
-            const officeBasedDesignatedOffice = classifyDesignatedOffice(officeJurisdictionFullName);
-            if (officeBasedDesignatedOffice) {
-              autoDesignatedOffice = officeBasedDesignatedOffice;
-            }
-          }
-
-          const journalEntry = {
-            id: null,
-            code: survey.code,
-            measurement_year: survey.year,
-            measurement_period: survey.period,
-            business_name: businessInfo.business_name,
-            designated_office: autoDesignatedOffice,
-            office_code: businessInfoOffice.officeCode,
-            office_jurisdiction_display: businessInfoOffice.officeJurisdictionDisplay,
-            address: address,
-            completion_status: "미완료", // 기본값
-
-            measurement_start_date: survey.measurement_date, // 예비조사 측정일을 시작일로 표시
-            measurement_end_date: null,
-            measurer: survey.measurer || null,
-            total_employees: null,
-
-            office_jurisdiction: businessInfo.office_jurisdiction || null,
-            note: survey.notes || null, // 예비조사 비고
-            document_number: null,
-            sequence_number: null,
-            five_plus_sequence: null,
-            created_at: survey.created_at,
-            updated_at: survey.updated_at,
-
-            business_number: businessInfo.business_number || null,
-            representative_name: businessInfo.representative_name || null,
-            phone: businessInfo.phone || null,
-            fax: businessInfo.fax || null,
-
-            industrial_accident_number: null,
-            commencement_number: null,
-            manager_name: businessInfo.manager_name || null,
-            manager_position: null,
-            manager_mobile: null,
-            manager_email: null,
-            invoice_email: null,
-
-            national_support_status: null,
-            measurement_fee_total: null,
-            measurement_fee_business: null,
-            deposit_total: null,
-            deposit_amount_business: null,
-            business_category: targetBusinessMap.get(key)?.business_category || null,
-            target_business_type: targetBusinessMap.get(key)?.business_type || null,
-            target_process_changed: targetBusinessMap.get(key)?.process_changed ?? null,
-            special_notes: targetBusinessMap.get(key)?.notes || null,
-            _isFromSurvey: true, // 예비조사에서 온 데이터임을 표시
-          };
-
-          results.push(journalEntry);
-          processedKeys.add(key);
-        }
-      });
-    }
+    // preliminary_survey legacy fallback은 제거한다.
+    // 측정일지 등록 후보는 measurement_target_business의 확정/실시 상태만 허용한다.
 
     // 디버깅: 필터링 전 결과 로그
     console.log(`[검색 API] 필터링 전 결과 수: ${results.length}건`);
