@@ -230,6 +230,26 @@ test("v4 Worker Test4-5: 업로드 실패 target은 과거 Grid NORMAL이 있어
   assert.equal(fixture.journalBusinessStateUpdates, 0);
 });
 
+test("v6 Worker: 재전송 후 기존과 같은 정상 접수일이어도 final-confirmation은 calendar를 다시 동기화한다", async () => {
+  const fixture = workerLevelFixture({
+    upload: { success: true, status: "업로드 완료" },
+    readGrid: async () => ({
+      completeness: "COMPLETE",
+      rows: [{
+        managementNumber: "12345", commencementNumber: "00001", businessYear: "2026", half: "하반기",
+        status: "정상처리", actualSubmissionDate: "2026-09-10", submissionNumber: "R-existing",
+      }],
+    }),
+  });
+  const [result] = await fixture.run();
+
+  assert.equal(result.success, true);
+  assert.equal(result.gridConfirmedNormal, true);
+  assert.equal(fixture.journalBusinessStateUpdates, 0);
+  assert.equal(fixture.calendarCalls.length, 1);
+  assert.deepEqual(fixture.calendarCalls[0]?.slice(1), ["A-1", 2026, "second"]);
+});
+
 test("v5 Worker: COMPLETE exact 보류는 결과 확인 필요이지만 기존 접수일을 patch하지 않는다", async () => {
   const fixture = workerLevelFixture({
     upload: { success: true, status: "업로드 완료" },

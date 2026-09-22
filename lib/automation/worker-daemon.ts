@@ -1151,6 +1151,7 @@ export class WorkerDaemon {
                             k2b_send_date: currentPostUploadJournal?.k2b_send_date ?? null,
                         },
                         postUploadUpdate,
+                        isConfirmedNormal,
                     );
                     if (calendarResult.attempted) {
                         results[rIdx].calendarSyncSuccess = calendarResult.success;
@@ -1242,8 +1243,9 @@ export class WorkerDaemon {
             k2b_send_date?: string | null;
         },
         update: Record<string, unknown> | null | undefined,
+        force = false,
     ): Promise<{ attempted: boolean; success?: boolean; error?: string }> {
-        if (!shouldSyncK2BCalendarForJournalChange(current, update)) {
+        if (!force && !shouldSyncK2BCalendarForJournalChange(current, update)) {
             return { attempted: false };
         }
         const period = resolveK2BCalendarPeriod(current.measurement_period);
