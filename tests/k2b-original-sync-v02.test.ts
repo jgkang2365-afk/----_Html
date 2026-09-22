@@ -118,7 +118,8 @@ test("worker/migration은 날짜별 결과, cursor guard, idempotency dispositio
   assert.match(worker, /dateResults/); assert.match(worker, /outcome: grid\.outcome/); assert.match(worker, /QUERY_FAILED/); assert.match(worker, /cursorEligible/); assert.match(worker, /fallbackKeyCount/);
   assert.match(worker, /K2B_UNMATCHABLE_REMOTE_ROWS/); assert.match(worker, /unmatchableRemoteRowCount/);
   assert.match(migration, /submission_number TEXT,/); assert.match(migration, /last_successful_sync_at/); assert.match(migration, /created_at TIMESTAMPTZ/); assert.match(migration, /updated_at TIMESTAMPTZ/); assert.match(migration, /'unchanged'/);
-  assert.match(legacyRoute, /enqueue_k2b_verify_job/);
+  assert.match(legacyRoute, /enqueue_k2b_automation_job/);
+  assert.match(legacyRoute, /calendarSyncApiUrl/);
 });
 
 test("forward migration의 legacy claim은 active original sync도 upload/verify와 동일하게 직렬화한다", () => {

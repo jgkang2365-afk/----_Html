@@ -31,19 +31,17 @@ export async function POST(request: NextRequest) {
       : buildGeneralK2BVerificationRange(resultDate);
     // 권한 확인 후에만 service-role 서버 클라이언트로 제한 RPC를 호출한다.
     const supabase = createAdminClient();
-    const { data, error } = fromDate && toDate
-      ? await supabase.rpc("enqueue_k2b_automation_job", {
-        p_job_type: "k2b_verify",
-        p_payload: {
-          resultDate: range.toDate,
-          requestedBy: session?.userId ?? null,
-          fromDate: range.fromDate,
-          toDate: range.toDate,
-          trigger: "manual",
-          serializationDisposition: "accepted_without_active_k2b",
-        },
-      })
-      : await supabase.rpc("enqueue_k2b_verify_job", { p_result_date: resultDate, p_requested_by: session?.userId ?? null });
+    const { data, error } = await supabase.rpc("enqueue_k2b_automation_job", {
+      p_job_type: "k2b_verify",
+      p_payload: {
+        resultDate: range.toDate,
+        requestedBy: session?.userId ?? null,
+        ...(fromDate && toDate ? { fromDate: range.fromDate, toDate: range.toDate } : {}),
+        trigger: "manual",
+        serializationDisposition: "accepted_without_active_k2b",
+        calendarSyncApiUrl: new URL("/api/report-processing/calendar-sync", request.url).toString(),
+      },
+    });
     if (error) {
       const status = error.message.includes("ALREADY_ACTIVE") ? 409 : 500;
       return NextResponse.json({ error: error.message }, { status });

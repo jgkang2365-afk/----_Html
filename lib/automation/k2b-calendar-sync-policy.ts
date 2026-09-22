@@ -21,6 +21,17 @@ export function shouldSyncK2BCalendarForJournalChange(
   return (current?.k2b_send_date ?? null) !== (update.k2b_send_date ?? null);
 }
 
+/** Manual actual-result verification also acts as an explicit calendar reconciliation request. */
+export function shouldForceManualK2BCalendarRepair(input: {
+  trigger: string | null | undefined;
+  matchMethod: string | null | undefined;
+  verdict: string | null | undefined;
+}): boolean {
+  return input.trigger === "manual"
+    && input.matchMethod === "exact_keys"
+    && ["정상", "사용자반송", "오류"].includes(String(input.verdict ?? ""));
+}
+
 /**
  * 캘린더는 canonical exact match인 최종 정상 K2B 결과만 동기화한다.
  * 이 결정은 업로드 results 배열과 독립적이라, 결과 표시용 배열 누락이 동기화를 막지 않는다.

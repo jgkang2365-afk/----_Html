@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { requestK2BCalendarSync } from "../lib/automation/k2b-calendar-sync-client";
-import { decideK2BCalendarSync, resolveK2BCalendarPeriod, shouldSyncK2BCalendarForJournalChange } from "../lib/automation/k2b-calendar-sync-policy";
+import { decideK2BCalendarSync, resolveK2BCalendarPeriod, shouldForceManualK2BCalendarRepair, shouldSyncK2BCalendarForJournalChange } from "../lib/automation/k2b-calendar-sync-policy";
 import { reconcileK2BSubmissionResults } from "../lib/k2b-verification";
 
 test("K2B 최종 정상처리는 서버 캘린더 API에 인증된 요청을 보낸다", async () => {
@@ -51,6 +51,7 @@ test("모든 K2B journal 반영 경로는 공통 material-change gate를 통해 
   const route = readFileSync("app/api/report-processing/calendar-sync/route.ts", "utf8");
   const queue = readFileSync("app/api/report-processing/queue/route.ts", "utf8");
   const approve = readFileSync("app/api/report-processing/approve-k2b-verification/route.ts", "utf8");
+  const verifyRoute = readFileSync("app/api/report-processing/verify-k2b/route.ts", "utf8");
 
   const originalSync = worker.slice(worker.indexOf("private async processK2BOriginalSyncJob"), worker.indexOf("private async processK2BVerifyJob"));
   const verify = worker.slice(worker.indexOf("private async processK2BVerifyJob"), worker.indexOf("private async processK2BJob"));
@@ -71,6 +72,9 @@ test("모든 K2B journal 반영 경로는 공통 material-change gate를 통해 
   assert.match(queue, /calendarSyncApiUrl:[\s\S]*?new URL\('\/api\/report-processing\/calendar-sync', req\.url\)/);
   assert.match(approve, /shouldSyncK2BCalendarForJournalChange/);
   assert.match(approve, /await syncBusinessToCalendar\(admin, target\.code, target\.year, target\.period\)/);
+  assert.match(verifyRoute, /calendarSyncApiUrl:[\s\S]*?new URL\("\/api\/report-processing\/calendar-sync", request\.url\)/);
+  assert.doesNotMatch(verifyRoute, /enqueue_k2b_verify_job/);
+  assert.match(verify, /shouldForceManualK2BCalendarRepair/);
 });
 
 test("Worker는 period를 ASCII 안전값(first/second)으로 변환해 calendar sync API에 전달한다", () => {
@@ -98,6 +102,14 @@ test("캘린더 후속 동기화는 k2b_send_date가 실제로 바뀔 때만 발
   assert.equal(shouldSyncK2BCalendarForJournalChange({ k2b_send_date: "2026-09-22" }, { k2b_status: "정상처리" }), false);
   assert.equal(shouldSyncK2BCalendarForJournalChange({ k2b_send_date: "2026-09-22" }, { k2b_send_date: null }), true);
   assert.equal(shouldSyncK2BCalendarForJournalChange({ k2b_send_date: null }, null), false);
+});
+
+test("수동 K2B 실제결과 재검증은 확정 관측값이면 같은 날짜라도 캘린더 복구를 강제한다", () => {
+  assert.equal(shouldForceManualK2BCalendarRepair({ trigger: "manual", matchMethod: "exact_keys", verdict: "정상" }), true);
+  assert.equal(shouldForceManualK2BCalendarRepair({ trigger: "manual", matchMethod: "exact_keys", verdict: "사용자반송" }), true);
+  assert.equal(shouldForceManualK2BCalendarRepair({ trigger: "manual", matchMethod: "exact_keys", verdict: "오류" }), true);
+  assert.equal(shouldForceManualK2BCalendarRepair({ trigger: "scheduled", matchMethod: "exact_keys", verdict: "정상" }), false);
+  assert.equal(shouldForceManualK2BCalendarRepair({ trigger: "manual", matchMethod: "NONE", verdict: "확인 필요" }), false);
 });
 
 test("그리드 매칭 실패와 지원하지 않는 period를 운영 로그/오류로 식별할 수 있다", () => {
