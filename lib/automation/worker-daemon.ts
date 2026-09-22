@@ -4,7 +4,7 @@ import { K2BService } from './k2b-service';
 import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-verification-service';
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
 import { hasK2BReceiptError, journalStatusForK2BReconciliation, k2BSendDatePatchForReconciliation, reconcileK2BSubmissionResults, selectChangedK2BPostUploadUpdate, selectChangedK2BReconciliationUpdate, selectK2BStaleUpdates, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
-import { decideK2BCalendarSync } from './k2b-calendar-sync-policy';
+import { resolveK2BCalendarPeriod, shouldSyncK2BCalendarForJournalChange } from './k2b-calendar-sync-policy';
 import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, filterK2BObservedJournalCandidates, inclusiveK2BDates, resolveK2BJournalScope, shouldSweepK2BStale, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
 import os from 'node:os';
@@ -487,6 +487,7 @@ export class WorkerDaemon {
             cursorBefore: null, cursorAfter: null, cursorAdvanced: false, remoteReadState: 'not_started',
             cursorEligible: trigger === 'scheduled', queriedDates: [], remoteRowCount: 0, dateResults: [],
             rawReceiptPersistence: { attempted: 0, saved: 0, failed: 0, insertedCount: 0, updatedCount: 0, unchangedCount: 0, fallbackKeyCount: 0 }, journalVerification: { matched: 0, saved: 0, stale: 0 },
+            calendarSync: { attempted: 0, succeeded: 0, failed: 0, errors: [] as string[] },
             remoteK2BReadAttempted: false, remoteK2BReadExecuted: false, databaseSaveCompleted: false, uploadExecuted: false, failureStage: null,
         };
         const fail = async (message: string, stage: string) => {
@@ -584,6 +585,7 @@ export class WorkerDaemon {
                 submissionNumber: receipt.submissionNumber, identityConflict: receipt.identityConflict,
                 businessYear: receipt.businessYear, half: receipt.half,
             })), { completeness: 'COMPLETE' });
+            const calendarSyncedJournalKeys = new Set<string>();
             for (let index = 0; index < reconciled.length; index += 1) {
                 const item = reconciled[index];
                 const journal = observedJournals[index] as any;
@@ -594,6 +596,27 @@ export class WorkerDaemon {
                     const { error: updateError } = await admin.from('measurement_journal').update(update).eq('id', journal.id);
                     if (updateError) throw updateError;
                     executionResult.journalVerification.saved += 1;
+                }
+
+                const calendarKey = [journal.code, journal.measurement_year, journal.measurement_period]
+                    .map((value: unknown) => String(value ?? '').trim()).join('\u0000');
+                if (!calendarSyncedJournalKeys.has(calendarKey)) {
+                    const calendarResult = await this.syncCalendarAfterK2BJournalChange(
+                        payload.calendarSyncApiUrl,
+                        journal,
+                        update,
+                    );
+                    if (calendarResult.attempted) {
+                        calendarSyncedJournalKeys.add(calendarKey);
+                        executionResult.calendarSync.attempted += 1;
+                        if (calendarResult.success) executionResult.calendarSync.succeeded += 1;
+                        else {
+                            executionResult.calendarSync.failed += 1;
+                            executionResult.calendarSync.errors.push(
+                                String(journal.code ?? '') + ': ' + (calendarResult.error || 'calendar sync failed'),
+                            );
+                        }
+                    }
                 }
             }
             // STALE sweep은 scheduled에만 실행한다. cursor/manual range가 아닌 KST 7일
@@ -622,7 +645,10 @@ export class WorkerDaemon {
                 executionResult.cursorAfter = range.toDate;
             }
             await this.updateK2BExecutionResult(job.id, executionResult);
-            await this.updateJobStatus(job.id, 'success');
+            const calendarWarning = executionResult.calendarSync.failed > 0
+                ? 'K2B 결과는 반영됐으나 캘린더 동기화 ' + executionResult.calendarSync.failed + '건 실패'
+                : null;
+            await this.updateJobStatus(job.id, 'success', calendarWarning);
         } catch (error: any) {
             executionResult.rawReceiptPersistence.failed = Math.max(1, executionResult.rawReceiptPersistence.attempted - executionResult.rawReceiptPersistence.saved);
             executionResult.databaseSaveCompleted = false;
@@ -652,6 +678,7 @@ export class WorkerDaemon {
             remoteRowCount: 0,
             matchCounts: { matched: 0, ambiguous: 0, unmatched: 0, green: 0, yellow: 0, red: 0 },
             persistence: { attempted: 0, saved: 0, unchanged: 0, failed: 0 },
+            calendarSync: { attempted: 0, succeeded: 0, failed: 0, errors: [] as string[] },
             databaseSaveCompleted: false,
             uploadExecuted: false,
             failureStage: null,
@@ -767,6 +794,7 @@ export class WorkerDaemon {
                 }
             }
             executionResult.remoteReadState = rangeGrid.completeness === 'COMPLETE' ? 'completed' : 'partial';
+            const calendarSyncedJournalKeys = new Set<string>();
             for (const { sendDate, journal, item } of reconciledWithJournal) {
                 const attemptedAt = getKSTISOString();
                 executionResult.persistence.attempted += 1;
@@ -777,6 +805,27 @@ export class WorkerDaemon {
                     if (updatedRows?.length !== 1) throw new K2BJournalPersistenceError(`검증 결과 저장 대상이 정확히 1건이 아닙니다: ${journal.id}`);
                     executionResult.persistence.saved += 1;
                 } else executionResult.persistence.unchanged += 1;
+
+                const calendarKey = [journal.code, journal.measurement_year, journal.measurement_period]
+                    .map((value: unknown) => String(value ?? '').trim()).join('\u0000');
+                if (!calendarSyncedJournalKeys.has(calendarKey)) {
+                    const calendarResult = await this.syncCalendarAfterK2BJournalChange(
+                        job.payload?.calendarSyncApiUrl,
+                        journal,
+                        update,
+                    );
+                    if (calendarResult.attempted) {
+                        calendarSyncedJournalKeys.add(calendarKey);
+                        executionResult.calendarSync.attempted += 1;
+                        if (calendarResult.success) executionResult.calendarSync.succeeded += 1;
+                        else {
+                            executionResult.calendarSync.failed += 1;
+                            executionResult.calendarSync.errors.push(
+                                String(journal.code ?? '') + ': ' + (calendarResult.error || 'calendar sync failed'),
+                            );
+                        }
+                    }
+                }
             }
             executionResult.verificationRows = reconciledWithJournal.map(({ journal, item }) => ({
                 journalId: journal.id,
@@ -799,7 +848,10 @@ export class WorkerDaemon {
             }));
             executionResult.databaseSaveCompleted = executionResult.persistence.saved + executionResult.persistence.unchanged === executionResult.persistence.attempted;
             await this.updateK2BExecutionResult(job.id, executionResult);
-            await this.updateJobStatus(job.id, 'success');
+            const calendarWarning = executionResult.calendarSync.failed > 0
+                ? 'K2B 검증 결과는 반영됐으나 캘린더 동기화 ' + executionResult.calendarSync.failed + '건 실패'
+                : null;
+            await this.updateJobStatus(job.id, 'success', calendarWarning);
         } catch (error: any) {
             executionResult.remoteReadState = executionResult.remoteK2BReadExecuted ? 'partial' : 'failed';
             executionResult.failureStage = executionResult.remoteK2BReadExecuted ? 'reconcile_or_persist' : 'remote_read';
@@ -1062,11 +1114,6 @@ export class WorkerDaemon {
                     const isConfirmedNormal = isObservedNormal
                         && reconciled.state === 'GREEN'
                         && reconciled.verdict === '\uC815\uC0C1';
-                    const calendarSyncDecision = decideK2BCalendarSync({
-                        exactMatch: isConfirmedNormal,
-                        receipt: gr,
-                        measurementPeriod: matchTarget.period,
-                    });
                     const effectiveStatus = journalStatusForK2BReconciliation(reconciled);
                     // 업로드 진행 상태를 저장하지 않는다. 방금 읽은 실제 K2B 결과만 공통 정책으로 반영한다.
                     const desiredGridData = {
@@ -1074,6 +1121,7 @@ export class WorkerDaemon {
                         k2b_status: effectiveStatus,
                         ...k2BSendDatePatchForReconciliation(reconciled),
                     };
+                    const currentPostUploadJournal = postUploadJournalByKey.get(finalizedTargetKey);
                     const postUploadUpdate = selectChangedK2BPostUploadUpdate(
                         postUploadJournalByKey.get(finalizedTargetKey),
                         desiredGridData,
@@ -1094,21 +1142,19 @@ export class WorkerDaemon {
                             || (isObservedNormal ? 'K2B 접수현황 전체 조회가 완료되지 않아 정상 확정하지 않음' : effectiveStatus),
                     });
 
-                    if (calendarSyncDecision.shouldSync) {
-                        const apiPeriod = calendarSyncDecision.period;
-                        const calendarSync = await this.syncCalendarAfterK2B(
-                            calendarSyncApiUrl,
-                            matchTarget.code,
-                            matchTarget.year,
-                            apiPeriod
-                        );
-                        results[rIdx].calendarSyncSuccess = calendarSync.success;
-                        results[rIdx].calendarSyncError = calendarSync.error;
-                    } else if (calendarSyncDecision.reason === 'unsupported_period') {
-                        const periodErr = `Unsupported measurement_period: ${matchTarget.period}`;
-                        console.error(`[WorkerDaemon K2B] calendar sync skipped: code=${matchTarget.code} period=${String(matchTarget.period)}`);
-                        results[rIdx].calendarSyncSuccess = false;
-                        results[rIdx].calendarSyncError = periodErr;
+                    const calendarResult = await this.syncCalendarAfterK2BJournalChange(
+                        calendarSyncApiUrl,
+                        {
+                            code: matchTarget.code,
+                            measurement_year: matchTarget.year,
+                            measurement_period: matchTarget.period,
+                            k2b_send_date: currentPostUploadJournal?.k2b_send_date ?? null,
+                        },
+                        postUploadUpdate,
+                    );
+                    if (calendarResult.attempted) {
+                        results[rIdx].calendarSyncSuccess = calendarResult.success;
+                        results[rIdx].calendarSyncError = calendarResult.error;
                     }
                 }
                 }
@@ -1187,6 +1233,36 @@ export class WorkerDaemon {
         }
     }
 
+    private async syncCalendarAfterK2BJournalChange(
+        apiUrl: string | undefined,
+        current: {
+            code: string;
+            measurement_year: number | string;
+            measurement_period: string;
+            k2b_send_date?: string | null;
+        },
+        update: Record<string, unknown> | null | undefined,
+    ): Promise<{ attempted: boolean; success?: boolean; error?: string }> {
+        if (!shouldSyncK2BCalendarForJournalChange(current, update)) {
+            return { attempted: false };
+        }
+        const period = resolveK2BCalendarPeriod(current.measurement_period);
+        if (!period) {
+            return {
+                attempted: true,
+                success: false,
+                error: `Unsupported measurement_period: ${String(current.measurement_period)}`,
+            };
+        }
+        const result = await this.syncCalendarAfterK2B(
+            apiUrl,
+            current.code,
+            current.measurement_year,
+            period,
+        );
+        return { attempted: true, ...result };
+    }
+
     private async syncCalendarAfterK2B(
         apiUrl: string | undefined,
         code: string,
@@ -1194,8 +1270,14 @@ export class WorkerDaemon {
         period: string
     ): Promise<{ success: boolean; error?: string }> {
         try {
+            const localBaseUrl = process.env.DOCUMENT_WORKER_API_BASE_URL
+                || process.env.DOCUMENT_WORKER_API_URL
+                || process.env.WEB_API_URL
+                || 'http://127.0.0.1:3000';
+            const resolvedApiUrl = apiUrl
+                || new URL('/api/report-processing/calendar-sync', localBaseUrl).toString();
             const result = await requestK2BCalendarSync(
-                apiUrl,
+                resolvedApiUrl,
                 process.env.DOCUMENT_WORKER_TOKEN,
                 { code, year, period }
             );

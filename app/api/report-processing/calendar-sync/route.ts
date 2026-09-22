@@ -50,13 +50,15 @@ export async function POST(request: NextRequest) {
       `status=${JSON.stringify(journal?.k2b_status)} ` +
       `sendDate=${JSON.stringify(journal?.k2b_send_date)}`
     );
-    if (!journal || journal.k2b_status !== "정상처리" || !journal.k2b_send_date) {
+    if (!journal) {
       return NextResponse.json(
-        { success: false, error: "K2B 최종 정상처리가 DB에 반영되지 않았습니다." },
+        { success: false, error: "캘린더 동기화 대상 측정일지를 찾을 수 없습니다." },
         { status: 409 },
       );
     }
 
+    // The caller invokes this endpoint only after a material K2B send-date transition.
+    // Sync the current DB state so both completion and completion rollback are reflected.
     const result = await syncBusinessToCalendar(supabase, code, year, measurementPeriod);
     if (!result?.success) {
       throw new Error("캘린더 동기화 결과를 확인하지 못했습니다.");
