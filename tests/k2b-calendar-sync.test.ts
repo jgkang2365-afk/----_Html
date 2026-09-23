@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { requestK2BCalendarSync } from "../lib/automation/k2b-calendar-sync-client";
-import { decideK2BCalendarSync, resolveK2BCalendarPeriod, shouldForceManualK2BCalendarRepair, shouldSyncK2BCalendarForJournalChange } from "../lib/automation/k2b-calendar-sync-policy";
+import { decideK2BCalendarSync, resolveK2BCalendarPeriod, shouldForceManualK2BCalendarRepair, shouldForceScheduledK2BCalendarRepair, shouldSyncK2BCalendarForJournalChange } from "../lib/automation/k2b-calendar-sync-policy";
 import { reconcileK2BSubmissionResults } from "../lib/k2b-verification";
 
 test("K2B 최종 정상처리는 서버 캘린더 API에 인증된 요청을 보낸다", async () => {
@@ -96,12 +96,28 @@ test("calendar-sync API는 period first/second를 내부 DB 값(상반기/하반
   assert.match(route, /await syncBusinessToCalendar\(supabase, code, year, measurementPeriod\)/);
 });
 
-test("캘린더 후속 동기화는 k2b_send_date가 실제로 바뀔 때만 발생한다", () => {
+test("일반 K2B 캘린더 후속 동기화는 k2b_send_date가 실제로 바뀔 때 발생한다", () => {
   assert.equal(shouldSyncK2BCalendarForJournalChange({ k2b_send_date: null }, { k2b_send_date: "2026-09-22" }), true);
   assert.equal(shouldSyncK2BCalendarForJournalChange({ k2b_send_date: "2026-09-22" }, { k2b_send_date: "2026-09-22" }), false);
   assert.equal(shouldSyncK2BCalendarForJournalChange({ k2b_send_date: "2026-09-22" }, { k2b_status: "정상처리" }), false);
   assert.equal(shouldSyncK2BCalendarForJournalChange({ k2b_send_date: "2026-09-22" }, { k2b_send_date: null }), true);
   assert.equal(shouldSyncK2BCalendarForJournalChange({ k2b_send_date: null }, null), false);
+});
+
+test("01:00 원본 동기화는 확정 canonical 관측값의 날짜가 그대로여도 복구한다", () => {
+  for (const verdict of ["정상", "사용자반송", "오류"]) {
+    assert.equal(shouldForceScheduledK2BCalendarRepair({ trigger: "scheduled", matchMethod: "exact_keys", verdict }), true);
+  }
+  for (const matchMethod of ["NONE", "AMBIGUOUS", "MISSING_KEY"]) {
+    assert.equal(shouldForceScheduledK2BCalendarRepair({ trigger: "scheduled", matchMethod, verdict: "정상" }), false);
+  }
+  assert.equal(shouldForceScheduledK2BCalendarRepair({ trigger: "scheduled", matchMethod: "exact_keys", verdict: "확인 필요" }), false);
+  assert.equal(shouldForceScheduledK2BCalendarRepair({ trigger: "manual", matchMethod: "exact_keys", verdict: "정상" }), false);
+  const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
+  const originalSync = worker.slice(worker.indexOf("private async processK2BOriginalSyncJob"), worker.indexOf("private async processK2BVerifyJob"));
+  assert.match(originalSync, /filterK2BObservedJournalCandidates[\s\S]*?reconcileK2BSubmissionResults/);
+  assert.match(originalSync, /calendarSyncedJournalKeys\.has\(calendarKey\)[\s\S]*?shouldForceScheduledK2BCalendarRepair[\s\S]*?syncCalendarAfterK2BJournalChange\([\s\S]*?forceScheduledCalendarRepair/);
+  assert.match(originalSync, /if \(calendarResult\.attempted\) \{[\s\S]*?calendarSyncedJournalKeys\.add\(calendarKey\)/);
 });
 
 test("수동 K2B 실제결과 재검증은 확정 관측값이면 같은 날짜라도 캘린더 복구를 강제한다", () => {

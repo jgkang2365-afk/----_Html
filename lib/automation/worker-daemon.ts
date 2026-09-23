@@ -4,7 +4,7 @@ import { K2BService } from './k2b-service';
 import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-verification-service';
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
 import { hasK2BReceiptError, journalStatusForK2BReconciliation, k2BSendDatePatchForReconciliation, reconcileK2BSubmissionResults, selectChangedK2BPostUploadUpdate, selectChangedK2BReconciliationUpdate, selectK2BStaleUpdates, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
-import { resolveK2BCalendarPeriod, shouldForceManualK2BCalendarRepair, shouldSyncK2BCalendarForJournalChange } from './k2b-calendar-sync-policy';
+import { resolveK2BCalendarPeriod, shouldForceManualK2BCalendarRepair, shouldForceScheduledK2BCalendarRepair, shouldSyncK2BCalendarForJournalChange } from './k2b-calendar-sync-policy';
 import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, filterK2BObservedJournalCandidates, inclusiveK2BDates, resolveK2BJournalScope, shouldSweepK2BStale, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
 import os from 'node:os';
@@ -601,10 +601,16 @@ export class WorkerDaemon {
                 const calendarKey = [journal.code, journal.measurement_year, journal.measurement_period]
                     .map((value: unknown) => String(value ?? '').trim()).join('\u0000');
                 if (!calendarSyncedJournalKeys.has(calendarKey)) {
+                    const forceScheduledCalendarRepair = shouldForceScheduledK2BCalendarRepair({
+                        trigger,
+                        matchMethod: item.matchMethod,
+                        verdict: item.verdict,
+                    });
                     const calendarResult = await this.syncCalendarAfterK2BJournalChange(
                         payload.calendarSyncApiUrl,
                         journal,
                         update,
+                        forceScheduledCalendarRepair,
                     );
                     if (calendarResult.attempted) {
                         calendarSyncedJournalKeys.add(calendarKey);

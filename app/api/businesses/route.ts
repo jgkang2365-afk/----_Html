@@ -15,6 +15,7 @@ import { normalizeAddress, normalizeString } from "@/lib/utils/data-utils";
 import { normalizeAddressForGeocoding } from "@/lib/naver-map/geocoding";
 import { createSurveyEvent, updateSurveyEvent, deleteSurveyEvent, getSurveyEvent } from "@/lib/google/calendar";
 import { syncBusinessToCalendar } from "@/lib/google/sync-service";
+import { businessSyncTriggers } from "@/lib/google/business-sync-triggers";
 import { classifyKnownDesignatedOffice } from "@/lib/utils/jurisdiction-matcher";
 import {
   loadLaborOfficeDirectory,
@@ -767,18 +768,14 @@ export async function PATCH(request: NextRequest) {
     }
 
     // === [Integrated Sync Logic] ===
-    // This section handles synchronizing 'preliminary_survey' and Summary fields 
-    // whenever any measurement-related field is updated.
-    const isMeasurementUpdate = 
-      updates.hasOwnProperty('measurement_date') || 
-      updates.hasOwnProperty('measurer_id') || 
-      updates.hasOwnProperty('collaborators') || 
-      updates.hasOwnProperty('daily_staff') ||
-      updates.hasOwnProperty('business_name');
+    // Project measurement changes into preliminary_survey, then sync Calendar once.
+    // Calendar display-only edits bypass the schedule projection.
+    const { projectSchedule, syncCalendar } = businessSyncTriggers(updates);
 
-    if (isMeasurementUpdate && code && year && period) {
+    if (syncCalendar && code && year && period) {
       try {
-        console.log(`[Integrated Sync] Starting sync for ${code}...`);
+        if (projectSchedule) {
+          console.log(`[Integrated Sync] Starting sync for ${code}...`);
         
         // 1. Determine Source of Truth (daily_staff or single-date fallback)
         // daily_staff가 null이어도 단일 실시일이 함께 오면 단일 일정으로 처리한다.
@@ -973,6 +970,7 @@ export async function PATCH(request: NextRequest) {
             .eq("code", code).eq("year", year).eq("period", period);
           
           console.log(`[Integrated Sync] Preliminary surveys and summary updated for ${code}`);
+        }
         }
 
         // 6. 일정이 모두 삭제된 경우에도 고아 이벤트 정리를 위해 항상 동기화한다.

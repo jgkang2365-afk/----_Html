@@ -57,8 +57,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // The caller invokes this endpoint only after a material K2B send-date transition.
-    // Sync the current DB state so both completion and completion rollback are reflected.
+    // Sync the current DB state for a changed send date or a confirmed K2B repair target.
     const result = await syncBusinessToCalendar(supabase, code, year, measurementPeriod);
     if (!result?.success) {
       throw new Error("캘린더 동기화 결과를 확인하지 못했습니다.");
