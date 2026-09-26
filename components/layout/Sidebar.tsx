@@ -21,7 +21,8 @@ const navItems: NavItem[] = [
   { href: "/summary", label: "측정정보 요약", icon: "📄" },
   { href: "/custom-reports", label: "맞춤형 보고서 추출", icon: "⚙️" },
   { href: "/report-processing", label: "보고서 처리", icon: "📧" },
-  { href: "/businesses/national-support", label: "건강디딤돌 신청결과", icon: "🏥" },
+  { href: "/labor-offices", label: "노동관서 조회", icon: "🏢" },
+  { href: "/businesses/national-support", label: "건강디딤돌 조회", icon: "🏥" },
   { href: "/sales", label: "매출관리", icon: "💰" },
 ];
 

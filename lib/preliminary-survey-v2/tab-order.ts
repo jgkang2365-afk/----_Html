@@ -1,4 +1,4 @@
-export const SURVEY_TAB_IDS = ["plans", "list", "search", "schedule-blocks"] as const;
+export const SURVEY_TAB_IDS = ["plans", "list", "person-assignments", "schedule-blocks"] as const;
 export type SurveyTabId = (typeof SURVEY_TAB_IDS)[number];
 export const SURVEY_TAB_ORDER_STORAGE_KEY = "preliminarySurvey.tabOrder.v1";
 
@@ -8,10 +8,8 @@ export function restoreSurveyTabOrder(value: string | null): SurveyTabId[] {
     const parsed = JSON.parse(value);
     if (!Array.isArray(parsed) || parsed.some((id) => typeof id !== "string")) return [...SURVEY_TAB_IDS];
     const known = parsed.filter((id): id is SurveyTabId => SURVEY_TAB_IDS.includes(id as SurveyTabId));
-    if (new Set(known).size !== known.length || parsed.some((id) => !SURVEY_TAB_IDS.includes(id as SurveyTabId))) {
-      return [...SURVEY_TAB_IDS];
-    }
-    const restored = [...known];
+    const restoredKnown = known.filter((id, index) => known.indexOf(id) === index);
+    const restored = [...restoredKnown];
     for (const [defaultIndex, id] of SURVEY_TAB_IDS.entries()) {
       if (!restored.includes(id)) restored.splice(Math.min(defaultIndex, restored.length), 0, id);
     }

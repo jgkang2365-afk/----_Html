@@ -183,10 +183,15 @@ test("탭 순서 저장값 복원, 오류 fallback, 누락 탭 보완, 이동을
   const surveyPage = readFileSync("app/survey/page.tsx", "utf8");
   assert.deepEqual(restoreSurveyTabOrder(null), [...SURVEY_TAB_IDS]);
   assert.deepEqual(restoreSurveyTabOrder("not-json"), [...SURVEY_TAB_IDS]);
-  assert.deepEqual(restoreSurveyTabOrder('["plans","list","search"]'), [...SURVEY_TAB_IDS]);
-  assert.deepEqual(moveSurveyTab([...SURVEY_TAB_IDS], "search", "plans"), ["search", "plans", "list", "schedule-blocks"]);
-  assert.match(surveyPage, /sticky top-16 z-40 flex h-12 items-center gap-\[3cm\] border-b/);
+  assert.deepEqual(restoreSurveyTabOrder('["plans","list","search","labor-offices"]'), [...SURVEY_TAB_IDS]);
+  assert.deepEqual(
+    restoreSurveyTabOrder('["schedule-blocks","search","labor-offices","plans","list"]'),
+    ["schedule-blocks", "plans", "person-assignments", "list"],
+  );
+  assert.deepEqual(moveSurveyTab([...SURVEY_TAB_IDS], "schedule-blocks", "plans"), ["schedule-blocks", "plans", "list", "person-assignments"]);
+  assert.match(surveyPage, /sticky top-16 z-40 flex h-12 items-center gap-8 border-b/);
   assert.match(surveyPage, /shrink-0 text-2xl font-bold text-text-900">예비조사/);
+  assert.doesNotMatch(surveyPage, /사업장 검색|activeTab === "search"|LaborOfficeLookup|labor-offices/);
 });
 
 test("계획/목록은 실제 업무 목록과 예비조사 자동 배정 모달을 사용하고 구형 API를 차단한다", () => {

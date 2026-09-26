@@ -20,6 +20,7 @@ import {
   matchesWorkbenchSearch,
   measurementDatesInRange,
 } from "@/lib/preliminary-survey-v2/workbench-search";
+import { createDefaultPreliminarySurveyFilters } from "@/lib/preliminary-survey-v2/filter-state";
 import type {
   CanonicalMeasurementAssignmentDraft,
   RecommendationScopeSnapshot,
@@ -199,8 +200,8 @@ const STATUS_STYLES: Record<WorkbenchStatus, string> = {
 
 export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "list" }) {
   const initialMeasurementBaseDate = currentDateInKst();
+  const initialDefaults = createDefaultPreliminarySurveyFilters(initialMeasurementBaseDate);
   const currentYear = Number(initialMeasurementBaseDate.slice(0, 4));
-  const initialRange = measurementRangeFromReference(initialMeasurementBaseDate, "day");
   const [year, setYear] = useState(currentYear);
   const [period, setPeriod] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -210,30 +211,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [measurementBaseDate, setMeasurementBaseDate] = useState(initialMeasurementBaseDate);
   const [measurementRangeUnit, setMeasurementRangeUnit] = useState<MeasurementRangeUnit>("day");
   const [searchDraft, setSearchDraft] = useState("");
-  const [listSearchSnapshot, setListSearchSnapshot] = useState<ListSearchSnapshot>({
-    year: currentYear,
-    period: "",
-    statusFilter: "",
-    kindFilter: "",
-    preliminaryDateFilter: "",
-    methodFilter: "",
-    measurementBaseDate: initialMeasurementBaseDate,
-    measurementRangeUnit: "day",
-    measurementDateFrom: initialRange.startDate,
-    measurementDateTo: initialRange.endDate,
-    searchQuery: "",
-  });
-  const [planSearchSnapshot, setPlanSearchSnapshot] = useState<PlanSearchSnapshot>({
-    year: currentYear,
-    period: "",
-    statusFilter: "",
-    kindFilter: "",
-    measurementBaseDate: initialMeasurementBaseDate,
-    measurementRangeUnit: "day",
-    measurementDateFrom: initialRange.startDate,
-    measurementDateTo: initialRange.endDate,
-    searchQuery: "",
-  });
+  const [listSearchSnapshot, setListSearchSnapshot] = useState<ListSearchSnapshot>(initialDefaults.list);
+  const [planSearchSnapshot, setPlanSearchSnapshot] = useState<PlanSearchSnapshot>(initialDefaults.plan);
   const [selectedTargetIds, setSelectedTargetIds] = useState<Set<number>>(new Set());
   const [draftScope, setDraftScope] = useState<string | null>(null);
   const [scopeSummary, setScopeSummary] = useState<string | null>(null);
@@ -256,16 +235,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [stickyBaseTop, setStickyBaseTop] = useState(160);
 
   useEffect(() => {
-    const defaultPlan: PlanSearchSnapshot = {
-      year: currentYear, period: "", statusFilter: "", kindFilter: "",
-      measurementBaseDate: initialMeasurementBaseDate, measurementRangeUnit: "day",
-      measurementDateFrom: initialRange.startDate, measurementDateTo: initialRange.endDate, searchQuery: "",
-    };
-    const defaultList: ListSearchSnapshot = {
-      year: currentYear, period: "", statusFilter: "", kindFilter: "", preliminaryDateFilter: "", methodFilter: "",
-      measurementBaseDate: initialMeasurementBaseDate, measurementRangeUnit: "day",
-      measurementDateFrom: initialRange.startDate, measurementDateTo: initialRange.endDate, searchQuery: "",
-    };
+    const defaults = createDefaultPreliminarySurveyFilters(initialMeasurementBaseDate);
+    const defaultPlan: PlanSearchSnapshot = defaults.plan;
+    const defaultList: ListSearchSnapshot = defaults.list;
     const restored = mode === "plan"
       ? restoreSearchSnapshot(PRELIMINARY_SURVEY_PLAN_FILTERS_STORAGE_KEY, defaultPlan)
       : restoreSearchSnapshot(PRELIMINARY_SURVEY_LIST_FILTERS_STORAGE_KEY, defaultList);
@@ -504,6 +476,25 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     } else {
       setListSearchSnapshot((current) => ({ ...current, searchQuery: searchDraft }));
     }
+  };
+
+  const resetFilters = () => {
+    const defaults = createDefaultPreliminarySurveyFilters();
+    const next = mode === "plan" ? defaults.plan : defaults.list;
+    invalidateDrafts("조회 조건을 초기화하여 새 추천이 필요합니다.");
+    setSelectedTargetIds(new Set());
+    setYear(next.year);
+    setPeriod(next.period);
+    setStatusFilter(next.statusFilter);
+    setKindFilter(next.kindFilter);
+    setPreliminaryDateFilter(mode === "list" ? defaults.list.preliminaryDateFilter : "");
+    setMethodFilter(mode === "list" ? defaults.list.methodFilter : "");
+    setMeasurementBaseDate(next.measurementBaseDate);
+    setMeasurementRangeUnit(next.measurementRangeUnit);
+    setSearchDraft("");
+    lastCommittedSearchRef.current = "";
+    if (mode === "plan") setPlanSearchSnapshot(defaults.plan);
+    else setListSearchSnapshot(defaults.list);
   };
 
   const updateMeasurementBaseDate = (nextDate: string) => {
@@ -766,7 +757,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               <Button aria-label={`다음 ${navigationUnitLabel}`} title={`다음 ${navigationUnitLabel}`} variant="secondary" className="!h-9 !w-9 !rounded-md !bg-slate-100 p-0 text-slate-700 shadow-none hover:!bg-slate-200" onClick={() => moveMeasurementRange(1)}>▶</Button>
             </div>
             <label className="w-[360px] max-w-[420px] shrink text-xs font-medium text-text-700">코드 · 사업장명<input aria-label="코드 또는 사업장명 검색" type="text" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} onKeyDown={commitSearchOnEnter} onBlur={commitSearch} placeholder="부분/정확, 쉼표 구분" className={filterControlClass} /></label>
-            <div className="flex shrink-0 items-end"><Button className="h-9 px-3 text-xs" onClick={commitSearch}>검색</Button></div>
+            <div className="flex shrink-0 items-end gap-1"><Button className="h-9 px-3 text-xs" onClick={commitSearch}>검색</Button><Button variant="secondary" className="h-9 px-3 text-xs" onClick={resetFilters}>초기화</Button></div>
           </div> : <div className="flex flex-wrap items-end gap-2 xl:flex-nowrap">
             <label className="w-[64px] shrink-0 text-xs font-medium text-text-700">연도<input aria-label="연도" type="number" value={year} onChange={(event) => changeScope(setYear, Number(event.target.value))} className={filterControlClass} /></label>
             <label className="w-[72px] shrink-0 text-xs font-medium text-text-700">반기<select aria-label="반기" value={period} onChange={(event) => changeScope(setPeriod, event.target.value)} className={filterControlClass}><option value="">전체</option><option value="상반기">상반기</option><option value="하반기">하반기</option></select></label>
@@ -781,7 +772,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               <Button aria-label={`다음 ${navigationUnitLabel}`} title={`다음 ${navigationUnitLabel}`} variant="secondary" className="!h-9 !w-8 !rounded-md !bg-slate-100 p-0 text-slate-700 shadow-none hover:!bg-slate-200" onClick={() => moveMeasurementRange(1)}>▶</Button>
             </div>
             <label className="w-[280px] max-w-[300px] shrink text-xs font-medium text-text-700">코드 · 사업장명<input aria-label="코드 또는 사업장명 검색" type="text" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} onKeyDown={commitSearchOnEnter} onBlur={commitSearch} placeholder="부분/정확, 쉼표 구분" className={filterControlClass} /></label>
-            <div className="flex shrink-0 items-end"><Button className="h-9 px-3 text-xs" onClick={commitSearch}>검색</Button></div>
+            <div className="flex shrink-0 items-end gap-1"><Button className="h-9 px-3 text-xs" onClick={commitSearch}>검색</Button><Button variant="secondary" className="h-9 px-3 text-xs" onClick={resetFilters}>초기화</Button></div>
           </div>}
           <div className="mt-2 flex h-9 min-w-0 items-center gap-2 border-t border-surface-100 pt-2 text-xs text-text-600">
             <span className="shrink-0">검색 결과 {displayRows.length}건{mode === "plan" ? " · 자동 배정은 기준일 전체 사업장 대상" : ""}</span>

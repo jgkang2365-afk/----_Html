@@ -44,5 +44,5 @@ test("제외 일정 API는 권한·활성 측정직원 검증과 GET/POST/PATCH/
 test("V2 계산 서비스는 DB 제외일을 HARD BLOCK availability에 연결", () => {
   assert.match(service, /from\("user_schedule_blocks"\)/);
   assert.match(service, /buildScheduleBlockKeys\(blocks \?\? \[\]\)/);
-  assert.match(service, /availability: \{ isBlocked: \(userId, date\) => blockedKeys\.has/);
+  assert.match(service, /isBlocked: \(userId, date\) => [^\r\n]*blockedKeys\.has/);
 });
