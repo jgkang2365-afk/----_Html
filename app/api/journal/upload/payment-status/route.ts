@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUser } from "@/lib/auth/get-user";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeElevenDigitIdentifier, normalizeNationalSupportBusinessName } from "@/lib/national-support/payment-upload";
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,26 +18,39 @@ export async function POST(req: NextRequest) {
     const supabase = await createClient();
 
     const body = await req.json();
-    const { 
-      measurement_year, 
-      measurement_period, 
-      industrial_accident_number, 
-      deposit_date_national, 
-      deposit_amount_national 
+    const {
+      measurement_year,
+      measurement_period,
+      industrial_accident_number,
+      commencement_number,
+      business_name,
+      deposit_date_national,
+      deposit_amount_national,
     } = body;
 
+    const normalizedAccidentNumber = normalizeElevenDigitIdentifier(industrial_accident_number);
+    const normalizedCommencementNumber = normalizeElevenDigitIdentifier(commencement_number);
+
     // 1. 필수 값 확인
-    if (!measurement_year || !measurement_period || !industrial_accident_number || !deposit_date_national || deposit_amount_national === undefined) {
-      return NextResponse.json({ error: "필수 정보가 누락되었습니다." }, { status: 400 });
+    if (
+      !measurement_year ||
+      !measurement_period ||
+      !normalizedAccidentNumber ||
+      !normalizedCommencementNumber ||
+      !deposit_date_national ||
+      deposit_amount_national === undefined
+    ) {
+      return NextResponse.json({ error: "필수 정보가 누락되었거나 형식이 올바르지 않습니다." }, { status: 400 });
     }
 
-    // 2. 해당 데이터 조회 (5개 항목 매칭용)
+    // 2. 해당 데이터 조회 (사업년도+반기+사업장관리번호+사업장개시번호 4개 식별값)
     const { data: journals, error: fetchError } = await supabase
       .from("measurement_journal")
-      .select("id, measurement_fee_national, national_support_status, deposit_amount_business, deposit_amount_business_2")
+      .select("id, business_name, measurement_fee_national, national_support_status, deposit_amount_business, deposit_amount_business_2")
       .eq("measurement_year", measurement_year)
       .eq("measurement_period", measurement_period)
-      .eq("industrial_accident_number", industrial_accident_number);
+      .eq("industrial_accident_number", normalizedAccidentNumber)
+      .eq("commencement_number", normalizedCommencementNumber);
 
     if (fetchError) {
       return NextResponse.json({ error: "데이터 조회 중 오류가 발생했습니다." }, { status: 500 });
@@ -46,11 +60,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "일치하는 측정일지 데이터를 찾을 수 없습니다." }, { status: 404 });
     }
 
+    let journal = journals[0];
     if (journals.length > 1) {
-      return NextResponse.json({ error: "중복된 데이터가 존재합니다. 산재관리번호를 확인해주세요." }, { status: 400 });
-    }
+      const sourceName = normalizeNationalSupportBusinessName(business_name);
+      const nameMatches = sourceName
+        ? journals.filter(item => normalizeNationalSupportBusinessName(item.business_name) === sourceName)
+        : [];
 
-    const journal = journals[0];
+      if (nameMatches.length !== 1) {
+        return NextResponse.json({
+          error: "동일한 4개 식별값의 중복 데이터가 존재하며 사업장명으로도 1건을 확정할 수 없습니다."
+        }, { status: 400 });
+      }
+      journal = nameMatches[0];
+    }
 
     // 3. 국고지원 대상 여부 확인
     if (journal.national_support_status !== "대상" && journal.national_support_status !== "지원") {

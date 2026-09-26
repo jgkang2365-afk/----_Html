@@ -27,6 +27,14 @@ import { DESIGNATED_OFFICE_OPTIONS, DESIGNATED_OFFICES_FOR_SALES } from "@/lib/c
 import { JournalEditForm } from "./JournalEditForm";
 
 import * as XLSX from "xlsx";
+import {
+  getNationalSupportPaymentMissingFields,
+  nationalSupportPaymentIdentity,
+  normalizeElevenDigitIdentifier,
+  normalizeNationalSupportBusinessName,
+  normalizeNationalSupportPaymentRow,
+  type NationalSupportPaymentRow,
+} from "@/lib/national-support/payment-upload";
 
 import { SalesSummary } from "./sales/SalesSummary";
 import { MeasurementTable } from "./sales/MeasurementTable";
@@ -1228,44 +1236,38 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
    * 국고지원금 정산용 엑셀 양식 다운로드
    */
   const handleDownloadPaymentTemplate = () => {
-    const templateData = [
-      {
-        "측정년도": "2025",
-        "측정주기": "상반기",
-        "산재관리번호": "30647767230",
-        "사업장명": "(주)샘플기업",
-        "입금일": "20250620",
-        "입금액": "300,000"
-      },
-      {
-        "측정년도": "2025",
-        "측정주기": "하반기",
-        "산재관리번호": "관리번호11자리",
-        "사업장명": "참고용명칭",
-        "입금일": "YYYYMMDD",
-        "입금액": "숫자만"
-      }
-    ];
-
-    const ws = XLSX.utils.json_to_sheet(templateData);
-    const wscols = [
-      { wch: 15 }, // 측정년도
-      { wch: 15 }, // 측정주기
-      { wch: 20 }, // 산재관리번호
-      { wch: 25 }, // 사업장명
-      { wch: 15 }, // 입금일
-      { wch: 15 }, // 입금액
-    ];
-    ws["!cols"] = wscols;
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "국고지원금정산양식");
-    XLSX.writeFile(wb, "국고지원금_정산_업로드_양식.xlsx");
+    const link = document.createElement("a");
+    link.href = "/templates/national-support-payment-upload.xlsx";
+    link.download = "국고지원금_업로드_양식_처리현황형식.xlsx";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   };
 
   /**
    * 국고지원금 엑셀 파일 선택 핸들러
    */
+  const findPaymentTarget = (row: NationalSupportPaymentRow) => {
+    const { year, period, accidentNumber, commencementNumber } = row;
+    if (!year || !period || !accidentNumber || !commencementNumber) return undefined;
+
+    const candidates = allMeasurementData.filter(item =>
+      item.measurement_year.toString().trim() === year &&
+      isMatchSelection(item.measurement_period?.trim() || "", period) &&
+      normalizeElevenDigitIdentifier(item.industrial_accident_number) === accidentNumber &&
+      normalizeElevenDigitIdentifier(item.commencement_number) === commencementNumber
+    );
+
+    if (candidates.length === 1) return candidates[0];
+    if (candidates.length <= 1 || !row.businessName) return undefined;
+
+    const sourceName = normalizeNationalSupportBusinessName(row.businessName);
+    const nameMatches = candidates.filter(item =>
+      normalizeNationalSupportBusinessName(item.business_name) === sourceName
+    );
+    return nameMatches.length === 1 ? nameMatches[0] : undefined;
+  };
+
   const handlePaymentFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1273,84 +1275,68 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
+        setError(null);
         const data = event.target?.result;
         const workbook = XLSX.read(data, { type: "binary" });
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+        const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+        const rows = rawRows
+          .map(normalizeNationalSupportPaymentRow)
+          .filter(row => Boolean(
+            row.year || row.period || row.accidentNumber || row.commencementNumber ||
+            row.businessName || row.depositDate || row.depositAmount !== null
+          ));
 
         if (rows.length === 0) {
           setError("업로드할 데이터가 없습니다.");
           return;
         }
 
-        // 1. 매칭되는 모든 항목 찾아서 'idle' (대기 중) 상태로 초기화하여 신호등 표시 및 로그 생성
         const initialResults: Record<number, ProcessingResult> = {};
-        const initialLogs: any[] = [];
-        rows.forEach((row: any) => {
-          const year = row["측정년도"]?.toString().trim();
-          const period = row["측정주기"]?.toString().trim();
-          const accidentNumber = row["산재관리번호"]?.toString().trim();
-
-          if (year && period && accidentNumber) {
-            const targetItem = allMeasurementData.find(item =>
-              item.measurement_year.toString().trim() === year &&
-              isMatchSelection(item.measurement_period?.trim() || "", period || "") &&
-              item.industrial_accident_number?.toString().trim() === accidentNumber
-            );
-
-            if (targetItem) {
-              initialResults[targetItem.id] = { status: 'idle', message: '대기 중...' };
-            }
-
-            initialLogs.push({
-              year,
-              period,
-              accidentNumber,
-              businessName: targetItem?.business_name || row["사업장명"] || "알 수 없음",
-              dbId: targetItem?.id || null,
-              status: 'idle',
-              message: '대기 중...'
-            });
+        const initialLogs = rows.map((row, rowIndex) => {
+          const targetItem = findPaymentTarget(row);
+          if (targetItem) {
+            initialResults[targetItem.id] = { status: "idle", message: "대기 중..." };
           }
+          return {
+            rowIndex,
+            identity: nationalSupportPaymentIdentity(row),
+            year: row.year || "-",
+            period: row.period || "-",
+            accidentNumber: row.accidentNumber || "-",
+            commencementNumber: row.commencementNumber || "-",
+            businessName: targetItem?.business_name || row.businessName || "알 수 없음",
+            dbId: targetItem?.id || null,
+            status: "idle",
+            message: "대기 중...",
+          };
         });
 
-        // 처리 상태 초기화 (대기 상태 포함)
         setPaymentProcessingResults(initialResults);
         setPaymentProcessingLogs(initialLogs);
         setIsProcessingPayment(true);
         setPaymentTotalCount(rows.length);
         setPaymentCurrentIndex(0);
 
-        // 순차적으로 처리 (UI 업데이트를 위해)
-        let localSuccessCount = 0;
-        let localFailCount = 0;
-
         for (let i = 0; i < rows.length; i++) {
           setPaymentCurrentIndex(i + 1);
-          const isSuccess = await processPaymentRow(rows[i]);
-          if (isSuccess) {
-            localSuccessCount++;
-          } else {
-            localFailCount++;
-          }
+          await processPaymentRow(rows[i], i);
         }
 
-        // 완료 후 데이터 새로고침
         try {
           await loadSalesData();
         } catch (loadErr) {
           console.error("Data reload failed after payment processing:", loadErr);
         }
 
-        // 처리 완료 알림 및 지연 후 오버레이 닫기 및 결과 모달 오픈
         setTimeout(() => {
           setIsProcessingPayment(false);
           setIsPaymentResultsModalOpen(true);
         }, 1000);
-
       } catch (err) {
         console.error("Payment Excel parsing error:", err);
+        setIsProcessingPayment(false);
         setError("엑셀 파일을 읽는 중 오류가 발생했습니다.");
       } finally {
         if (paymentFileInputRef.current) {
@@ -1364,103 +1350,84 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
   /**
    * 개별 행 처리 로직
    */
-  const processPaymentRow = async (row: any) => {
-    const year = row["측정년도"]?.toString().trim();
-    const period = row["측정주기"]?.toString().trim();
-    const accidentNumber = row["산재관리번호"]?.toString().trim();
-    let depositDate = row["입금일"]?.toString().trim();
-    let depositAmountRaw = row["입금액"];
+  const processPaymentRow = async (row: NationalSupportPaymentRow, rowIndex: number) => {
+    const targetItem = findPaymentTarget(row);
+    const updateLog = (status: "idle" | "loading" | "success" | "error", message: string) => {
+      setPaymentProcessingLogs(prev => prev.map(log =>
+        log.rowIndex === rowIndex ? { ...log, status, message } : log
+      ));
+    };
 
-    // 콤마가 포함된 문자열일 경우 제거 후 숫자로 변환
-    const depositAmount = typeof depositAmountRaw === 'string'
-      ? parseFloat(depositAmountRaw.replace(/,/g, "").trim())
-      : Number(depositAmountRaw);
-
-    if (!year || !period || !accidentNumber || !depositDate || isNaN(depositAmount)) {
-      return;
+    const missingFields = getNationalSupportPaymentMissingFields(row);
+    if (missingFields.length > 0) {
+      const message = `필수값 누락 또는 형식 오류: ${missingFields.join(", ")}`;
+      if (targetItem) {
+        setPaymentProcessingResults(prev => ({
+          ...prev,
+          [targetItem.id]: { status: "error", message },
+        }));
+      }
+      updateLog("error", message);
+      return false;
     }
-
-    // 날짜 형식 변환 (YYYYMMDD -> YYYY-MM-DD)
-    if (depositDate.length === 8 && /^\d{8}$/.test(depositDate)) {
-      depositDate = `${depositDate.substring(0, 4)}-${depositDate.substring(4, 6)}-${depositDate.substring(6, 8)}`;
-    }
-
-    // 1. 해당 레코드 매칭 시도 (UI에 진행중 표시를 위해)
-    const targetItem = allMeasurementData.find(item =>
-      item.measurement_year.toString().trim() === year &&
-      isMatchSelection(item.measurement_period?.trim() || "", period || "") &&
-      item.industrial_accident_number?.toString().trim() === accidentNumber
-    );
 
     if (targetItem) {
       setPaymentProcessingResults(prev => ({
         ...prev,
-        [targetItem.id]: { status: 'loading', message: '처리 중...' }
+        [targetItem.id]: { status: "loading", message: "처리 중..." },
       }));
     }
-
-    setPaymentProcessingLogs(prev => prev.map(log =>
-      (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
-        ? { ...log, status: 'loading', message: '처리 중...' }
-        : log
-    ));
+    updateLog("loading", "처리 중...");
 
     try {
       const response = await fetch("/api/journal/upload/payment-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          measurement_year: targetItem ? targetItem.measurement_year : year,
-          measurement_period: targetItem ? targetItem.measurement_period : period,
-          industrial_accident_number: accidentNumber,
-          deposit_date_national: depositDate,
-          deposit_amount_national: depositAmount
-        })
+          measurement_year: targetItem ? targetItem.measurement_year : row.year,
+          measurement_period: targetItem ? targetItem.measurement_period : row.period,
+          industrial_accident_number: row.accidentNumber,
+          commencement_number: row.commencementNumber,
+          business_name: row.businessName,
+          deposit_date_national: row.depositDate,
+          deposit_amount_national: row.depositAmount,
+        }),
       });
 
       const result = await response.json();
 
       if (response.ok) {
-        // 성공 시
-        setPaymentProcessingResults(prev => ({
-          ...prev,
-          [result.id || targetItem?.id || 0]: { status: 'success', message: '정산 완료' }
-        }));
-        setPaymentProcessingLogs(prev => prev.map(log =>
-          (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
-            ? { ...log, status: 'success', message: '정산 완료' }
-            : log
-        ));
+        const resultId = result.id || targetItem?.id || 0;
+        if (resultId) {
+          setPaymentProcessingResults(prev => ({
+            ...prev,
+            [resultId]: { status: "success", message: "정산 완료" },
+          }));
+        }
+        updateLog("success", "정산 완료");
         return true;
-      } else {
-        // 에러 시
-        const errId = targetItem?.id || 0;
-        const errMsg = result.error || '실패';
+      }
+
+      const errId = targetItem?.id || 0;
+      const errMsg = result.error || "실패";
+      if (errId) {
         setPaymentProcessingResults(prev => ({
           ...prev,
-          ...(errId ? { [errId]: { status: 'error', message: errMsg } } : {})
+          [errId]: { status: "error", message: errMsg },
         }));
-        setPaymentProcessingLogs(prev => prev.map(log =>
-          (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
-            ? { ...log, status: 'error', message: errMsg }
-            : log
-        ));
-        return false;
       }
+      updateLog("error", errMsg);
+      return false;
     } catch (err: any) {
       console.error("Row processing error:", err);
-      const networkErrMsg = `네트워크 오류: ${err.message || '알 수 없음'}`;
+      const networkErrMsg = `네트워크 오류: ${err.message || "알 수 없음"}`;
       if (targetItem) {
         setPaymentProcessingResults(prev => ({
           ...prev,
-          [targetItem.id]: { status: 'error', message: networkErrMsg }
+          [targetItem.id]: { status: "error", message: networkErrMsg },
         }));
       }
-      setPaymentProcessingLogs(prev => prev.map(log =>
-        (log.year === year && log.period === period && log.accidentNumber === accidentNumber)
-          ? { ...log, status: 'error', message: networkErrMsg }
-          : log
-      ));
+      updateLog("error", networkErrMsg);
       return false;
     }
   };
@@ -3269,6 +3236,7 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                 <tr>
                   <th className="px-4 py-3 text-left border-b font-semibold text-gray-700">년도/주기</th>
                   <th className="px-4 py-3 text-left border-b font-semibold text-gray-700">산재번호</th>
+                  <th className="px-4 py-3 text-left border-b font-semibold text-gray-700">개시번호</th>
                   <th className="px-4 py-3 text-left border-b font-semibold text-gray-700">사업장명</th>
                   <th className="px-4 py-3 text-left border-b font-semibold text-gray-700 text-center">상태</th>
                   <th className="px-4 py-3 text-left border-b font-semibold text-gray-700">결과 메시지</th>
@@ -3277,13 +3245,14 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
               <tbody className="divide-y divide-gray-50">
                 {paymentProcessingLogs.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-12 text-center text-gray-400 italic">처리 기록이 없습니다.</td>
+                    <td colSpan={6} className="px-4 py-12 text-center text-gray-400 italic">처리 기록이 없습니다.</td>
                   </tr>
                 ) : (
                   paymentProcessingLogs.map((log, index) => (
                     <tr key={index} className="hover:bg-blue-50/30 transition-colors">
                       <td className="px-4 py-3 whitespace-nowrap text-gray-600">{log.year} / {log.period}</td>
                       <td className="px-4 py-3 font-mono text-xs text-gray-500">{log.accidentNumber}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500">{log.commencementNumber}</td>
                       <td className="px-4 py-3 font-medium text-gray-800 truncate max-w-[180px]" title={log.businessName}>{log.businessName}</td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex items-center justify-center gap-2">

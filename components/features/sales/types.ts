@@ -30,6 +30,7 @@ export interface MeasurementRevenue {
   is_email_sent: boolean;
   last_email_sent_at: string | null;
   industrial_accident_number: string | null;
+  commencement_number: string | null;
   revenue_type?: string | null;
   manager_mobile?: string | null;
   manager_name?: string | null;
