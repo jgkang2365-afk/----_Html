@@ -27,11 +27,22 @@ export type K2BOriginalReceipt = {
 };
 
 export type K2BRange = { fromDate: string; toDate: string };
+export type K2BSearchRangeSnapshot = {
+  fromDate: { domValue: string; componentValue: string | null };
+  toDate: { domValue: string; componentValue: string | null };
+};
+export type K2BSearchRangeEvidence = {
+  beforeInput: K2BSearchRangeSnapshot;
+  afterInput: K2BSearchRangeSnapshot;
+  beforeSearch: K2BSearchRangeSnapshot;
+  afterSearch: K2BSearchRangeSnapshot;
+};
 export type K2BGridReadEvidence = {
   expectedRowCount: number | null;
   collectedUniqueRowCount: number;
   readMethod: "nexacro_dataset" | "virtual_scroll";
   completeness: "COMPLETE" | "INCOMPLETE" | "UNKNOWN";
+  searchRange?: K2BSearchRangeEvidence;
 };
 export type K2BGridRead = K2BGridReadEvidence & (
   | { outcome: "SUCCESS"; rows: K2BOriginalReceipt[]; headers: string[] }

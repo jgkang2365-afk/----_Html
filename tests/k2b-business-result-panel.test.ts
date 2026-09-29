@@ -245,3 +245,17 @@ test("상단/관리자 재검증의 새 refreshKey와 결과 수신이 상세 �
   assert.ok(panel.button("접기"));
   assert.equal(panel.document.querySelector('input[type="date"]'), null);
 });
+
+test("관리자 단일일과 2일 입력은 실제 POST body에 지정한 날짜 그대로 전달된다", async (t) => {
+  const panel = await mountPanel({ admin: true });
+  t.after(() => panel.dispose());
+  await panel.click('상세 보기');
+  for (const fromDate of ['2026-09-29', '2026-09-28']) {
+    await panel.click('관리자 기간 재검증');
+    await panel.setDate(0, fromDate); await panel.setDate(1, '2026-09-29');
+    await panel.click('최대 31일 재검증');
+    const request = panel.requests.filter(request => request.url === '/api/report-processing/verify-k2b').at(-1)!;
+    assert.equal(request.method, 'POST');
+    assert.deepEqual(JSON.parse(request.body!), { fromDate, toDate: '2026-09-29' });
+  }
+});

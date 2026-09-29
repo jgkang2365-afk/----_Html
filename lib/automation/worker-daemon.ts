@@ -765,6 +765,7 @@ export class WorkerDaemon {
             executionResult.remoteExpectedRowCount = rangeGrid.expectedRowCount;
             executionResult.gridReadMethod = rangeGrid.readMethod;
             executionResult.gridReadComplete = rangeGrid.completeness;
+            executionResult.searchRange = rangeGrid.searchRange;
             executionResult.unmatchableRemoteRowCount = rangeGrid.rows.filter((row) => row.unmatchableError).length;
             const rangeResults = rangeGrid.rows.map((row) => ({ managementNumber: row.managementNumber, commencementNumber: row.commencementNumber, companyName: row.companyName, submissionDate: row.actualSubmissionDate, status: row.status, errorViewAvailable: row.errorViewAvailable, errorDetail: row.errorDetail, submissionNumber: row.submissionNumber, identityConflict: row.identityConflict, businessYear: row.businessYear, half: row.half }));
             // 과거 미해결 건은 오늘 날짜에 억지로 대입하지 않고 각 내부 전송일별로 재조회한다.

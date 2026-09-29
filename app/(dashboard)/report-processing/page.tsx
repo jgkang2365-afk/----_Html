@@ -811,9 +811,9 @@ export default function ReportProcessingPage() {
                         onClick={handleManualK2BReverify}
                         disabled={loading}
                         className="h-10 px-4"
-                        title="업로드 없이 K2B 실제 접수결과만 읽기 전용으로 확인합니다."
+                        title="오늘 포함 최근 7일의 K2B 실제 접수결과를 읽기 전용으로 확인합니다."
                     >
-                        K2B 실제결과 재검증
+                        K2B 실제결과 최근 7일 재검증
                     </Button>
                     <Button
                         size="sm"

@@ -46,7 +46,9 @@ export async function POST(request: NextRequest) {
       const status = error.message.includes("ALREADY_ACTIVE") ? 409 : 500;
       return NextResponse.json({ error: error.message }, { status });
     }
-    return NextResponse.json({ jobId: data, range, message: "최근 7일 K2B 실제결과 재검증을 대기열에 등록했습니다." });
+    return NextResponse.json({ jobId: data, range, message: fromDate && toDate
+      ? `관리자 지정기간 ${range.fromDate} ~ ${range.toDate} K2B 실제결과 재검증을 대기열에 등록했습니다.`
+      : "최근 7일 K2B 실제결과 재검증을 대기열에 등록했습니다." });
   } catch (error) {
     if (error instanceof Error && error.message === "ADMIN_RANGE_FORBIDDEN") {
       return NextResponse.json({ error: "관리자만 K2B 직접 기간 재검증을 요청할 수 있습니다." }, { status: 403 });

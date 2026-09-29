@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
-import { K2BService, isK2BSubmissionRefreshComplete } from "../lib/automation/k2b-service";
+import { K2BService, isK2BSubmissionRefreshComplete, K2B_READ_SEARCH_RANGE_SCRIPT } from "../lib/automation/k2b-service";
+import { Key } from "selenium-webdriver";
 import { K2B_BEGIN_SUBMISSION_REFRESH_SCRIPT, K2B_END_SUBMISSION_REFRESH_SCRIPT, K2B_READ_SUBMISSION_GRID_SCRIPT, K2B_SUBMISSION_REFRESH_STATE_SCRIPT } from "../lib/automation/k2b-grid-reader";
 import { parseK2BSubmissionGrid, type K2BGridReadEvidence } from "../lib/automation/k2b-original-sync";
 import { reconcileK2BSubmissionResults } from "../lib/k2b-verification";
@@ -71,6 +72,9 @@ function browserFixture(options: { dataset?: boolean; size?: number; expected?: 
     removeEventListener: (_name: string, handler: () => void) => { clickHandlers.delete(handler); },
     click: () => { clickHandlers.forEach(handler => handler()); mutationObservers.forEach(handler => handler([{ type: "childList" }])); },
   };
+  const searchPrefix = 'mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_';
+  const calendars = ['start_date', 'end_date'].map(id => ({ id, value: '20260830', getElement: () => ({ _handle: { id: searchPrefix + id } }) }));
+  const dateInputs = calendars.map(calendar => ({ value: '20260830', _control: calendar }));
   class FixtureMutationObserver {
     constructor(private readonly callback: (records: { type: string }[]) => void) {}
     observe() { mutationObservers.add(this.callback); }
@@ -78,7 +82,12 @@ function browserFixture(options: { dataset?: boolean; size?: number; expected?: 
   }
   const deepComponents = Array.from({ length: 511 }, (_, index) => index === 510 ? grid : { id: `component_${index}` });
   const browser = {
-    document: { querySelectorAll: () => [root], getElementById: () => searchButton },
+    document: { querySelectorAll: () => [root], getElementById: (id: string) => {
+      const index = ['start_date', 'end_date'].findIndex(name => id === searchPrefix + name + '_calendaredit_input');
+      const calendarIndex = ['start_date', 'end_date'].findIndex(name => id === searchPrefix + name);
+      if (calendarIndex >= 0) return { _linked_element: { linkedcontrol: calendars[calendarIndex] } };
+      return index >= 0 ? dateInputs[index] : searchButton;
+    } },
     window: options.deepApplication
       ? { nexacro: { getApplication: () => ({}) }, application: { components: deepComponents } }
       : { nexacro: { getApplication: () => ({ mainframe: { form: { components: [grid] } } }) } },
@@ -91,7 +100,7 @@ function browserFixture(options: { dataset?: boolean; size?: number; expected?: 
     return runInNewContext(`(function () { ${script} })()`, browser);
   } };
   Object.assign(service, { driver });
-  return { service, rows, dataset, grid, root, pool, scripts, driver, fixtureHeaders, searchButton, loadHandlers, clickHandlers,
+  return { service, rows, dataset, grid, root, pool, scripts, driver, fixtureHeaders, searchButton, loadHandlers, clickHandlers, calendars, dateInputs,
     getScrollWrites: () => scrollWrites,
     emitLoad: (reason = 0, errorcode = 0) => { loadHandlers.forEach(handler => handler(dataset, { reason, errorcode })); },
     useOfficialScroll(withScrollbar = true) {
@@ -459,14 +468,19 @@ test("freshness: 무관 style mutation/검색 전 onload/부분 load는 stale �
   assert.equal(fixture.clickHandlers.size, 0);
 });
 
-function rangeFixture(size: number, search: (fixture: ReturnType<typeof browserFixture>) => void) {
+function rangeFixture(size: number, search: (fixture: ReturnType<typeof browserFixture>) => void, commit = true) {
   const fixture = browserFixture({ size });
   let queryCount = 0;
-  const input = () => {
-    let value = "";
-    return { click: async () => {}, sendKeys: async (...keys: string[]) => { value = keys.at(-1) ?? ""; }, getAttribute: async () => value };
+  const keysSent: string[][] = [];
+  const input = (index: number) => {
+    return { click: async () => {}, sendKeys: async (...keys: string[]) => {
+      keysSent.push(keys);
+      const date = keys.find(key => /^\d{8}$/.test(key));
+      if (date) fixture.dateInputs[index].value = date;
+      if (commit && keys.includes(Key.TAB)) fixture.calendars[index].value = fixture.dateInputs[index].value;
+    } };
   };
-  const controls = [input(), input(), { click: async () => { queryCount++; fixture.searchButton.click(); search(fixture); } }];
+  const controls = [input(0), input(1), { click: async () => { queryCount++; fixture.searchButton.click(); search(fixture); } }];
   Object.assign(fixture.service, { readOnlyMode: true, driver: {
     ...fixture.driver, findElements: async () => [], sleep: async () => {},
     async wait(condition: unknown) {
@@ -474,11 +488,12 @@ function rangeFixture(size: number, search: (fixture: ReturnType<typeof browserF
       if (!await condition()) throw new Error("K2B_GRID_REFRESH_UNVERIFIABLE:timeout");
     },
   } });
-  return { ...fixture, getQueryCount: () => queryCount };
+  return { ...fixture, keysSent, getQueryCount: () => queryCount };
 }
 
 test("Dataset/event 접근 불가여도 range query는 DOM freshness 뒤 virtual-scroll fallback에 도달한다", async () => {
   const fixture = browserFixture({ dataset: false, size: 30 });
+  fixture.dateInputs.forEach((input, index) => { input.value = '20260901'; fixture.calendars[index].value = input.value; });
   let queryCount = 0;
   const input = () => ({ click: async () => {}, sendKeys: async () => {}, getAttribute: async () => "20260901" });
   const controls = [input(), input(), { click: async () => { queryCount++; fixture.searchButton.click(); } }];
@@ -515,4 +530,46 @@ test("범위 밖 실제 접수일이 1건이면 전체 조회가 실패하여 �
   assert.equal(rowsUsed, false);
   assert.equal(fixture.getQueryCount(), 1);
   assert.equal(fixture.loadHandlers.size, 0);
+});
+
+test("단일일은 TAB으로 두 Calendar를 확정하고 검색 전후 내부값을 증거로 반환한다", async () => {
+  const fixture = rangeFixture(2, fixture => fixture.emitLoad());
+  fixture.rows.forEach(row => { row[3] = '2026-09-29'; });
+  const result = await fixture.service.querySubmissionResultsForRange('2026-09-29', '2026-09-29');
+  assert.equal(fixture.getQueryCount(), 1);
+  assert.deepEqual(Array.from(result.rows, row => row.actualSubmissionDate), ['2026-09-29', '2026-09-29']);
+  assert.equal(result.searchRange?.beforeInput.fromDate.componentValue, '20260830');
+  for (const stage of ['afterInput', 'beforeSearch', 'afterSearch'] as const) {
+    for (const field of ['fromDate', 'toDate'] as const) {
+      assert.equal(result.searchRange?.[stage][field].domValue, '20260929');
+      assert.equal(result.searchRange?.[stage][field].componentValue, '20260929');
+    }
+  }
+  assert.equal(fixture.keysSent.filter(keys => keys.includes(Key.TAB)).length, 2);
+  assert.equal(fixture.scripts.filter(script => script === K2B_READ_SEARCH_RANGE_SCRIPT).length, 4);
+});
+
+test("DOM만 변경되고 내부 Calendar가 기본 월간기간이면 조회 버튼을 누르지 않는다", async () => {
+  const fixture = rangeFixture(0, fixture => fixture.emitLoad(), false);
+  await assert.rejects(fixture.service.querySubmissionResultsForRange('2026-09-29', '2026-09-29'), /RANGE_MISMATCH:fromDate_calendar_value/);
+  assert.equal(fixture.getQueryCount(), 0);
+  assert.equal(fixture.dateInputs[0].value, '20260929');
+  assert.equal(fixture.calendars[0].value, '20260830');
+});
+
+test("Calendar 내부값을 읽을 수 없거나 검색 중 기간이 바뀌면 성공 결과를 반환하지 않는다", async () => {
+  const missing = rangeFixture(0, fixture => fixture.emitLoad());
+  missing.calendars[0].id = 'other_calendar';
+  await assert.rejects(missing.service.querySubmissionResultsForRange('2026-09-29', '2026-09-29'), /RANGE_UNVERIFIABLE:calendar_value_missing/);
+  assert.equal(missing.getQueryCount(), 0);
+  const changed = rangeFixture(0, fixture => { fixture.emitLoad(); fixture.calendars[1].value = '20260930'; });
+  await assert.rejects(changed.service.querySubmissionResultsForRange('2026-09-29', '2026-09-29'), /RANGE_MISMATCH:toDate_calendar_value/);
+  assert.equal(changed.loadHandlers.size, 0);
+});
+
+test("2일 inclusive 범위는 양 끝 날짜의 원격 receipt를 반환한다", async () => {
+  const fixture = rangeFixture(2, fixture => fixture.emitLoad());
+  fixture.rows[0][3] = '2026-09-28'; fixture.rows[1][3] = '2026-09-29';
+  const result = await fixture.service.querySubmissionResultsForRange('2026-09-28', '2026-09-29');
+  assert.deepEqual(Array.from(result.rows, row => row.actualSubmissionDate), ['2026-09-28', '2026-09-29']);
 });

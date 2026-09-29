@@ -5,8 +5,59 @@ import fs from 'fs';
 import os from 'os';
 import { execFileSync } from 'child_process';
 import { resolveWindowsDialogPath } from './windows-file-path';
-import { parseK2BSubmissionGrid, type K2BGridRead, type K2BGridReadEvidence } from './k2b-original-sync';
+import { parseK2BSubmissionGrid, type K2BGridRead, type K2BGridReadEvidence, type K2BSearchRangeSnapshot } from './k2b-original-sync';
 import { K2B_BEGIN_SUBMISSION_REFRESH_SCRIPT, K2B_END_SUBMISSION_REFRESH_SCRIPT, K2B_READ_SUBMISSION_GRID_SCRIPT, K2B_SUBMISSION_REFRESH_STATE_SCRIPT } from './k2b-grid-reader';
+
+/** 화면 handle까지 일치하는 Calendar의 내부 value를 읽는다. DOM 값만으로는 검색조건을 증명할 수 없다. */
+export const K2B_READ_SEARCH_RANGE_SCRIPT = String.raw`
+const prefix = 'mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_';
+const ids = ['start_date', 'end_date'];
+const inputs = ids.map(id => document.getElementById(prefix + id + '_calendaredit_input'));
+if (inputs.some(input => !input)) throw new Error('K2B_GRID_RANGE_UNVERIFIABLE:input_missing');
+const queue = ids.flatMap((id, index) => {
+  const calendarNode = document.getElementById(prefix + id);
+  const input = inputs[index];
+  return [calendarNode?._linked_element?.linkedcontrol, input._linked_element?.linkedcontrol,
+    input._control, input._linkedcontrol, input._control_element?.linkedcontrol];
+});
+try { queue.push(window.nexacro?.getApplication?.(), window.application); } catch {}
+const visited = new Set();
+const calendars = ids.map(() => new Set());
+for (let cursor = 0; cursor < queue.length && cursor < 4096; cursor++) {
+  const item = queue[cursor];
+  if (!item || typeof item !== 'object' || visited.has(item)) continue;
+  visited.add(item);
+  ids.forEach((id, index) => {
+    if (item.id !== id && item.name !== id) return;
+    const element = item.getElement?.() || item._control_element;
+    const handle = element?.handle || element?._handle;
+    if (handle?.id === prefix + id) calendars[index].add(item);
+  });
+  for (const key of ['parent', 'mainframe', 'form', 'components', 'frames', 'all', 'objects', 'VFrameSet', 'MainFrame']) {
+    const child = item[key];
+    if (!child || typeof child !== 'object') continue;
+    queue.push(child);
+    if (typeof child.length === 'number') for (let i = 0; i < Math.min(child.length, 1024); i++) queue.push(child[i]);
+  }
+}
+const read = index => {
+  if (calendars[index].size > 1) throw new Error('K2B_GRID_RANGE_UNVERIFIABLE:calendar_not_unique');
+  const calendar = [...calendars[index]][0];
+  return { domValue: String(inputs[index].value ?? ''), componentValue: calendar ? String(calendar.value ?? '') : null };
+};
+return { fromDate: read(0), toDate: read(1) };
+`;
+
+export function assertK2BSearchRange(snapshot: K2BSearchRangeSnapshot, fromDate: string, toDate: string): void {
+    for (const [field, expected] of [['fromDate', fromDate], ['toDate', toDate]] as const) {
+        const actual = snapshot?.[field];
+        if (!actual || actual.componentValue === null) throw new Error('K2B_GRID_RANGE_UNVERIFIABLE:calendar_value_missing');
+        const digits = expected.replaceAll('-', '');
+        if (actual.domValue.replace(/\D/g, '') !== digits || actual.componentValue.replace(/\D/g, '') !== digits) {
+            throw new Error(`K2B_GRID_RANGE_MISMATCH:${field}_calendar_value`);
+        }
+    }
+}
 
 export async function runWithSingleRetry<T>(
     operation: (attempt: 1 | 2) => Promise<T>,
@@ -1253,20 +1304,24 @@ foreach ($window in $windows) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate) throw new Error('K2B 조회 날짜 범위가 올바르지 않습니다.');
         const startDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_start_date_calendaredit_input')), 10000);
         const endDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_end_date_calendaredit_input')), 10000);
+        const readRange = async () => await this.driver!.executeScript(K2B_READ_SEARCH_RANGE_SCRIPT) as K2BSearchRangeSnapshot;
+        const beforeInput = await readRange();
         await startDateInput.click();
-        await startDateInput.sendKeys(Key.CONTROL, 'a', Key.BACK_SPACE);
-        await startDateInput.sendKeys(fromDate.replaceAll('-', ''));
+        await startDateInput.sendKeys(Key.CONTROL, 'a', Key.NULL, Key.BACK_SPACE);
+        await startDateInput.sendKeys(fromDate.replaceAll('-', ''), Key.TAB);
         await endDateInput.click();
-        await endDateInput.sendKeys(Key.CONTROL, 'a', Key.BACK_SPACE);
-        await endDateInput.sendKeys(toDate.replaceAll('-', ''));
-        const enteredFrom = String(await startDateInput.getAttribute('value')).replace(/\D/g, '');
-        const enteredTo = String(await endDateInput.getAttribute('value')).replace(/\D/g, '');
-        if (enteredFrom !== fromDate.replaceAll('-', '') || enteredTo !== toDate.replaceAll('-', '')) throw new Error('K2B_GRID_RANGE_MISMATCH');
+        await endDateInput.sendKeys(Key.CONTROL, 'a', Key.NULL, Key.BACK_SPACE);
+        // 두 Calendar 모두 focus 이동으로 편집을 확정하고 Nexacro 내부 검색값을 확인한다.
+        await endDateInput.sendKeys(toDate.replaceAll('-', ''), Key.TAB);
+        const afterInput = await readRange();
+        assertK2BSearchRange(afterInput, fromDate, toDate);
         await this.beginSubmissionGridRefreshObservation();
         try {
         const beforeRefresh = await this.captureSubmissionGridSnapshot();
         if (beforeRefresh.loading) throw new Error('K2B_GRID_REFRESH_UNVERIFIABLE:already_loading');
         const searchButton = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_btn_SearchTextBoxElement > div')), 10000);
+        const beforeSearch = await readRange();
+        assertK2BSearchRange(beforeSearch, fromDate, toDate);
         await searchButton.click();
         await this.waitForSubmissionGridRefresh(beforeRefresh);
         const fresh = await this.captureSubmissionGridSnapshot();
@@ -1279,7 +1334,9 @@ foreach ($window in $windows) {
         if (!isK2BSubmissionRefreshComplete(beforeRefresh, afterRead, false) || afterRead.datasetLoadVersion !== fresh.datasetLoadVersion) {
             throw new Error('K2B_GRID_REFRESH_UNVERIFIABLE:changed_during_read');
         }
-        return grid;
+        const afterSearch = await readRange();
+        assertK2BSearchRange(afterSearch, fromDate, toDate);
+        return { ...grid, searchRange: { beforeInput, afterInput, beforeSearch, afterSearch } };
         } finally {
             await this.driver.executeScript(K2B_END_SUBMISSION_REFRESH_SCRIPT);
         }
