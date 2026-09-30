@@ -1,6 +1,6 @@
 """Canonical versions embedded in the Report Explorer release bundle."""
 
-RELEASE_VERSION = "1.0.1"
+RELEASE_VERSION = "1.0.2"
 PROTOCOL_VERSION = "1"
 
 # v1 ships and promotes the three executables as one indivisible bundle.

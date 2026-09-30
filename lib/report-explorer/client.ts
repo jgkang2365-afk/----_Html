@@ -47,11 +47,15 @@ function issueKindsFromPayload(payload: unknown, status?: number): ReportExplore
   const message = `${code} ${messageFromPayload(payload, "")}`.toLowerCase();
   const kinds = new Set<ReportExplorerIssueKind>();
   if (code === "STORAGE_PERMISSION_DENIED" || code === "FORBIDDEN_ORIGIN" || status === 401 || /permission|access denied|권한|접근 거부/.test(message)) kinds.add("permission");
+  if (code === "STORAGE_PERMISSION_DENIED") kinds.add("root");
   if (["STORAGE_ROOT_UNAVAILABLE", "YEAR_NOT_FOUND", "PERIOD_NOT_FOUND"].includes(code) || /root|directory|folder|루트|폴더/.test(message)) kinds.add("root");
   if (isObject(payload)) {
     if (payload.permissionGranted === false || payload.hasPermission === false) kinds.add("permission");
     if (payload.rootAccessible === false || payload.rootExists === false || payload.rootConfigured === false) kinds.add("root");
-    if (isObject(payload.storage) && payload.storage.available === false) kinds.add(payload.storage.reason === "STORAGE_PERMISSION_DENIED" ? "permission" : "root");
+    if (isObject(payload.storage) && payload.storage.available === false) {
+      kinds.add("root");
+      if (payload.storage.reason === "STORAGE_PERMISSION_DENIED") kinds.add("permission");
+    }
   }
   return [...kinds];
 }
@@ -79,6 +83,14 @@ export function hasReportExplorerFolderMatches(results: readonly ReportExplorerQ
   return results.some((result) => result.matches.length > 0);
 }
 
+export function findRefreshedReportExplorerMatch(results: readonly ReportExplorerQueryResult[], query: string, previous: ReportExplorerMatch): ReportExplorerMatch | null {
+  const matches = results
+    .filter((result) => result.query === query)
+    .flatMap((result) => result.matches)
+    .filter((match) => match.path === previous.path && match.folderName === previous.folderName);
+  return matches.length === 1 ? matches[0] : null;
+}
+
 function issuesFromPayload(payload: unknown, fallback: string, status?: number): ReportExplorerIssue[] {
   return issueKindsFromPayload(payload, status).map((kind) => ({ kind, message: messageFromPayload(payload, fallback) }));
 }
@@ -91,6 +103,13 @@ export function reportExplorerConnectionStatusFromIssues(issues: ReportExplorerI
 
 export function deriveReportExplorerConnectionStatus(issues: ReportExplorerIssue[], requestSucceeded: boolean): ReportExplorerConnectionStatus {
   return reportExplorerConnectionStatusFromIssues(issues) ?? (requestSucceeded ? "connected" : "disconnected");
+}
+
+export function reconcileReportExplorerHealth(previous: ReportExplorerConnectionStatus, failureCount: number, observed: ReportExplorerConnectionStatus) {
+  if (observed === "disconnected" && previous === "connected" && failureCount === 0) {
+    return { status: previous, failureCount: 1 };
+  }
+  return { status: observed, failureCount: 0 };
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -149,4 +168,12 @@ export async function searchReportExplorer(requestBody: ReportExplorerSearchRequ
 
 export async function openReportExplorerResult(resultId: string, signal?: AbortSignal): Promise<void> {
   await request("/report-explorer/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resultId }), signal });
+}
+
+export async function refreshAndOpenReportExplorerMatch(requestBody: ReportExplorerSearchRequest, query: string, previous: ReportExplorerMatch, signal?: AbortSignal) {
+  const results = await searchReportExplorer(requestBody, signal);
+  const match = findRefreshedReportExplorerMatch(results, query, previous);
+  if (!match) return { results, opened: false };
+  await openReportExplorerResult(match.resultId, signal);
+  return { results, opened: true };
 }

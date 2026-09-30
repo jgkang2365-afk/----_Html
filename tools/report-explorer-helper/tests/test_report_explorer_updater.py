@@ -94,7 +94,21 @@ class UpdateRuntimeTests(unittest.TestCase):
             health_waiter=health or (lambda _process, _version: True),
         )
     def test_release_version_is_the_single_component_source(self) -> None:
+        self.assertEqual(versions.RELEASE_VERSION, "1.0.2")
         self.assertEqual({versions.RELEASE_VERSION, versions.HELPER_VERSION, versions.UPDATER_VERSION, versions.SETUP_VERSION}, {versions.RELEASE_VERSION})
+
+    def test_installed_1_0_1_requires_canonical_1_0_2_update(self) -> None:
+        self.assertLess(runtime.parse_semver("1.0.1"), runtime.parse_semver(versions.HELPER_VERSION))
+        self.paths.helper.write_bytes(b"old-helper")
+        runtime.write_config(self.paths, "stable", "1.0.1")
+        release = runtime.Release(
+            "stable", versions.RELEASE_VERSION, versions.PROTOCOL_VERSION,
+            hashlib.sha256(self.data).hexdigest(), len(self.data),
+            f"https://github.com/jgkang2365-afk/----_Html/releases/download/report-explorer-helper-v{versions.RELEASE_VERSION}/ReportExplorerHelper.exe",
+        )
+        result = self.make_engine(FakeReleaseClient(release, self.data), processes=FakeProcesses(running=True)).run()
+        self.assertEqual(result.status, "updated")
+        self.assertEqual(runtime._load_config(self.paths), ("stable", "1.0.2"))
 
 
     def test_semver_and_channel_tag_are_strict(self) -> None:

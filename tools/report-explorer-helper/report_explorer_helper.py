@@ -25,6 +25,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging.handlers import RotatingFileHandler
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from report_explorer_versions import HELPER_VERSION, PROTOCOL_VERSION
 
@@ -139,6 +140,23 @@ def configured_origins() -> set[str]:
         if origin == PRODUCTION_ORIGIN or not origin.casefold().endswith(".vercel.app")
     )
     return allowed
+
+
+def is_development_loopback_origin(origin: str) -> bool:
+    if os.environ.get("REPORT_EXPLORER_ENVIRONMENT", "production").strip().lower() not in {"development", "test"}:
+        return False
+    try:
+        parsed = urlsplit(origin)
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "http"
+        and parsed.hostname in {"localhost", "127.0.0.1"}
+        and port is not None
+        and 1 <= port <= 65535
+        and origin == f"http://{parsed.hostname}:{port}"
+    )
 
 
 def configured_token_ttl_seconds() -> int:
@@ -414,7 +432,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
     def _origin_is_allowed(self) -> bool:
         origin = self.headers.get("Origin")
-        return origin is not None and origin in configured_origins()
+        return origin is not None and (origin in configured_origins() or is_development_loopback_origin(origin))
 
     def _send_json(self, status: int, payload: dict[str, Any], *, cors: bool = False) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")

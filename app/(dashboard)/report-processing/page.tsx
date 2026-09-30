@@ -25,6 +25,8 @@ import {
     REPORT_EXPLORER_RECONNECT_DELAYS_MS,
     hasReportExplorerFolderMatches,
     openReportExplorerResult,
+    reconcileReportExplorerHealth,
+    refreshAndOpenReportExplorerMatch,
     ReportExplorerClientError,
     searchReportExplorer
 } from '@/lib/report-explorer/client';
@@ -43,7 +45,8 @@ import type {
     ReportExplorerConnectionStatus,
     ReportExplorerMatch,
     ReportExplorerPeriod,
-    ReportExplorerQueryResult
+    ReportExplorerQueryResult,
+    ReportExplorerSearchRequest
 } from '@/lib/report-explorer/types';
 import { toast } from 'sonner';
 import { ExternalLink, FileSearch, FolderSearch, Loader2, Mail, Search, RefreshCw, Upload, X } from 'lucide-react';
@@ -163,11 +166,15 @@ export default function ReportProcessingPage() {
     const [explorerConnectionStatus, setExplorerConnectionStatus] = useState<ReportExplorerConnectionStatus>('unchecked');
     const [explorerMessage, setExplorerMessage] = useState<string | null>(null);
     const [explorerHealthChecking, setExplorerHealthChecking] = useState(false);
+    const [explorerRefreshNeeded, setExplorerRefreshNeeded] = useState(false);
     const [explorerSearching, setExplorerSearching] = useState(false);
     const [explorerOpeningResultId, setExplorerOpeningResultId] = useState<string | null>(null);
     const explorerAbortControllerRef = useRef<AbortController | null>(null);
+    const explorerSearchRequestRef = useRef<ReportExplorerSearchRequest | null>(null);
     const explorerHealthAbortControllerRef = useRef<AbortController | null>(null);
     const explorerHealthInFlightRef = useRef(false);
+    const explorerConnectionStatusRef = useRef<ReportExplorerConnectionStatus>('unchecked');
+    const explorerHealthFailureCountRef = useRef(0);
     const initialQueryDoneRef = useRef(false);
 
     // 시스템 기준 현재 주기 정의 (정규/추가 구분용)
@@ -350,24 +357,27 @@ export default function ReportProcessingPage() {
         explorerHealthAbortControllerRef.current = controller;
         explorerHealthInFlightRef.current = true;
         setExplorerHealthChecking(true);
+        const applyStatus = (status: ReportExplorerConnectionStatus, message: string | null) => {
+            const next = reconcileReportExplorerHealth(explorerConnectionStatusRef.current, explorerHealthFailureCountRef.current, status);
+            explorerHealthFailureCountRef.current = next.failureCount;
+            if (next.status === explorerConnectionStatusRef.current && next.failureCount > 0) return status;
+            explorerConnectionStatusRef.current = next.status;
+            setExplorerConnectionStatus(next.status);
+            setExplorerMessage(message);
+            return status;
+        };
         try {
             const health = await getReportExplorerHealth(controller.signal);
             if (explorerHealthAbortControllerRef.current !== controller) return null;
             const status = deriveReportExplorerConnectionStatus(health.issues, health.status === 'ok' && health.issues.length === 0);
-            setExplorerConnectionStatus(status);
-            setExplorerMessage(health.issues.length > 0 ? health.message : null);
-            return status;
+            return applyStatus(status, health.issues.length > 0 ? health.message : null);
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') return null;
             if (error instanceof ReportExplorerClientError) {
                 const status = deriveReportExplorerConnectionStatus(error.issues, false);
-                setExplorerConnectionStatus(status);
-                setExplorerMessage(error.message);
-                return status;
+                return applyStatus(status, error.message);
             }
-            setExplorerConnectionStatus('disconnected');
-            setExplorerMessage('보고서 탐색기 상태를 확인할 수 없습니다.');
-            return 'disconnected';
+            return applyStatus('disconnected', '보고서 탐색기 상태를 확인할 수 없습니다.');
         } finally {
             if (explorerHealthAbortControllerRef.current === controller) {
                 explorerHealthAbortControllerRef.current = null;
@@ -380,6 +390,7 @@ export default function ReportProcessingPage() {
     useEffect(() => {
         return () => {
             cancelReportExplorerRequest(false);
+            explorerSearchRequestRef.current = null;
         };
     }, [cancelReportExplorerRequest]);
     useEffect(() => {
@@ -398,7 +409,11 @@ export default function ReportProcessingPage() {
         const run = async () => {
             if (stopped || document.visibilityState !== 'visible') return;
             const status = await updateExplorerHealth();
-            if (stopped || document.visibilityState !== 'visible' || status === null) return;
+            if (stopped || document.visibilityState !== 'visible') return;
+            if (status === null) {
+                schedule(100);
+                return;
+            }
             if (status === 'connected') {
                 retryAttempt = 0;
                 schedule(REPORT_EXPLORER_CONNECTED_HEALTH_INTERVAL_MS);
@@ -702,24 +717,34 @@ export default function ReportProcessingPage() {
             return;
         }
         const controller = createExplorerRequestController();
+        const request = { year: Number(effectiveExplorerYear), period: effectiveExplorerPeriod, businessNames };
+        explorerSearchRequestRef.current = null;
         setExplorerSearching(true);
         setExplorerResults([]);
         setExplorerHasSearched(false);
+        setExplorerRefreshNeeded(false);
         setExplorerMessage(null);
         try {
-            const results = await searchReportExplorer({ year: Number(effectiveExplorerYear), period: effectiveExplorerPeriod, businessNames }, controller.signal);
+            const results = await searchReportExplorer(request, controller.signal);
             if (explorerAbortControllerRef.current !== controller) return;
+            explorerSearchRequestRef.current = request;
             setExplorerResults(results);
             setExplorerHasSearched(true);
             setExplorerPage(1);
             setExplorerConnectionStatus('connected');
+            explorerConnectionStatusRef.current = 'connected';
+            explorerHealthFailureCountRef.current = 0;
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') return;
             if (error instanceof ReportExplorerClientError) {
                 const connectionStatus = reportExplorerConnectionStatusFromIssues(error.issues);
-                if (connectionStatus) setExplorerConnectionStatus(connectionStatus);
+                if (connectionStatus) {
+                    explorerConnectionStatusRef.current = connectionStatus;
+                    setExplorerConnectionStatus(connectionStatus);
+                }
                 setExplorerMessage(error.message);
             } else {
+                explorerConnectionStatusRef.current = 'disconnected';
                 setExplorerConnectionStatus('disconnected');
                 setExplorerMessage('보고서 탐색 중 알 수 없는 오류가 발생했습니다.');
             }
@@ -731,22 +756,66 @@ export default function ReportProcessingPage() {
         }
     };
 
-    const handleExplorerOpen = async (resultId: string) => {
+    const handleExplorerOpen = async (query: string, match: ReportExplorerMatch) => {
         const controller = createExplorerRequestController();
-        setExplorerOpeningResultId(resultId);
+        setExplorerOpeningResultId(match.resultId);
         setExplorerMessage(null);
+        setExplorerRefreshNeeded(false);
         try {
-            await openReportExplorerResult(resultId, controller.signal);
+            try {
+                await openReportExplorerResult(match.resultId, controller.signal);
+            } catch (error) {
+                if (!(error instanceof ReportExplorerClientError) || error.code !== 'RESULT_NOT_FOUND') throw error;
+                const request = explorerSearchRequestRef.current;
+                if (!request) {
+                    setExplorerResults([]);
+                    setExplorerHasSearched(false);
+                    setExplorerRefreshNeeded(true);
+                    return;
+                }
+                try {
+                    const refreshed = await refreshAndOpenReportExplorerMatch(request, query, match, controller.signal);
+                    if (explorerAbortControllerRef.current !== controller || explorerSearchRequestRef.current !== request) return;
+                    if (!refreshed.opened) {
+                        setExplorerResults([]);
+                        setExplorerHasSearched(false);
+                        explorerSearchRequestRef.current = null;
+                        setExplorerRefreshNeeded(true);
+                        return;
+                    }
+                    setExplorerResults(refreshed.results);
+                    setExplorerPage(1);
+                } catch (refreshError) {
+                    if (refreshError instanceof DOMException && refreshError.name === 'AbortError') return;
+                    if (explorerAbortControllerRef.current !== controller) return;
+                    const status = refreshError instanceof ReportExplorerClientError ? reportExplorerConnectionStatusFromIssues(refreshError.issues) : null;
+                    if (status === 'storage-error') {
+                        explorerConnectionStatusRef.current = status;
+                        setExplorerConnectionStatus(status);
+                    }
+                    setExplorerResults([]);
+                    setExplorerHasSearched(false);
+                    explorerSearchRequestRef.current = null;
+                    setExplorerRefreshNeeded(true);
+                    return;
+                }
+            }
             if (explorerAbortControllerRef.current !== controller) return;
             setExplorerConnectionStatus('connected');
+            explorerConnectionStatusRef.current = 'connected';
+            explorerHealthFailureCountRef.current = 0;
             toast.success('보고서 폴더를 열었습니다.');
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') return;
             if (error instanceof ReportExplorerClientError) {
                 const connectionStatus = reportExplorerConnectionStatusFromIssues(error.issues);
-                if (connectionStatus) setExplorerConnectionStatus(connectionStatus);
+                if (connectionStatus) {
+                    explorerConnectionStatusRef.current = connectionStatus;
+                    setExplorerConnectionStatus(connectionStatus);
+                }
                 setExplorerMessage(error.message);
             } else {
+                explorerConnectionStatusRef.current = 'disconnected';
                 setExplorerConnectionStatus('disconnected');
                 setExplorerMessage('보고서 폴더를 열지 못했습니다.');
             }
@@ -1116,6 +1185,7 @@ export default function ReportProcessingPage() {
                     </div>
                 </div>
                 {explorerMessage && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{explorerMessage}</p>}
+                {explorerRefreshNeeded && <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">기존 보고서 폴더를 확인할 수 없습니다. 다시 조회해주세요.</p>}
                 <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                     <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)] md:grid-cols-[minmax(18rem,1fr)_auto_auto] md:items-end">
                         <div className="space-y-2">
@@ -1168,7 +1238,7 @@ export default function ReportProcessingPage() {
                                     <TableCell className="truncate px-4 py-2" title={match?.folderName}>{match?.folderName ?? '-'}</TableCell>
                                     <TableCell className="truncate px-4 py-2" title={match?.path}>{match?.path ?? '-'}</TableCell>
                                     <TableCell className="px-4 py-2 text-center"><span className={`inline-flex h-7 items-center rounded-full border px-2 text-xs font-medium ${result.status === 'FOUND' ? 'border-green-200 bg-green-50 text-green-700' : result.status === 'MULTIPLE' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>{reportExplorerStatusLabel(result.status)}</span></TableCell>
-                                    <TableCell className="px-4 py-2 text-center">{match ? <Button type="button" variant="secondary" size="sm" className="h-8 px-3 text-xs" onClick={() => void handleExplorerOpen(match.resultId)} disabled={explorerOpeningResultId !== null || explorerSearching}>{explorerOpeningResultId === match.resultId ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ExternalLink className="mr-1 h-4 w-4" />열기</>}</Button> : '-'}</TableCell>
+                                    <TableCell className="px-4 py-2 text-center">{match ? <Button type="button" variant="secondary" size="sm" className="h-8 px-3 text-xs" onClick={() => void handleExplorerOpen(result.query, match)} disabled={explorerOpeningResultId !== null || explorerSearching}>{explorerOpeningResultId === match.resultId ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ExternalLink className="mr-1 h-4 w-4" />열기</>}</Button> : '-'}</TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>

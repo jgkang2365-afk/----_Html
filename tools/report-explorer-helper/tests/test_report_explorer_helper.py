@@ -307,6 +307,33 @@ class ReportExplorerHttpTests(unittest.TestCase):
                     status, _, body = self.request("POST", "/report-explorer/search", origin=origin, body=payload)
                     self.assertEqual((status, body["results"][0]["status"]), (200, "FOUND"))
 
+    def test_variable_loopback_ports_are_allowed_only_in_development_and_test(self) -> None:
+        payload = {"year": 2026, "period": "상반기", "businessNames": ["한결환경"]}
+        for environment in ("development", "test"):
+            with patch.dict(os.environ, {"REPORT_EXPLORER_ENVIRONMENT": environment}, clear=True):
+                for origin in ("http://localhost:3004", "http://127.0.0.1:4567"):
+                    with self.subTest(environment=environment, origin=origin):
+                        health, headers, _ = self.request("GET", "/health", origin=origin)
+                        self.assertEqual((health, headers.get("Access-Control-Allow-Origin")), (200, origin))
+                        status, _, body = self.request("POST", "/report-explorer/search", origin=origin, body=payload)
+                        self.assertEqual((status, body["results"][0]["status"]), (200, "FOUND"))
+                        result_id = body["results"][0]["matches"][0]["resultId"]
+                        status, _, body = self.request("POST", "/report-explorer/open", origin=origin, body={"resultId": result_id})
+                        self.assertEqual((status, body["ok"]), (200, True))
+
+                for origin in (
+                    "http://localhost:0", "http://localhost:65536", "http://localhost:abc",
+                    "https://localhost:3004", "http://localhost:3004.evil.example",
+                    "http://user@localhost:3004", "http://localhost:3004/path",
+                    "http://127.0.0.2:3004", "http://[::1]:3004",
+                ):
+                    with self.subTest(environment=environment, rejected_origin=origin):
+                        status, _, body = self.request("GET", "/health", origin=origin)
+                        self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
+
+        status, _, body = self.request("GET", "/health", origin="http://localhost:3004")
+        self.assertEqual((status, body["error"]["code"]), (403, "FORBIDDEN_ORIGIN"))
+
     def test_vercel_preview_origin_is_rejected_in_every_environment(self) -> None:
         preview_origin = "https://report-explorer-git-pr-98-team.vercel.app"
         payload = {"year": 2026, "period": "상반기", "businessNames": ["한결환경"]}

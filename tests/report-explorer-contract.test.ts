@@ -78,7 +78,7 @@ test("v0.6 화면은 보고서 처리 결과 다음에 탐색기를 배치하고
   assert.ok(processingTable > 0);
   assert.ok(explorer > processingTable);
   assert.match(page, /const PAGE_SIZE = 10/);
-  assert.match(page, /visibleRecords = records\.slice/);
+  assert.match(page, /visibleRecords = sortedRecords\.slice/);
   assert.match(page, /visibleExplorerRows = explorerRows\.slice/);
   assert.match(page, /records\.length > PAGE_SIZE/);
   assert.match(page, /explorerRows\.length > PAGE_SIZE/);
@@ -161,6 +161,85 @@ test("사업장명 입력은 쉼표·개행을 trim하고 대소문자 무시 �
     ]),
     true,
   );
+});
+
+test("연결 상태는 단발 health 실패를 보류하고 연속 실패와 복구를 반영한다", async () => {
+  const { reconcileReportExplorerHealth: next } = await import("../lib/report-explorer/client");
+  const first = next("connected", 0, "disconnected");
+  assert.deepEqual(first, { status: "connected", failureCount: 1 });
+  assert.deepEqual(next(first.status, first.failureCount, "connected"), { status: "connected", failureCount: 0 });
+  const second = next(first.status, first.failureCount, "disconnected");
+  assert.deepEqual(second, { status: "disconnected", failureCount: 0 });
+  assert.deepEqual(next(second.status, second.failureCount, "connected"), { status: "connected", failureCount: 0 });
+  assert.deepEqual(next("connected", 0, "storage-error"), { status: "storage-error", failureCount: 0 });
+  assert.deepEqual(next("unchecked", 0, "disconnected"), { status: "disconnected", failureCount: 0 });
+});
+
+test("오래된 resultId는 같은 질의·폴더명·경로의 새 토큰으로만 자동 열기한다", async () => {
+  const client = await import("../lib/report-explorer/client");
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  const request = { year: 2026, period: "상반기" as const, businessNames: ["한결환경"] };
+  const previous = { resultId: "old", folderName: "한결환경", path: "Z:/2026년/상반기/한결환경" };
+  try {
+    globalThis.fetch = async (input, init) => {
+      const path = String(input).split("17653")[1];
+      const body = JSON.parse(String(init?.body));
+      calls.push(`${path}:${body.resultId ?? "search"}`);
+      if (path === "/report-explorer/open" && body.resultId === "old") return new Response(JSON.stringify({ error: {
+        code: "RESULT_NOT_FOUND", message: "검색 결과를 찾을 수 없거나 만료되었습니다.",
+      } }), { status: 404 });
+      if (path === "/report-explorer/search") return Response.json({ results: [{ query: "한결환경", status: "FOUND", matches: [
+        { ...previous, resultId: "new" },
+      ] }] });
+      return Response.json({ ok: true });
+    };
+    await assert.rejects(client.openReportExplorerResult(previous.resultId), (error: unknown) =>
+      error instanceof client.ReportExplorerClientError
+      && error.code === "RESULT_NOT_FOUND"
+      && client.reportExplorerConnectionStatusFromIssues(error.issues) === null);
+    const refreshed = await client.refreshAndOpenReportExplorerMatch(request, "한결환경", previous);
+    assert.equal(refreshed.opened, true);
+    assert.deepEqual(calls, ["/report-explorer/open:old", "/report-explorer/search:search", "/report-explorer/open:new"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const page = source(pagePath);
+  const openHandler = namedInitializer(page, ["handleExplorerOpen"]);
+  assert.match(openHandler, /error\.code !== 'RESULT_NOT_FOUND'/);
+  assert.match(openHandler, /refreshAndOpenReportExplorerMatch\(request, query, match, controller\.signal\)/);
+  assert.match(openHandler, /setExplorerResults\(refreshed\.results\)/);
+  assert.match(page, /explorerSearchRequestRef\.current = null/);
+  assert.doesNotMatch(page, /검색 결과가 만료되었습니다/);
+});
+
+test("재조회에서 동일 폴더가 유일하지 않으면 다른 폴더를 열지 않는다", async () => {
+  const client = await import("../lib/report-explorer/client");
+  const originalFetch = globalThis.fetch;
+  const previous = { resultId: "old", folderName: "한결환경", path: "Z:/2026년/상반기/한결환경" };
+  const request = { year: 2026, period: "상반기" as const, businessNames: ["한결환경"] };
+  let opened = false;
+  try {
+    for (const matches of [
+      [{ resultId: "other", folderName: "다른 폴더", path: "Z:/2026년/상반기/다른 폴더" }],
+      [{ ...previous, resultId: "one" }, { ...previous, resultId: "two" }],
+    ]) {
+      globalThis.fetch = async (input) => {
+        if (String(input).endsWith("/report-explorer/open")) opened = true;
+        return Response.json({ results: [{ query: "한결환경", status: "FOUND", matches }] });
+      };
+      const refreshed = await client.refreshAndOpenReportExplorerMatch(request, "한결환경", previous);
+      assert.equal(refreshed.opened, false);
+      assert.equal(opened, false);
+    }
+    assert.equal(client.findRefreshedReportExplorerMatch([
+      { query: "다른 질의", status: "FOUND", matches: [{ ...previous, resultId: "new" }] },
+    ], "한결환경", previous), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const page = source(pagePath);
+  assert.match(page, /기존 보고서 폴더를 확인할 수 없습니다\. 다시 조회해주세요\./);
 });
 
 test("health가 Z: 저장소 미연결을 독립 루트 오류로 표시한다", async () => {
@@ -322,7 +401,8 @@ test("권한 오류와 path containment 거부를 HTTP 403만으로 혼동하지
       client.searchReportExplorer({ year: 2026, period: "상반기", businessNames: ["한결"] }),
       (error: unknown) => error instanceof client.ReportExplorerClientError
         && error.code === "STORAGE_PERMISSION_DENIED"
-        && error.issues.some((issue) => issue.kind === "permission"),
+        && error.issues.some((issue) => issue.kind === "permission")
+        && client.reportExplorerConnectionStatusFromIssues(error.issues) === "storage-error",
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -348,7 +428,7 @@ test("헬퍼는 고정 loopback·exact Origin·opaque resultId·containment 경�
   assert.match(helper, /LOOPBACK_HOST\s*=\s*["']127\.0\.0\.1["']/);
   assert.match(helper, /if host != LOOPBACK_HOST:/);
   assert.match(helper, /PRODUCTION_ORIGIN\s*=\s*["']https:\/\/html-tan-six\.vercel\.app["']/);
-  assert.match(helper, /origin is not None and origin in configured_origins\(\)/);
+  assert.match(helper, /origin is not None and \(origin in configured_origins\(\) or is_development_loopback_origin\(origin\)\)/);
   assert.doesNotMatch(helper, /Access-Control-Allow-Origin["']\s*,\s*["']\*/);
   assert.match(helper, /set\(payload\) != \{["']resultId["']\}/);
   assert.match(helper, /secrets\.token_urlsafe\(/);
