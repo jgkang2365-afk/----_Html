@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
+import { samePhysicalSite } from "@/lib/preliminary-survey-v2/same-site";
 import type {
   PlannerTarget,
   PlanningSnapshot,
@@ -107,6 +108,7 @@ const suggestionReason = (reasons: string[]) => {
     reasons.includes("KEEP_EXISTING") ? "기존값 유지" : null,
     reasons.includes("PRIMARY_DATE") ? "정책 우선 후보" : null,
     reasons.includes("FALLBACK_DATE") ? "fallback 후보" : null,
+    reasons.includes("MEASUREMENT_DAY_VISIT_FALLBACK") ? "측정일 연계 최후순위" : null,
     reasons.includes("EXPERIENCED_SOLO") ? "경력자 단독" : null,
     reasons.includes("EXPERIENCED_AND_INEXPERIENCED") ? "경력+비경력" : null,
   ].filter(Boolean);
@@ -157,6 +159,60 @@ export function FixedAssigneeReversePlanner({
     name: userById.get(id)?.name ?? "",
     experienced: userById.get(id)?.experienced,
   }))), [userById]);
+  const editingRouteItems = useMemo(() => {
+    if (!snapshot || !preview || overrideTargetId == null || !overrideDate || overrideMethod !== "field") return [];
+    const target = snapshot.targets.find((item) => item.id === overrideTargetId);
+    if (!target) return [];
+    const planningIds = new Set(snapshot.targets.map((item) => item.id));
+    const peers = [
+      ...preview.results.flatMap((item) => {
+        if (item.targetId === overrideTargetId) return [];
+        const adjustment = reviewAdjustments.get(item.targetId);
+        const candidate = item.candidate;
+        if (!candidate || candidate.surveyMethod !== "field") return [];
+        return [{ targetId: item.targetId, date: adjustment?.preliminaryDate ?? candidate.preliminaryDate,
+          participants: adjustment?.participantUserIds ?? candidate.participantUserIds, reason: "예비조사 방문 ↔ 예비조사 방문" }];
+      }),
+      ...(preview.routeContext?.existingSurveyOccupancy ?? snapshot.existingSurveyOccupancy)
+        .filter((item) => !planningIds.has(item.targetId) && item.surveyMethod === "field")
+        .map((item) => ({ targetId: item.targetId, date: item.preliminaryDate,
+          participants: item.participantUserIds, reason: "예비조사 방문 ↔ 예비조사 방문" })),
+      ...(preview.routeContext?.actualMeasurementOccupancy ?? snapshot.actualMeasurementOccupancy)
+        .map((item) => ({ targetId: item.targetId, date: item.date,
+        participants: item.participantUserIds, reason: "실제 측정 ↔ 예비조사 방문" })),
+    ];
+    return peers.flatMap((peer) => {
+      if (peer.targetId === overrideTargetId || peer.date !== overrideDate) return [];
+      const shared = overrideParticipants.filter((id) => peer.participants.includes(id));
+      if (!shared.length) return [];
+      const otherTarget = snapshot.targets.find((item) => item.id === peer.targetId);
+      const namedSite = preview.routeContext?.sites.find((item) => item.targetId === peer.targetId);
+      const otherSite = otherTarget ?? namedSite
+        ?? (preview.routeContext?.actualMeasurementOccupancy ?? snapshot.actualMeasurementOccupancy)
+          .find((item) => item.targetId === peer.targetId)
+        ?? (preview.routeContext?.existingSurveyOccupancy ?? snapshot.existingSurveyOccupancy)
+          .find((item) => item.targetId === peer.targetId);
+      const evidence = preview.routeEvidence?.find((item) => item.date === overrideDate
+        && [item.leftTargetId, item.rightTargetId].includes(overrideTargetId)
+        && [item.leftTargetId, item.rightTargetId].includes(peer.targetId));
+      const sameSite = otherSite ? samePhysicalSite(
+        { address: target.address, coordinate: target.coordinate ?? null },
+        { address: otherSite.address, coordinate: otherSite.coordinate ?? null },
+      ) : evidence?.sameAddress === true;
+      const minutes = evidence?.durationMinutes;
+      const verdict = sameSite ? "동일현장 · 이동검증 불필요"
+        : minutes == null ? "이동시간 확인 필요"
+          : minutes > 60 ? `${minutes}분 · 동선 불가`
+            : minutes > 30 ? `${minutes}분 · 검토 필요` : `${minutes}분 · 동선 가능`;
+      const code = otherTarget?.code ?? namedSite?.code
+        ?? (otherSite && "businessCode" in otherSite ? otherSite.businessCode : `대상 ${peer.targetId}`);
+      const name = otherTarget?.name ?? namedSite?.name;
+      return [{ key: `${peer.reason}-${peer.targetId}`, label: `${code}${name ? ` ${name}` : ""}`,
+        shared: shared.map((id) => userById.get(id)?.name ?? String(id)).join(" · "),
+        date: peer.date, verdict, reason: peer.reason,
+        detail: evidence ? `정방향 ${evidence.forwardDurationMinutes ?? "-"}분 · 역방향 ${evidence.reverseDurationMinutes ?? "-"}분` : "" }];
+    });
+  }, [snapshot, preview, overrideTargetId, overrideDate, overrideMethod, overrideParticipants, reviewAdjustments, userById]);
 
   const request = useCallback(async (url: string, init?: RequestInit) => {
     const response = await fetch(url, init);
@@ -659,12 +715,23 @@ export function FixedAssigneeReversePlanner({
           {suggestionsLoading && <p className="mt-2 text-sm text-text-500">현재 일정·인원·동선을 기준으로 후보를 확인하는 중...</p>}
           {suggestionError && <p className="mt-2 text-sm font-medium text-amber-700">{suggestionError}</p>}
           {!suggestionsLoading && !suggestionError && reviewSuggestions.length === 0 && <p className="mt-2 text-sm text-text-600">현재 batch에서 자동 지침을 통과한 추천 후보가 없습니다. 아래 직접 수정에서 값을 지정해 검증해 주세요.</p>}
-          {reviewSuggestions.length > 0 && <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">{reviewSuggestions.map((suggestion, index) => <button type="button" key={`${suggestion.preliminaryDate}-${suggestion.participantUserIds.join("-")}`} onClick={() => { setOverrideDate(suggestion.preliminaryDate); setOverrideMethod(suggestion.surveyMethod); setOverrideParticipants(suggestion.participantUserIds); setOverrideViolations([]); }} className="rounded-md border border-primary-200 bg-primary-50/40 p-3 text-left hover:border-primary-400 hover:bg-primary-50">
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">{reviewSuggestions.map((suggestion, index) => <button type="button" key={`${suggestion.preliminaryDate}-${suggestion.participantUserIds.join("-")}`} onClick={() => { setOverrideDate(suggestion.preliminaryDate); setOverrideMethod(suggestion.surveyMethod); setOverrideParticipants(suggestion.participantUserIds); setOverrideViolations([]); }} className={`rounded-md border p-3 text-left hover:border-primary-400 hover:bg-primary-50 ${overrideDate === suggestion.preliminaryDate && overrideMethod === suggestion.surveyMethod && [...overrideParticipants].sort().join(",") === [...suggestion.participantUserIds].sort().join(",") ? "border-primary-500 bg-primary-50" : "border-primary-200 bg-primary-50/40"}`}>
             <div className="text-xs font-bold text-primary-700">{index + 1}순위</div>
             <div className="mt-1 font-semibold text-text-900">{suggestion.preliminaryDate} · {suggestion.surveyMethod === "field" ? "방문" : "유선"}</div>
             <div className="mt-1 text-sm text-text-700">{participantText(suggestion.participantUserIds)}</div>
             <div className="mt-1 text-xs text-text-500">{suggestionReason(suggestion.reasons)}</div>
-          </button>)}</div>}
+          </button>)}
+            <section aria-label="동선 정보" className="rounded-md border border-surface-200 bg-surface-50 p-3 text-sm text-text-700">
+              <h4 className="font-semibold text-text-900">동선 정보</h4>
+              <p className="mt-1 text-xs text-text-600">현재 수정값 · {overrideDate || "날짜 미선택"}</p>
+              {editingRouteItems.length === 0 ? <p className="mt-2 text-xs text-text-500">공통 직원의 같은 날짜 이동 동선이 없습니다.</p>
+                : <div className="mt-2 space-y-2">{editingRouteItems.map((item) => <div key={item.key} title={item.detail} className="border-t border-surface-200 pt-2 first:border-t-0 first:pt-0">
+                  <div className="font-medium text-text-900">{item.label}</div>
+                  <div className="text-xs">{item.date} · 공통 {item.shared} · {item.verdict}</div>
+                  <div className="text-xs text-text-500">{item.reason}</div>
+                </div>)}</div>}
+            </section>
+          </div>
         </div>
         <div className="mb-2 text-sm font-semibold text-text-900">직접 수정</div>
         {overrideViolations.length > 0 && <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"><div className="font-medium">확인할 위반사항</div><ul className="mt-1 list-disc pl-5">{overrideViolations.map((violation) => <li key={violation}>{violationText(violation)}</li>)}</ul></div>}

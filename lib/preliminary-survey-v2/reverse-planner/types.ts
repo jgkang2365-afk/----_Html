@@ -1,5 +1,5 @@
-export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.7";
-export const PRELIMINARY_SURVEY_CANONICAL_SHA = "b483cd6fac6d4e5ed243cfbd9764cf2bb98f9c77";
+export const REVERSE_PLANNER_VERSION = "fixed-assignee-reverse-planner-v1.3.8";
+export const PRELIMINARY_SURVEY_CANONICAL_SHA = "21033983864fed55c915dfe7be31687291edbe73";
 
 export type ReversePlannerDecision = "AUTO_ASSIGNED" | "ADMIN_OVERRIDE_KEPT" | "MANUAL_REQUIRED" | "SOURCE_INVALID";
 export type ReversePlannerMutation = "KEEP_EXISTING" | "CREATE" | "REPLACE" | "NONE";
@@ -63,6 +63,7 @@ export interface PlannerRouteEvidence {
 }
 export type RouteRequirementReason =
   | "ACTUAL_MEASUREMENT_TEAM_OVERLAP"
+  | "ACTUAL_MEASUREMENT_FIELD_VISIT_OVERLAP"
   | "PRELIMINARY_FIELD_VISIT_OVERLAP"
   | "EXISTING_FIELD_OCCUPANCY_OVERLAP"
   | "MEASUREMENT_ASSIGNEE_SECOND_ASSIGNMENT";
@@ -101,6 +102,7 @@ export interface PlanningSnapshot {
   existingPublicSampleAssignments: ExistingPublicSampleAssignment[];
 }
 export type PlannerObjective = readonly [
+  measurementVisitFallbackCount: number,
   fallbackCount: number,
   changedPlanCount: number,
   experiencedMeasurementSoloPenalty: number,
@@ -130,4 +132,10 @@ export interface ReversePlannerOutput {
   routeEvidence?: PlannerRouteEvidence[];
   previewToken?: string;
   routeProviderConfigured?: boolean;
+  routeContext?: {
+    sites: Array<{ targetId: number; code: string; name: string; address: string | null;
+      coordinate: { latitude: number; longitude: number } | null }>;
+    actualMeasurementOccupancy: ActualMeasurementOccupancy[];
+    existingSurveyOccupancy: ExistingSurveyOccupancy[];
+  };
 }

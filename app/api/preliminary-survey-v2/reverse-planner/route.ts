@@ -188,6 +188,10 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
   return {
     snapshot,
     rawTargets: planningTargets,
+    routeSites: snapshotTargets.map((target: any) => ({ targetId: Number(target.id),
+      code: String(target.code), name: String(target.business_name), address: target.address == null ? null : String(target.address),
+      coordinate: coordinateByCode.get(String(target.code)) ?? (target.latitude != null && target.longitude != null
+        ? { latitude: Number(target.latitude), longitude: Number(target.longitude) } : null) })),
   };
 }
 
@@ -343,7 +347,7 @@ function parseReviewAdjustments(snapshot: PlanningSnapshot, value: unknown) {
         responsibleUserId,
         reviewerUserId,
         writerUserId,
-        objective: [0, 0, 0, 0, 0, 0, 0] as const,
+        objective: [0, 0, 0, 0, 0, 0, 0, 0] as const,
         reasons: ["USER_REVIEW_ADJUSTMENT"],
       };
       localViolations.push(...validateCandidateHardRules(snapshot, target, candidate));
@@ -407,7 +411,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const measurementDate = String(body.measurementDate ?? "");
     if (!DATE_ONLY.test(measurementDate)) return NextResponse.json({ error: "실제 측정일이 필요합니다." }, { status: 400 });
-    let { snapshot } = await loadSnapshot(supabase, measurementDate,
+    let { snapshot, routeSites } = await loadSnapshot(supabase, measurementDate,
       body.action === "confirm_fixed" || body.action === "release_fixed" ? "display" : "calculation");
 
     if (body.action === "confirm_fixed") {
@@ -531,6 +535,8 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json({ ...output, routeStats: resolved.stats,
         routeEvidence: resolved.snapshot.routeEvidence, previewToken,
+        routeContext: { sites: routeSites, actualMeasurementOccupancy: resolved.snapshot.actualMeasurementOccupancy,
+          existingSurveyOccupancy: resolved.snapshot.existingSurveyOccupancy },
         routeProviderConfigured: Boolean(process.env.KAKAO_REST_API_KEY) });
     }
     if (body.action !== "apply" && body.action !== "override" && body.action !== "validate_adjustment"
@@ -673,7 +679,7 @@ export async function POST(request: NextRequest) {
         responsibleUserId,
         reviewerUserId,
         writerUserId: overrideWriter?.id ?? responsibleUserId,
-        objective: [0, 0, 0, 0, 0, 0, 0] as const,
+        objective: [0, 0, 0, 0, 0, 0, 0, 0] as const,
         reasons: ["ADMIN_EXPLICIT_OVERRIDE"],
       };
       const violations = [...new Set([

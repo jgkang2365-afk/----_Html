@@ -123,6 +123,29 @@ test("동일주소 shared-person pair는 외부 Route 호출 없이 해결한다
   }
 });
 
+test("선택된 측정일 연계 방문만 실제 측정↔예비조사 route 요구로 수집한다", async () => {
+  const date = candidateDates("2026-09-16", "first_measurement").primary[0];
+  const planned = target({ days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 2, confirmedAt: "x", updatedAt: "x" }] });
+  const dates = candidateDates("2026-09-16", "first_measurement").primary;
+  const snapshot = fixture({ targets: [planned], actualMeasurementOccupancy: [
+    { targetId: 20, businessCode: "H0020", address: "대전광역시 중구 2", date, participantUserIds: [2] },
+  ], scheduleBlocks: dates.filter((item) => item !== date).map((item) =>
+    ({ userId: 2, startDate: item, endDate: item })) });
+  const provisional = planPreliminarySurveyGivenFixedAssignments(snapshot, { allowMissingRouteEvidence: true });
+  assert.equal(provisional.results[0].candidate?.preliminaryDate, date);
+  const required = collectRequiredRoutePairs(snapshot, provisional);
+  assert.equal(required.length, 1);
+  assert.ok(required[0].reasons.includes("ACTUAL_MEASUREMENT_FIELD_VISIT_OVERLAP"));
+  let calls = 0;
+  const resolved = await resolveLazyRouteEvidence(snapshot, { routes: fakeRoutes(async () => {
+    calls += 1;
+    return vehicle(42);
+  }) });
+  assert.equal(calls, 1);
+  assert.equal(resolved.snapshot.routeEvidence.find((item) => item.date === date)?.durationMinutes, 42);
+});
+
 test("H0248/H0249처럼 주소 부가표현이 달라도 저장 좌표가 같으면 Route를 호출하지 않는다", async () => {
   const coordinate = { latitude: 36.876543210123, longitude: 127.123456789012 };
   const routes = fakeRoutes(async () => { throw new Error("동일현장에는 차량경로를 조회하지 않는다"); });

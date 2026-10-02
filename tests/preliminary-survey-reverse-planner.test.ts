@@ -91,6 +91,82 @@ test("H0274 기존업체 유선은 작성 카운터가 높아도 경력 측정�
   assert.equal(selected.reviewerUserId, null);
 });
 
+test("H0537 타기관 신규는 경력 실제측정자 한기문 단독 방문을 우선한다", () => {
+  const h0537 = target({ id: 537, code: "H0537", name: "삼원피에치", businessType: "external_new",
+    days: [{ date: "2026-10-12", collaboratorUserIds: [4], reportWriterUserId: 4 }],
+    fixedAssignments: [{ targetId: 537, measurementDate: "2026-10-12", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" }] });
+  const chosen = resultFor(fixture({ targets: [h0537], writingCounters: { "4": 100 } }), 537).candidate!;
+  assert.deepEqual(chosen.participantUserIds, [4]);
+  assert.equal(chosen.responsibleUserId, 4);
+  assert.equal(chosen.writerUserId, 4);
+  assert.equal(chosen.reviewerUserId, null);
+});
+
+test("방문 후보는 유선 reviewer 선호 매핑으로 한기문 조합을 가산하지 않는다", () => {
+  const field = target({ businessType: "external_new",
+    days: [{ date: "2026-10-12", collaboratorUserIds: [6], reportWriterUserId: 6 }],
+    fixedAssignments: [{ targetId: 10, measurementDate: "2026-10-12", assigneeUserId: 6, confirmedAt: "x", updatedAt: "x" }] });
+  const candidates = rankedCandidatesForTarget(fixture({ targets: [field] }), field);
+  const date = candidates[0].preliminaryDate;
+  const withLee = candidates.find((item) => item.preliminaryDate === date && item.reviewerUserId === 2)!;
+  const withHan = candidates.find((item) => item.preliminaryDate === date && item.reviewerUserId === 4)!;
+  assert.equal(withLee.objective[5], withHan.objective[5]);
+});
+
+test("경력 측정자 단독이 일정상 불가하면 허용된 경력+비경력 방문 조합을 탐색한다", () => {
+  const field = target({ businessType: "external_new",
+    days: [
+      { date: "2026-10-12", collaboratorUserIds: [4], reportWriterUserId: 4 },
+      { date: "2026-10-13", collaboratorUserIds: [6], reportWriterUserId: 6 },
+    ],
+    fixedAssignments: [
+      { targetId: 10, measurementDate: "2026-10-12", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" },
+      { targetId: 10, measurementDate: "2026-10-13", assigneeUserId: 6, confirmedAt: "x", updatedAt: "x" },
+    ] });
+  const dates = candidateDates("2026-10-12", "external_new");
+  const scheduleBlocks = [...dates.primary, ...dates.fallback].map((date) =>
+    ({ userId: 4, startDate: date, endDate: date }));
+  const selected = resultFor(fixture({ targets: [field], scheduleBlocks })).candidate!;
+  assert.equal(selected.responsibleUserId, 6);
+  assert.equal(selected.participantUserIds.length, 2);
+  assert.notEqual(selected.reviewerUserId, 4);
+});
+
+test("측정일 연계 방문은 정상 날짜보다 뒤이며 60분 이하 검증 시에만 마지막 후보가 된다", () => {
+  const visitDate = candidateDates("2026-10-12", "external_new").primary[0];
+  const h0537 = target({ id: 537, code: "H0537", businessType: "external_new", address: "충남 천안시 B",
+    days: [{ date: "2026-10-12", collaboratorUserIds: [4], reportWriterUserId: 4 }],
+    fixedAssignments: [{ targetId: 537, measurementDate: "2026-10-12", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" }] });
+  const occupancy = { targetId: 125, businessCode: "H0125", address: "충남 천안시 A", date: visitDate,
+    participantUserIds: [4] };
+  const evidence = { date: visitDate, leftTargetId: 125, rightTargetId: 537, sameAddress: false,
+    durationMinutes: 42, provider: "vehicle", capturedAt: "x" };
+  const base = fixture({ targets: [h0537], actualMeasurementOccupancy: [occupancy], routeEvidence: [evidence] });
+  assert.notEqual(resultFor(base, 537).candidate?.preliminaryDate, visitDate);
+  const allDates = candidateDates("2026-10-12", "external_new");
+  const otherDates = [...allDates.primary, ...allDates.fallback].filter((date) => date !== visitDate);
+  const onlyVisit = { ...base, scheduleBlocks: otherDates.flatMap((date) => [4, 6].map((userId) =>
+    ({ userId, startDate: date, endDate: date }))) };
+  assert.equal(resultFor(onlyVisit, 537).candidate?.preliminaryDate, visitDate);
+  assert.ok(resultFor(onlyVisit, 537).candidate?.reasons.includes("MEASUREMENT_DAY_VISIT_FALLBACK"));
+  assert.equal(resultFor({ ...onlyVisit, routeEvidence: [] }, 537).candidate, null);
+  assert.equal(resultFor({ ...onlyVisit, routeEvidence: [],
+    actualMeasurementOccupancy: [{ ...occupancy, address: h0537.address }] }, 537)
+    .candidate?.preliminaryDate, visitDate);
+  assert.equal(resultFor({ ...onlyVisit, routeEvidence: [{ ...evidence, durationMinutes: 61 }] }, 537).candidate, null);
+  assert.equal(resultFor({ ...onlyVisit, routeEvidence: [{ ...evidence, durationMinutes: null,
+    provider: "route_unavailable" }] }, 537).candidate, null);
+  assert.equal(resultFor({ ...onlyVisit, routeEvidence: [{ ...evidence, durationMinutes: 20,
+    provider: "route_unavailable" }] }, 537).candidate, null);
+  assert.equal(resultFor({ ...onlyVisit, routeEvidence: [{ ...evidence, durationMinutes: 20 }] }, 537)
+    .candidate?.preliminaryDate, visitDate);
+  assert.equal(resultFor({ ...onlyVisit, actualMeasurementOccupancy: [occupancy,
+    { ...occupancy, targetId: 466, businessCode: "H0466", address: "충남 천안시 C" }] }, 537).candidate, null);
+  assert.equal(resultFor({ ...onlyVisit, existingSurveyOccupancy: [{ targetId: 466, businessCode: "H0466",
+    address: "충남 천안시 C", preliminaryDate: visitDate, surveyMethod: "field", participantUserIds: [4],
+    responsibleUserId: 4, reviewerUserId: null, writerUserId: 4, protected: false }] }, 537).candidate, null);
+});
+
 test("경력 측정자 단독이 불가 일정으로 막히면 기존 유선 경력 reviewer 조합을 탐색한다", () => {
   const hanmi = target({ id: 274, code: "H0274", days: [{ date: "2026-10-07", collaboratorUserIds: [4], reportWriterUserId: 4 }],
     fixedAssignments: [{ targetId: 274, measurementDate: "2026-10-07", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" }] });
@@ -171,7 +247,7 @@ test("공시료 담당자가 예비조사자에 포함되어야 하며 참여자
     days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
     fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 1, confirmedAt: "x", updatedAt: "x" }],
   })] });
-  const participantOnly = { preliminaryDate: "2026-08-20", surveyMethod: "phone" as const, participantUserIds: [2], responsibleUserId: 2, reviewerUserId: null, writerUserId: 2, objective: [0, 0, 0, 0, 0, 0, 0] as const, reasons: [] };
+  const participantOnly = { preliminaryDate: "2026-08-20", surveyMethod: "phone" as const, participantUserIds: [2], responsibleUserId: 2, reviewerUserId: null, writerUserId: 2, objective: [0, 0, 0, 0, 0, 0, 0, 0] as const, reasons: [] };
   assert.ok(validateCandidateHardRules(input, input.targets[0], participantOnly).includes("MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED"));
   assert.ok(resultFor(input).candidate?.participantUserIds.includes(1));
 });
@@ -650,7 +726,7 @@ test("fixed assignee가 빠지고 collaborator만 일치하면 자동 배정하�
   const candidate = {
     preliminaryDate: candidateDates("2026-09-16", "existing").primary[0], surveyMethod: "phone" as const,
     participantUserIds: [1, 2], responsibleUserId: 1, reviewerUserId: 2, writerUserId: 1,
-    objective: [0, 0, 0, 0, 0, 0, 0] as const, reasons: [],
+    objective: [0, 0, 0, 0, 0, 0, 0, 0] as const, reasons: [],
   };
   assert.ok(validateCandidateHardRules(input, input.targets[0], candidate)
     .includes("MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED"));
@@ -952,7 +1028,7 @@ test("사용자 검토 수정안은 forced candidate로 batch 재계산되어 �
   const input = fixture({ targets: [h0527] });
   const base = resultFor(input).candidate!;
   const forced = { ...base, preliminaryDate: candidateDates("2026-09-02", "first_measurement").primary[1],
-    objective: [0, 0, 0, 0, 0, 0, 0] as const, reasons: ["USER_REVIEW_ADJUSTMENT"] };
+    objective: [0, 0, 0, 0, 0, 0, 0, 0] as const, reasons: ["USER_REVIEW_ADJUSTMENT"] };
   const output = planPreliminarySurveyGivenFixedAssignments(input, { forcedCandidates: new Map([[10, forced]]) });
   assert.equal(output.results[0].decision, "AUTO_ASSIGNED");
   assert.equal(output.results[0].candidate?.preliminaryDate, forced.preliminaryDate);
@@ -971,6 +1047,19 @@ test("자동배정 UI는 정상 30분 이하 차량값을 숨기고 8개까지 �
   assert.match(route, /body\.action !== "validate_adjustment"/);
   assert.match(route, /USER_REVIEW_ADJUSTMENT/);
   assert.match(route, /forcedCandidates: parsedReview\.candidates/);
+});
+
+test("수정 패널의 동선 카드와 Preview 위치 문맥은 현재 추천 후보를 따라간다", () => {
+  const ui = readFileSync("components/features/FixedAssigneeReversePlanner.tsx", "utf8");
+  const route = readFileSync("app/api/preliminary-survey-v2/reverse-planner/route.ts", "utf8");
+  assert.match(ui, /aria-label="동선 정보"/);
+  assert.match(ui, /xl:grid-cols-4/);
+  assert.match(ui, /preview\.routeContext\?\.actualMeasurementOccupancy/);
+  assert.match(ui, /preview\.routeContext\?\.sites/);
+  assert.match(ui, /setOverrideDate\(suggestion\.preliminaryDate\)/);
+  assert.match(ui, /분 · 검토 필요/);
+  assert.match(ui, /실제 측정 ↔ 예비조사 방문/);
+  assert.match(route, /routeContext: \{ sites: routeSites, actualMeasurementOccupancy:/);
 });
 
 

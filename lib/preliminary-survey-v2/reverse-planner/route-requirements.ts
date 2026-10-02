@@ -73,9 +73,27 @@ export function collectRequiredRoutePairs(
       participantUserIds: item.participantUserIds }));
   addIndexedRequirements(result, [...selectedFieldVisits, ...externalFieldVisits], planningTargetIds,
     "PRELIMINARY_FIELD_VISIT_OVERLAP");
+  for (const visit of selectedFieldVisits) {
+    for (const measurement of snapshot.actualMeasurementOccupancy) {
+      if (measurement.date !== visit.date || measurement.targetId === visit.targetId) continue;
+      const shared = visit.participantUserIds.filter((id) => measurement.participantUserIds.includes(id));
+      if (!shared.length) continue;
+      const leftTargetId = Math.min(visit.targetId, measurement.targetId);
+      const rightTargetId = Math.max(visit.targetId, measurement.targetId);
+      const key = pairKey(visit.date, leftTargetId, rightTargetId);
+      const current = result.get(key) ?? { date: visit.date, leftTargetId, rightTargetId, reasons: [], sharedUserIds: [] };
+      if (!current.reasons.includes("ACTUAL_MEASUREMENT_FIELD_VISIT_OVERLAP")) {
+        current.reasons.push("ACTUAL_MEASUREMENT_FIELD_VISIT_OVERLAP");
+      }
+      current.sharedUserIds = [...new Set([...current.sharedUserIds, ...shared])].sort((left, right) => left - right);
+      current.reasons.sort();
+      result.set(key, current);
+    }
+  }
   const externalTargetIds = new Set(externalFieldVisits.map((item) => item.targetId));
   for (const requirement of result.values()) {
-    if (externalTargetIds.has(requirement.leftTargetId) || externalTargetIds.has(requirement.rightTargetId)) {
+    if (requirement.reasons.includes("PRELIMINARY_FIELD_VISIT_OVERLAP")
+        && (externalTargetIds.has(requirement.leftTargetId) || externalTargetIds.has(requirement.rightTargetId))) {
       requirement.reasons = requirement.reasons
         .filter((item) => item !== "PRELIMINARY_FIELD_VISIT_OVERLAP");
       if (!requirement.reasons.includes("EXISTING_FIELD_OCCUPANCY_OVERLAP")) {

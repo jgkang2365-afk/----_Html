@@ -1,6 +1,7 @@
 import { candidateDates, isScheduleBlocked } from "./candidate-dates";
 import { sourceFingerprint } from "./fingerprint";
 import { normalizePublicSampleCodes } from "./public-sample-code";
+import { samePhysicalSite } from "../same-site";
 import type {
   ExistingPlannerPlan,
   PlannerCandidate,
@@ -23,7 +24,7 @@ export const preferredReviewerByResponsible: Record<string, string> = {
 export function preferredReviewerNameForResponsible(responsibleName: string) {
   return preferredReviewerByResponsible[responsibleName] ?? null;
 }
-const ZERO_OBJECTIVE: PlannerObjective = [0, 0, 0, 0, 0, 0, 0];
+const ZERO_OBJECTIVE: PlannerObjective = [0, 0, 0, 0, 0, 0, 0, 0];
 const sortedTargets = (snapshot: PlanningSnapshot) => [...snapshot.targets]
   .sort((left, right) => natural.compare(left.code, right.code) || left.id - right.id);
 
@@ -101,6 +102,7 @@ export function validateCandidateHardRules(
   snapshot: PlanningSnapshot,
   target: PlannerTarget,
   candidate: PlannerCandidate,
+  allowMissingRouteEvidence = false,
 ): string[] {
   const violations: string[] = [];
   const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);
@@ -118,10 +120,30 @@ export function validateCandidateHardRules(
   if (scheduledWorkers.some((id) => isScheduleBlocked(id, candidate.preliminaryDate, snapshot.scheduleBlocks))) {
     violations.push("USER_UNAVAILABLE_ON_SURVEY_DATE");
   }
-  if (candidate.surveyMethod === "field" && snapshot.actualMeasurementOccupancy.some((occupancy) =>
-    occupancy.date === candidate.preliminaryDate
-    && occupancy.participantUserIds.some((id) => candidate.participantUserIds.includes(id)))) {
-    violations.push("ACTUAL_MEASUREMENT_CONFLICT");
+  if (candidate.surveyMethod === "field") {
+    const overlaps = snapshot.actualMeasurementOccupancy.filter((occupancy) =>
+      occupancy.date === candidate.preliminaryDate
+      && occupancy.participantUserIds.some((id) => candidate.participantUserIds.includes(id)));
+    for (const participantId of candidate.participantUserIds) {
+      if (new Set(overlaps.filter((item) => item.participantUserIds.includes(participantId))
+        .map((item) => item.targetId)).size > 1) violations.push("ACTUAL_MEASUREMENT_CONFLICT");
+    }
+    for (const occupancy of overlaps) {
+      const shared = candidate.participantUserIds.filter((id) => occupancy.participantUserIds.includes(id));
+      if (snapshot.existingSurveyOccupancy.some((item) => item.targetId !== target.id
+        && item.surveyMethod === "field" && item.preliminaryDate === candidate.preliminaryDate
+        && item.participantUserIds.some((id) => shared.includes(id)))) violations.push("ACTUAL_MEASUREMENT_CONFLICT");
+      if (samePhysicalSite(
+        { address: target.address, coordinate: target.coordinate ?? null },
+        { address: occupancy.address, coordinate: occupancy.coordinate ?? null },
+      )) continue;
+      const evidence = routeEvidence(snapshot, candidate.preliminaryDate, target.id, occupancy.targetId);
+      if (!evidence && !allowMissingRouteEvidence) violations.push("ROUTE_EVIDENCE_REQUIRED");
+      else if (evidence && (evidence.provider !== "vehicle"
+        || evidence.durationMinutes == null || evidence.durationMinutes > 60)) {
+        violations.push("ACTUAL_MEASUREMENT_CONFLICT");
+      }
+    }
   }
   return violations;
 }
@@ -138,16 +160,19 @@ function candidateObjective(
   const ranges = candidateDates(target.days[0]?.date ?? "", target.businessType);
   const fallback = ranges.fallback.includes(preliminaryDate) ? 1 : 0;
   const reportWriterIds = new Set(target.days.map((day) => day.reportWriterUserId).filter((id): id is number => id != null));
-  const reviewerPenalty = reviewer && preferredReviewerByResponsible[responsible.name] !== reviewer.name ? 1 : 0;
+  const reviewerPenalty = target.businessType === "existing" && reviewer
+    && preferredReviewerByResponsible[responsible.name] !== reviewer.name ? 1 : 0;
   const reportPenalty = participants.some((user) => reportWriterIds.has(user.id)) ? 0 : 1;
-  const experiencedMeasurementAssignee = target.businessType === "existing" && target.fixedAssignments.some((item) =>
+  const experiencedMeasurementAssignee = target.fixedAssignments.some((item) =>
     snapshot.users.some((user) => user.id === item.assigneeUserId && user.experienced));
   const soloPenalty = experiencedMeasurementAssignee && (participants.length !== 1
     || !measurementAssigneeIds(target).has(participants[0].id)) ? 1 : 0;
-  return [fallback, changedPlanCount, soloPenalty, 0, reviewerPenalty + reportPenalty, 0, 0];
+  const measurementVisitFallback = target.businessType !== "existing" && snapshot.actualMeasurementOccupancy.some((item) =>
+    item.date === preliminaryDate && item.participantUserIds.some((id) => participants.some((user) => user.id === id))) ? 1 : 0;
+  return [measurementVisitFallback, fallback, changedPlanCount, soloPenalty, 0, reviewerPenalty + reportPenalty, 0, 0];
 }
 
-function generatedCandidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
+function generatedCandidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget, allowMissingRouteEvidence = false): PlannerCandidate[] {
   const active = snapshot.users.filter((user) => user.active);
   const experienced = active.filter((user) => user.experienced);
   const novices = active.filter((user) => !user.experienced);
@@ -175,10 +200,13 @@ function generatedCandidatesFor(snapshot: PlanningSnapshot, target: PlannerTarge
       writerUserId: choice.writer.id,
       objective: candidateObjective(snapshot, target, choice.participants, choice.responsible, choice.reviewer, date, 1),
       reasons: [ranges.primary.includes(date) ? "PRIMARY_DATE" : "FALLBACK_DATE",
-        choice.reviewer ? "EXPERIENCED_AND_INEXPERIENCED" : "EXPERIENCED_SOLO"],
+        choice.reviewer ? "EXPERIENCED_AND_INEXPERIENCED" : "EXPERIENCED_SOLO",
+        ...(target.businessType !== "existing" && snapshot.actualMeasurementOccupancy.some((item) =>
+          item.date === date && item.participantUserIds.some((id) => choice.participants.some((user) => user.id === id)))
+          ? ["MEASUREMENT_DAY_VISIT_FALLBACK"] : [])],
     };
     return candidate;
-  })).filter((candidate) => validateCandidateHardRules(snapshot, target, candidate).length === 0)
+  })).filter((candidate) => validateCandidateHardRules(snapshot, target, candidate, allowMissingRouteEvidence).length === 0)
     .sort((left, right) => compareObjective(left.objective, right.objective)
       || (dateRank.get(left.preliminaryDate) ?? Number.MAX_SAFE_INTEGER)
         - (dateRank.get(right.preliminaryDate) ?? Number.MAX_SAFE_INTEGER)
@@ -186,9 +214,9 @@ function generatedCandidatesFor(snapshot: PlanningSnapshot, target: PlannerTarge
       || (left.reviewerUserId ?? 0) - (right.reviewerUserId ?? 0));
 }
 
-export function rankedCandidatesForTarget(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
-  const keep = existingCandidate(snapshot, target);
-  return [...(keep ? [keep] : []), ...generatedCandidatesFor(snapshot, target)];
+export function rankedCandidatesForTarget(snapshot: PlanningSnapshot, target: PlannerTarget, allowMissingRouteEvidence = false): PlannerCandidate[] {
+  const keep = existingCandidate(snapshot, target, allowMissingRouteEvidence);
+  return [...(keep ? [keep] : []), ...generatedCandidatesFor(snapshot, target, allowMissingRouteEvidence)];
 }
 
 function emptyCandidateReason(snapshot: PlanningSnapshot, target: PlannerTarget): ReversePlannerReason {
@@ -216,7 +244,7 @@ function existingAssignmentsCompatible(target: PlannerTarget, plan: ExistingPlan
     && plan.assignments.every((item) => fixed.get(item.measurementDate) === item.assigneeUserId);
 }
 
-function existingCandidate(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate | null {
+function existingCandidate(snapshot: PlanningSnapshot, target: PlannerTarget, allowMissingRouteEvidence = false): PlannerCandidate | null {
   const plan = target.existingPlan;
   if (!plan?.preliminaryDate || !existingAssignmentsCompatible(target, plan)) return null;
   const userById = new Map(snapshot.users.map((user) => [user.id, user]));
@@ -236,7 +264,7 @@ function existingCandidate(snapshot: PlanningSnapshot, target: PlannerTarget): P
       plan.reviewerUserId == null ? null : userById.get(plan.reviewerUserId) ?? null, plan.preliminaryDate, 0),
     reasons: ["KEEP_EXISTING"],
   };
-  return validateCandidateHardRules(snapshot, target, candidate).length === 0 ? candidate : null;
+  return validateCandidateHardRules(snapshot, target, candidate, allowMissingRouteEvidence).length === 0 ? candidate : null;
 }
 
 function existingAdminOverrideCandidate(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate | null {
@@ -258,7 +286,7 @@ function existingAdminOverrideCandidate(snapshot: PlanningSnapshot, target: Plan
     responsibleUserId: plan.responsibleUserId,
     reviewerUserId: plan.reviewerUserId,
     writerUserId: responsible.id,
-    objective: [0, 0, 0, 0, 0, 0, 0],
+    objective: [0, 0, 0, 0, 0, 0, 0, 0],
     reasons: ["ADMIN_EXPLICIT_OVERRIDE", "KEEP_EXISTING"],
   };
 }
@@ -307,6 +335,10 @@ function conflictsWithSelected(
   ];
   for (const participantId of candidate.participantUserIds) {
     const peers = fieldPeers.filter((peer) => peer.participantUserIds.includes(participantId));
+    if (snapshot.actualMeasurementOccupancy.some((item) => item.date === candidate.preliminaryDate
+      && item.participantUserIds.includes(participantId)) && peers.length > 0) {
+      return { blocked: true, phoneReuse: 0, longRouteCount: 0 };
+    }
     if (peers.length >= 2) return { blocked: true, phoneReuse: 0, longRouteCount: 0 };
     for (const peer of peers) {
       const evidence = routeEvidence(snapshot, candidate.preliminaryDate, target.id, peer.targetId);
@@ -332,6 +364,10 @@ export function validateCandidateForSave(snapshot: PlanningSnapshot, target: Pla
     const peers = external.filter((item) => item.surveyMethod === "field" && item.preliminaryDate === candidate.preliminaryDate);
     for (const participantId of candidate.participantUserIds) {
       const shared = peers.filter((peer) => peer.participantUserIds.includes(participantId));
+      if (snapshot.actualMeasurementOccupancy.some((item) => item.date === candidate.preliminaryDate
+        && item.participantUserIds.includes(participantId)) && shared.length > 0) {
+        violations.push("ACTUAL_MEASUREMENT_CONFLICT");
+      }
       if (shared.length >= 2) violations.push("FIELD_VISIT_CAPACITY_EXCEEDED");
       for (const peer of shared) {
         const evidence = routeEvidence(snapshot, candidate.preliminaryDate, target.id, peer.targetId);
@@ -362,7 +398,7 @@ function solveBatch(
     const minimum = candidates.reduce<PlannerObjective>((best, candidate) =>
       compareObjective(candidate.objective, best) < 0 ? candidate.objective : best,
     candidates[0].objective);
-    const compatible = candidates.filter((candidate) => [0, 1, 2, 3, 4].every((objectiveIndex) =>
+    const compatible = candidates.filter((candidate) => [0, 1, 2, 3, 4, 5].every((objectiveIndex) =>
       candidate.objective[objectiveIndex] === minimum[objectiveIndex]));
     minimumPriorityCandidates.set(targets[index].id, compatible);
     minimumPriorityCompatibleSuffix[index] = compatible.length > 0 && minimumPriorityCompatibleSuffix[index + 1];
@@ -409,7 +445,7 @@ function solveBatch(
         const writingLoad = Number(snapshot.writingCounters[String(candidate.writerUserId)] ?? 0)
           + (writerCounts.get(candidate.writerUserId) ?? 0);
         const nextObjective = addObjective(objective, addObjective(candidate.objective,
-          [0, 0, 0, conflict.phoneReuse, 0, writingLoad, conflict.longRouteCount]));
+          [0, 0, 0, 0, conflict.phoneReuse, 0, writingLoad, conflict.longRouteCount]));
         if (!chosen || compareObjective(nextObjective, chosen.objective) < 0) chosen = { candidate, objective: nextObjective };
       }
       if (!chosen) return;
@@ -429,14 +465,14 @@ function solveBatch(
     }
     if (bestObjective) {
       const staticLowerBound = addObjective(objective, minimumStaticSuffix[index]);
-      const priorityDifference = [0, 1, 2, 3, 4].map((objectiveIndex) =>
+      const priorityDifference = [0, 1, 2, 3, 4, 5].map((objectiveIndex) =>
         staticLowerBound[objectiveIndex] - bestObjective![objectiveIndex]).find((difference) => difference !== 0) ?? 0;
       if (priorityDifference > 0) return;
       if (priorityDifference === 0) {
         if (!minimumPriorityCompatibleSuffix[index]) return;
         const lowerBound: PlannerObjective = [
           staticLowerBound[0], staticLowerBound[1], staticLowerBound[2], staticLowerBound[3], staticLowerBound[4],
-          staticLowerBound[5] + remainingWritingLowerBound(index, selectedWriterCounts, true), staticLowerBound[6],
+          staticLowerBound[5], staticLowerBound[6] + remainingWritingLowerBound(index, selectedWriterCounts, true), staticLowerBound[7],
         ];
         if (compareObjective(lowerBound, bestObjective) >= 0) return;
       }
@@ -452,7 +488,7 @@ function solveBatch(
       if (conflict.blocked) continue;
       const selectedWriterCount = selectedWriterCounts.get(candidate.writerUserId) ?? 0;
       const writingLoad = Number(snapshot.writingCounters[String(candidate.writerUserId)] ?? 0) + selectedWriterCount;
-      const dynamic: PlannerObjective = [0, 0, 0, conflict.phoneReuse, 0, writingLoad, conflict.longRouteCount];
+      const dynamic: PlannerObjective = [0, 0, 0, 0, conflict.phoneReuse, 0, writingLoad, conflict.longRouteCount];
       selected.set(target.id, candidate);
       selectedWriterCounts.set(candidate.writerUserId, selectedWriterCount + 1);
       visit(index + 1, selected, addObjective(objective, addObjective(candidate.objective, dynamic)), selectedWriterCounts);
@@ -513,9 +549,9 @@ export function planPreliminarySurveyGivenFixedAssignments(
     else {
       const forced = options.forcedCandidates?.get(target.id);
       if (forced) {
-        choices.set(target.id, validateCandidateHardRules(snapshot, target, forced).length === 0 ? [forced] : []);
+        choices.set(target.id, validateCandidateHardRules(snapshot, target, forced, options.allowMissingRouteEvidence).length === 0 ? [forced] : []);
       } else {
-        choices.set(target.id, rankedCandidatesForTarget(snapshot, target));
+        choices.set(target.id, rankedCandidatesForTarget(snapshot, target, options.allowMissingRouteEvidence));
       }
     }
   }
