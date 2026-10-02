@@ -24,6 +24,7 @@ import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
 import { getDynamicEmailFontSize, splitEmails } from "@/lib/utils/email-utils";
 import { formatMeasurementPublicSampleAssignee, type PreliminarySurveyDisplayModel } from "@/lib/preliminary-survey-v2/display-model";
+import { formatMeasurementParticipants } from "@/lib/business/measurement-participant-display";
 
 
 // 금액 포맷팅 함수 (천단위 콤마)
@@ -120,7 +121,7 @@ const preliminaryDisplayOf = (entry: SummaryEntry): PreliminarySurveyDisplayMode
   preliminarySurveyors: entry.preliminary_surveyor || "-",
   measurementPublicSampleAssignee: entry.public_sample_measurer || "-",
   publicSampleCode: entry.survey_code || "-",
-  measurementParticipants: entry.actual_measurer || "-",
+  measurementParticipants: formatMeasurementParticipants(entry.actual_measurer, entry.report_writer, ", ", "-"),
   reportWriter: entry.report_writer || "-",
   source: "legacy",
 };

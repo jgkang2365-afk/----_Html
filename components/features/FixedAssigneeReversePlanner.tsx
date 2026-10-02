@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
+import { formatMeasurementParticipantsForDisplay, formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
 import { samePhysicalSite } from "@/lib/preliminary-survey-v2/same-site";
 import type {
   PlannerTarget,
@@ -686,7 +686,7 @@ export function FixedAssigneeReversePlanner({
                     {fixed?.nonParticipantConfirmed && <span className="shrink-0 text-xs font-semibold text-amber-700" title="측정 참여자가 아닌 직원을 선택했습니다.">⚠</span>}
                   </div>;
                 })}</td>
-                <td className="px-2 py-2 text-text-700">{target.days.map((day) => <div key={day.date}>{day.collaboratorUserIds.map((id) => userById.get(id)?.name).filter(Boolean).join(" · ") || "-"}</div>)}</td>
+                <td className="px-2 py-2 text-text-700">{target.days.map((day) => <div key={day.date}>{formatMeasurementParticipantsForDisplay(day.collaboratorUserIds.map((id) => userById.get(id)?.name).filter(Boolean), day.reportWriterUserId == null ? null : userById.get(day.reportWriterUserId)?.name)}</div>)}</td>
                 <td className="px-2 py-2 text-text-700">{target.days.map((day) => <div key={day.date}>{day.reportWriterUserId == null ? "-" : userById.get(day.reportWriterUserId)?.name ?? "-"}</div>)}</td>
                 <td className="bg-primary-50/50 px-2 py-2 text-base font-bold text-primary-900">{preliminaryDate ?? "-"}</td>
                 <td className="bg-primary-50/50 px-2 py-2 text-base font-bold text-primary-900">{participantText(surveyorIds)}</td>

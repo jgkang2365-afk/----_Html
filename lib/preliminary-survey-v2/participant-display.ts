@@ -1,3 +1,5 @@
+import { formatMeasurementParticipants } from "@/lib/business/measurement-participant-display";
+
 export interface PreliminarySurveyDisplayParticipant {
   name: string;
   experienced?: boolean | null;
@@ -31,4 +33,21 @@ export function formatPreliminarySurveyParticipantsForDisplay(
     .map((participant) => participant.name.trim())
     .filter(Boolean)
     .join(separator) || "-";
+}
+
+/** 공통 측정 참여자 표시순서 contract를 재사용한다. 원천 배열은 변경하지 않는다. */
+export function formatMeasurementParticipantsForDisplay(
+  rawParticipants: unknown,
+  reportWriter: unknown,
+  separator = " · ",
+): string {
+  const participants = Array.isArray(rawParticipants)
+    ? rawParticipants.map(String)
+    : typeof rawParticipants === "string" && rawParticipants !== "-" ? rawParticipants : "";
+  return formatMeasurementParticipants(
+    participants,
+    typeof reportWriter === "string" ? reportWriter : "",
+    separator,
+    "-",
+  );
 }

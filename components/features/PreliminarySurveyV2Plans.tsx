@@ -8,7 +8,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { FixedAssigneeReversePlanner } from "@/components/features/FixedAssigneeReversePlanner";
 import { useUser } from "@/hooks/use-user";
-import { formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
+import { formatMeasurementParticipantsForDisplay, formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
 import {
   adjacentMeasurementReferenceDate,
   currentDateInKst,
@@ -372,8 +372,12 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     row: WorkbenchRow,
     field: "mainMeasurer" | "measurementParticipants" | "reportWriter",
   ) => {
-    if (mode !== "list") return row[field] || "-";
-    return visibleMeasurementDays(row).map((day) => day[field] || "-").join(" · ") || "-";
+    if (mode !== "list") return field === "measurementParticipants"
+      ? formatMeasurementParticipantsForDisplay(row.measurementParticipants, row.reportWriter)
+      : row[field] || "-";
+    return visibleMeasurementDays(row).map((day) => field === "measurementParticipants"
+      ? formatMeasurementParticipantsForDisplay(day.measurementParticipants, day.reportWriter)
+      : day[field] || "-").join(" · ") || "-";
   }, [mode, visibleMeasurementDays]);
 
   const currentScope = useMemo(() => JSON.stringify({

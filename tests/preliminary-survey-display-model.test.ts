@@ -6,7 +6,29 @@ import {
   formatMeasurementPublicSampleAssignee,
   measurementRolesForDisplay,
 } from "../lib/preliminary-survey-v2/display-model";
-import { formatPreliminarySurveyParticipantsForDisplay } from "../lib/preliminary-survey-v2/participant-display";
+import { formatMeasurementParticipantsForDisplay, formatPreliminarySurveyParticipantsForDisplay } from "../lib/preliminary-survey-v2/participant-display";
+
+test("측정 참여자는 실제 참여 보고서 담당자를 먼저 표시하고 원천 순서는 보존한다", () => {
+  const participants = ["김민영", "이주형"];
+  assert.equal(formatMeasurementParticipantsForDisplay(participants, "이주형"), "이주형 · 김민영");
+  assert.equal(formatMeasurementParticipantsForDisplay(["한기문", "김민영"], "김민영"), "김민영 · 한기문");
+  assert.deepEqual(participants, ["김민영", "이주형"]);
+});
+
+test("보고서 담당이 미참여이면 승인 우선순위와 기타 인원의 원래 순서를 적용한다", () => {
+  assert.equal(formatMeasurementParticipantsForDisplay("김민영, 강종구, 이주형", "한기문"), "이주형 · 강종구 · 김민영");
+  assert.equal(formatMeasurementParticipantsForDisplay("박신규, 김민영, 최지원, 박신규", "한기문"), "김민영 · 박신규 · 최지원");
+  assert.equal(formatMeasurementParticipantsForDisplay(" 김민영,  이주형, 김민영 ", "한기문"), "이주형 · 김민영");
+  assert.equal(formatMeasurementParticipantsForDisplay([], "한기문"), "-");
+});
+
+test("자동배정·작업대 표시가 공통 참여자 표시 정책을 사용한다", () => {
+  const planner = readFileSync("components/features/FixedAssigneeReversePlanner.tsx", "utf8");
+  const plans = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
+  assert.match(planner, /formatMeasurementParticipantsForDisplay\(day\.collaboratorUserIds/);
+  assert.match(plans, /formatMeasurementParticipantsForDisplay\(day\.measurementParticipants, day\.reportWriter\)/);
+  assert.match(plans, /formatMeasurementParticipantsForDisplay\(row\.measurementParticipants, row\.reportWriter\)/);
+});
 
 test("예비조사자 표시는 경력자→비경력자이며 같은 분류의 source order를 유지한다", () => {
   const format = (left: string, leftExperienced: boolean, right: string, rightExperienced: boolean) =>

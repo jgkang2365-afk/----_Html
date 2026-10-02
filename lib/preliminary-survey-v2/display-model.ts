@@ -2,7 +2,7 @@ import {
   measurementDayFormsFrom,
   type MeasurementDaySource,
 } from "@/lib/business/measurement-day-form";
-import { formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
+import { formatMeasurementParticipantsForDisplay, formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
 
 /** 예비조사 V2와 legacy fallback을 측정일지 화면에서 같은 의미로 표현한다. */
 export interface PreliminarySurveyDisplayModel {
@@ -77,7 +77,7 @@ export function buildPreliminarySurveyDisplayModel(input: {
     ),
     measurementPublicSampleAssignee: text(source?.measurementPublicSampleAssignee) || "-",
     publicSampleCode: text(source?.publicSampleCode) || "-",
-    measurementParticipants: names(source?.measurementParticipants),
+    measurementParticipants: formatMeasurementParticipantsForDisplay(source?.measurementParticipants, source?.reportWriter, ", "),
     reportWriter: text(source?.reportWriter) || "-",
     source: hasV2 ? "v2" : source ? "legacy" : "none",
   };

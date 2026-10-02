@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { measurementDayFormsFrom } from "../lib/business/measurement-day-form";
+import { formatMeasurementParticipantsForDisplay } from "../lib/preliminary-survey-v2/participant-display";
 import {
   matchesMeasurementDateRange,
   measurementDatesInRange,
@@ -41,4 +43,21 @@ test("workbench는 한 target row에 실제 측정일과 날짜별 표시 문맥
   assert.match(ui, /measurementDateText\(row\)/);
   assert.match(ui, /measurementDayText\(row, "mainMeasurer"\)/);
   assert.match(ui, /measurementDayText\(row, "measurementParticipants"\)/);
+  assert.match(api, /reportWriter: reportWriterForDate\(measurementDate\)/);
+  assert.match(api, /reportWriter: reportWriterForDate\(String\(target\.measurement_date/);
+});
+
+test("다일 측정은 해당 날짜의 보고서 담당자만 참여자 선두에 표시한다", () => {
+  const days = measurementDayFormsFrom({
+    measurementDate: "2026-10-13",
+    measurerId: 99,
+    collaborators: "한기문",
+    dailyStaff: [
+      { date: "2026-10-13", measurer_id: 13, collaborators: ["김민영", "이주형"] },
+      { date: "2026-10-14", measurer_id: 15, collaborators: ["한기문", "김민영"] },
+    ],
+  });
+  const names = new Map([[13, "이주형"], [15, "김민영"]]);
+  assert.equal(formatMeasurementParticipantsForDisplay(days[0].collaborators, names.get(days[0].measurerId!)), "이주형 · 김민영");
+  assert.equal(formatMeasurementParticipantsForDisplay(days[1].collaborators, names.get(days[1].measurerId!)), "김민영 · 한기문");
 });

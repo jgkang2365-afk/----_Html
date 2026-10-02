@@ -9,6 +9,7 @@ import {
 import { v2BusinessKindLabel } from "@/lib/preliminary-survey-v2/presentation";
 import { parseDateOnly, recommendationDatesForBusinessType } from "@/lib/preliminary-survey-v2/calendar";
 import { measurementStaffForDate } from "@/lib/preliminary-survey-v2/measurement-staff";
+import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
 import { loadActualMeasurementBlockedKeys } from "@/lib/preliminary-survey-v2/measurement-conflicts";
 import { storedPlanWorkbenchState } from "@/lib/preliminary-survey-v2/workbench-status";
 import { buildScheduleBlockKeys } from "@/lib/preliminary-survey-v2/availability";
@@ -814,6 +815,16 @@ export async function GET(request: NextRequest) {
         collaborators: target.collaborators,
         userNameById,
       });
+      const roleDays = measurementDayFormsFrom({
+        dailyStaff: target.daily_staff,
+        measurementDate: target.measurement_date,
+        measurerId: target.measurer_id,
+        collaborators: target.collaborators,
+      });
+      const reportWriterForDate = (date: string) => {
+        const writerId = roleDays.find((day) => day.date === date)?.measurerId;
+        return writerId == null ? "-" : userNameById.get(writerId) ?? "-";
+      };
       const sourceContext = plan?.recommendation_reason?.sourceContext;
       const stale = Boolean(plan && (
         plan.source_measurement_date !== target.measurement_date ||
@@ -912,7 +923,7 @@ export async function GET(request: NextRequest) {
           mainMeasurer: dayMeasurementAssigneeDisplay.label,
           mainMeasurerSource: dayMeasurementAssigneeDisplay.source,
           measurementParticipants: dayStaff.measurementParticipants,
-          reportWriter: userNameById.get(Number(target.measurer_id)) ?? "-",
+          reportWriter: reportWriterForDate(measurementDate),
         };
       });
       return {
@@ -932,7 +943,7 @@ export async function GET(request: NextRequest) {
         mainMeasurer: measurementAssigneeDisplay.label,
         mainMeasurerSource: measurementAssigneeDisplay.source,
         measurementParticipants: staff.measurementParticipants,
-        reportWriter: userNameById.get(Number(target.measurer_id)) ?? "-",
+        reportWriter: reportWriterForDate(String(target.measurement_date ?? "")),
         status: presentationState.status,
         conflict: warnings.join(" · ") || null,
         conflicts: warnings,
