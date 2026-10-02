@@ -15,6 +15,7 @@ import type {
 interface FixedAssigneeReversePlannerProps {
   isOpen: boolean;
   initialMeasurementDate: string;
+  initialTargetId?: number | null;
   onClose: () => void;
   onApplied: () => void | Promise<void>;
 }
@@ -125,6 +126,7 @@ function collapseRouteWarnings(items: RouteWarning[]) {
 export function FixedAssigneeReversePlanner({
   isOpen,
   initialMeasurementDate,
+  initialTargetId = null,
   onClose,
   onApplied,
 }: FixedAssigneeReversePlannerProps) {
@@ -148,6 +150,7 @@ export function FixedAssigneeReversePlanner({
   const [reviewSuggestions, setReviewSuggestions] = useState<ReviewSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
+  const [targetEditOpened, setTargetEditOpened] = useState(false);
 
   const userById = useMemo(() => new Map((snapshot?.users ?? []).map((user) => [user.id, user])), [snapshot]);
   const participantText = useCallback((ids: number[]) => formatPreliminarySurveyParticipantsForDisplay(ids.map((id) => ({
@@ -169,6 +172,7 @@ export function FixedAssigneeReversePlanner({
     setPreview(null);
     setRepairDrafts([]);
     setOverrideTargetId(null);
+    setTargetEditOpened(false);
     try {
       const result = await request(`/api/preliminary-survey-v2/reverse-planner?measurementDate=${date}`);
       setSnapshot(result.snapshot);
@@ -176,13 +180,24 @@ export function FixedAssigneeReversePlanner({
       setReviewSuggestions([]);
       setSuggestionError(null);
       setCanOverride(result.canOverride === true);
+      if (initialTargetId != null) {
+        const target = result.snapshot.targets.find((item: PlannerTarget) => item.id === initialTargetId);
+        if (!result.canOverride || !target?.existingPlan || target.protected) {
+          throw new Error("관리자가 수정할 수 있는 가확정 계획을 찾지 못했습니다.");
+        }
+        const calculated = await request("/api/preliminary-survey-v2/reverse-planner", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "preview", measurementDate: date }),
+        });
+        setPreview(calculated);
+      }
     } catch (caught) {
       setSnapshot(null);
       setError(caught instanceof Error ? caught.message : "배정 대상을 불러오지 못했습니다.");
     } finally {
       setWorking(false);
     }
-  }, [request]);
+  }, [initialTargetId, request]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -289,6 +304,7 @@ export function FixedAssigneeReversePlanner({
 
   const applyPreview = async () => {
     if (!preview) return;
+    if (initialTargetId != null && !window.confirm("검증한 가확정 수정안을 저장하시겠습니까?")) return;
     setWorking(true);
     setError(null);
     try {
@@ -297,12 +313,14 @@ export function FixedAssigneeReversePlanner({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "apply", measurementDate, sourceFingerprint: preview.sourceFingerprint,
+          targetId: initialTargetId,
           previewToken: preview.previewToken, reviewAdjustments: [...reviewAdjustments.values()],
         }),
       });
       let repairedCount = 0;
       let repairError: string | null = null;
-      const repairable: any[] = repairDrafts.filter((draft) => draft.classification === "MISSING_DOCUMENTARY_INFO");
+      const repairable: any[] = initialTargetId == null
+        ? repairDrafts.filter((draft) => draft.classification === "MISSING_DOCUMENTARY_INFO") : [];
       if (repairable.length) {
         try {
           const repairResult = await request("/api/preliminary-survey-v2/confirmed-document-repair", {
@@ -372,14 +390,19 @@ export function FixedAssigneeReversePlanner({
       ...day.collaboratorUserIds,
       ...target.fixedAssignments.filter((fixed) => fixed.measurementDate === day.date).map((fixed) => fixed.assigneeUserId),
     ]) ?? [])];
+    const persistedFirst = initialTargetId === targetId;
     const participants = adjustment?.participantUserIds
-      ?? candidate?.participantUserIds ?? plan?.participantUserIds ?? repair?.participantUserIds ?? team.slice(0, 1);
+      ?? (persistedFirst ? plan?.participantUserIds ?? candidate?.participantUserIds
+        : candidate?.participantUserIds ?? plan?.participantUserIds)
+      ?? repair?.participantUserIds ?? team.slice(0, 1);
     setOverrideTargetId(targetId);
-    setOverrideDate(adjustment?.preliminaryDate ?? candidate?.preliminaryDate ?? plan?.preliminaryDate ?? repair?.recommendedDate ?? "");
-    setOverrideMethod(candidate?.surveyMethod ?? plan?.surveyMethod ?? repair?.surveyMethod
+    setOverrideDate(adjustment?.preliminaryDate ?? (persistedFirst ? plan?.preliminaryDate ?? candidate?.preliminaryDate
+      : candidate?.preliminaryDate ?? plan?.preliminaryDate) ?? repair?.recommendedDate ?? "");
+    setOverrideMethod((persistedFirst ? plan?.surveyMethod ?? candidate?.surveyMethod : candidate?.surveyMethod ?? plan?.surveyMethod) ?? repair?.surveyMethod
       ?? (target?.businessType === "existing" ? "phone" : "field"));
-    setOverrideResponsible(candidate?.responsibleUserId ?? plan?.responsibleUserId ?? repair?.responsibleUserId ?? team[0] ?? null);
-    setOverrideReviewer(candidate?.reviewerUserId ?? plan?.reviewerUserId ?? repair?.experiencedReviewerUserId ?? null);
+    setOverrideResponsible((persistedFirst ? plan?.responsibleUserId ?? candidate?.responsibleUserId : candidate?.responsibleUserId ?? plan?.responsibleUserId) ?? repair?.responsibleUserId ?? team[0] ?? null);
+    setOverrideReviewer(persistedFirst && plan ? plan.reviewerUserId
+      : candidate?.reviewerUserId ?? plan?.reviewerUserId ?? repair?.experiencedReviewerUserId ?? null);
     setOverrideParticipants(participants);
     setOverrideReason("");
     setOverrideViolations([]);
@@ -388,6 +411,15 @@ export function FixedAssigneeReversePlanner({
     setError(null);
     void loadReviewSuggestions(targetId);
   };
+
+  useEffect(() => {
+    if (!isOpen || initialTargetId == null || !snapshot || !preview || targetEditOpened) return;
+    if (!snapshot.targets.some((target) => target.id === initialTargetId)) return;
+    setTargetEditOpened(true);
+    openOverride(initialTargetId);
+  // openOverride reads the freshly loaded snapshot and Preview; only one opening is allowed per load.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialTargetId, snapshot, preview, targetEditOpened]);
 
   const stageAdjustment = async () => {
     if (!preview || overrideTargetId == null) return;
@@ -463,7 +495,8 @@ export function FixedAssigneeReversePlanner({
       try {
         await onApplied();
         setNotice("예외 처리를 저장했습니다.");
-        await load(measurementDate);
+        if (initialTargetId != null) onClose();
+        else await load(measurementDate);
       } catch {
         setNotice("예외 처리는 완료되었습니다. 목록 새로고침에 실패했습니다. 다시 조회해 주세요.");
       }
@@ -480,29 +513,32 @@ export function FixedAssigneeReversePlanner({
   const autoCount = autoResultCount + repairableCount;
   const reviewCount = (preview ? preview.results.length - autoResultCount - adminOverrideKeptCount : 0)
     + repairDrafts.filter((draft) => draft.classification !== "MISSING_DOCUMENTARY_INFO" && draft.classification !== "COMPLETE").length;
-  const canApply = Boolean(preview?.results.some((result) => result.decision === "AUTO_ASSIGNED"
-    && (result.mutation === "CREATE" || result.mutation === "REPLACE")) || repairableCount > 0 || reviewAdjustments.size > 0);
-  const snapshotTargetCount = snapshot?.targets.length ?? 0;
+  const canApply = initialTargetId != null
+    ? reviewAdjustments.has(initialTargetId) && Boolean(preview?.results.some((result) =>
+      result.targetId === initialTargetId && result.decision === "AUTO_ASSIGNED" && result.mutation === "REPLACE"))
+    : Boolean(preview?.results.some((result) => result.decision === "AUTO_ASSIGNED"
+      && (result.mutation === "CREATE" || result.mutation === "REPLACE")) || repairableCount > 0 || reviewAdjustments.size > 0);
+  const snapshotTargetCount = initialTargetId == null ? snapshot?.targets.length ?? 0 : 1;
 
   return <Modal
     isOpen={isOpen}
     onClose={onClose}
-    title={`${dateLabel(measurementDate)} 예비조사 자동 배정`}
+    title={initialTargetId == null ? `${dateLabel(measurementDate)} 예비조사 자동 배정` : "가확정 예비조사 수정"}
     size="full"
     bodyScroll={false}
   >
     <div className={`${overrideTargetId != null ? "overflow-y-auto pr-1" : "overflow-hidden"} flex h-[calc(92vh-108px)] min-h-0 flex-col gap-2 pt-2`} data-testid="preliminary-survey-auto-assignment-modal">
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-surface-200 bg-surface-50 p-2">
-        <Button size="sm" variant="secondary" onClick={() => changeMeasurementDate(moveDate(measurementDate, -1))} disabled={working}>◀ 이전일</Button>
+        {initialTargetId == null && <Button size="sm" variant="secondary" onClick={() => changeMeasurementDate(moveDate(measurementDate, -1))} disabled={working}>◀ 이전일</Button>}
         <input aria-label="자동 배정 실제 측정일" type="date" value={measurementDate}
-          onChange={(event) => changeMeasurementDate(event.target.value)}
+          onChange={(event) => changeMeasurementDate(event.target.value)} disabled={initialTargetId != null}
           className="h-9 rounded-md border border-surface-300 bg-white px-3 text-sm font-medium" />
-        <Button size="sm" variant="secondary" onClick={() => changeMeasurementDate(moveDate(measurementDate, 1))} disabled={working}>다음일 ▶</Button>
-        <span className="text-sm font-medium text-text-700">대상 사업장 {snapshot?.targets.length ?? 0}개</span>
+        {initialTargetId == null && <Button size="sm" variant="secondary" onClick={() => changeMeasurementDate(moveDate(measurementDate, 1))} disabled={working}>다음일 ▶</Button>}
+        <span className="text-sm font-medium text-text-700">{initialTargetId == null ? `대상 사업장 ${snapshot?.targets.length ?? 0}개` : `${snapshot?.targets.find((target) => target.id === initialTargetId)?.code ?? ""} ${snapshot?.targets.find((target) => target.id === initialTargetId)?.name ?? ""}`}</span>
         <div className="ml-auto flex items-center gap-3">
           {preview && <div className="text-sm text-text-700"><strong className="text-emerald-700">배정 가능 {autoCount}건</strong>{adminOverrideKeptCount > 0 && <span className="ml-3 font-medium text-blue-700">관리자 지정 유지 {adminOverrideKeptCount}건</span>}{reviewCount > 0 && <span className="ml-3 font-medium text-amber-700">확인 필요 {reviewCount}건</span>}</div>}
-          <Button size="sm" onClick={createPreview} disabled={working || !snapshot?.targets.length}>배정안 계산</Button>
-          <Button size="sm" onClick={applyPreview} disabled={working || !canApply}>배정 확정</Button>
+          {initialTargetId == null && <Button size="sm" onClick={createPreview} disabled={working || !snapshot?.targets.length}>배정안 계산</Button>}
+          <Button size="sm" onClick={applyPreview} disabled={working || !canApply}>{initialTargetId == null ? "배정 확정" : "수정 저장"}</Button>
         </div>
       </div>
 
@@ -528,10 +564,11 @@ export function FixedAssigneeReversePlanner({
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-200">
-            {(snapshot?.targets ?? []).map((target) => {
+            {(snapshot?.targets ?? []).filter((target) => initialTargetId == null || target.id === initialTargetId).map((target) => {
               const result = preview?.results.find((item) => item.targetId === target.id);
               const repair = repairDrafts.find((item) => Number(item.targetId) === target.id) as any;
-              const candidate = result?.candidate;
+              const candidate = initialTargetId === target.id && !reviewAdjustments.has(target.id)
+                ? null : result?.candidate;
               const plan = target.existingPlan;
               const preliminaryDate = candidate?.preliminaryDate ?? plan?.preliminaryDate ?? repair?.recommendedDate ?? null;
               const surveyorIds = candidate?.participantUserIds ?? plan?.participantUserIds ?? repair?.participantUserIds ?? [];
@@ -612,6 +649,11 @@ export function FixedAssigneeReversePlanner({
 
       {overrideTargetId != null && <div className="rounded-lg border border-primary-200 bg-primary-50/30 p-4">
         <div className="mb-3 flex items-center justify-between"><div><h3 className="font-semibold text-text-900">배정안 수정</h3><p className="mt-1 text-xs text-text-600">정상 수정안은 Preview에만 반영되며 배정 확정 전에는 저장되지 않습니다.</p></div><button type="button" className="text-sm text-text-600" onClick={() => setOverrideTargetId(null)}>닫기</button></div>
+        {initialTargetId === overrideTargetId && snapshot?.targets.find((target) => target.id === overrideTargetId)?.existingPlan && <div className="mb-3 rounded-md border border-surface-200 bg-white p-3 text-sm text-text-700">
+          <strong>현재 저장값</strong> · responsible {userById.get(snapshot.targets.find((target) => target.id === overrideTargetId)!.existingPlan!.responsibleUserId)?.name ?? "-"}
+          {" · "}reviewer {snapshot.targets.find((target) => target.id === overrideTargetId)!.existingPlan!.reviewerUserId == null ? "없음" : userById.get(snapshot.targets.find((target) => target.id === overrideTargetId)!.existingPlan!.reviewerUserId!)?.name ?? "-"}
+          {" · "}participant {participantText(snapshot.targets.find((target) => target.id === overrideTargetId)!.existingPlan!.participantUserIds)}
+        </div>}
         <div className="mb-3 rounded-md border border-surface-200 bg-white p-3">
           <div className="flex items-center justify-between gap-2"><div className="text-sm font-semibold text-text-900">지침에 맞는 추천 후보</div><div className="text-xs text-text-500">최대 3개</div></div>
           {suggestionsLoading && <p className="mt-2 text-sm text-text-500">현재 일정·인원·동선을 기준으로 후보를 확인하는 중...</p>}

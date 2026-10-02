@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { FixedAssigneeReversePlanner } from "@/components/features/FixedAssigneeReversePlanner";
+import { useUser } from "@/hooks/use-user";
 import { formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
 import {
   adjacentMeasurementReferenceDate,
@@ -199,6 +200,8 @@ const STATUS_STYLES: Record<WorkbenchStatus, string> = {
 };
 
 export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "list" }) {
+  const { user } = useUser();
+  const isAdmin = user?.role === "관리자";
   const initialMeasurementBaseDate = currentDateInKst();
   const initialDefaults = createDefaultPreliminarySurveyFilters(initialMeasurementBaseDate);
   const currentYear = Number(initialMeasurementBaseDate.slice(0, 4));
@@ -228,6 +231,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isAutoAssignmentOpen, setIsAutoAssignmentOpen] = useState(false);
+  const [editingRow, setEditingRow] = useState<WorkbenchRow | null>(null);
   const hasLoadedRef = useRef(false);
   const lastCommittedSearchRef = useRef("");
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -781,7 +785,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               {isPlanSearchDirty && <span className="shrink-0 text-amber-700">검색어 변경 · 검색 필요</span>}
               <div className="min-w-0 flex-1" />
               <div className="ml-auto flex shrink-0 gap-2">
-                <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setIsAutoAssignmentOpen(true)} disabled={working || isPlanSearchDirty} title={isPlanSearchDirty ? "검색을 먼저 실행해 주세요." : undefined}>예비조사 자동 배정</Button>
+                <Button size="sm" className="shrink-0 whitespace-nowrap" onClick={() => { setEditingRow(null); setIsAutoAssignmentOpen(true); }} disabled={working || isPlanSearchDirty} title={isPlanSearchDirty ? "검색을 먼저 실행해 주세요." : undefined}>예비조사 자동 배정</Button>
               </div>
             </>}
           </div>
@@ -814,6 +818,13 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                   <td className="px-2 py-2"><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${STATUS_STYLES[row.status]}`}>{STATUS_LABELS[row.status]}</span></td>
                   <td className="px-2 py-2 whitespace-nowrap">{row.kind}</td>
                   <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
+                    {mode === "plan" && isAdmin && row.status === "provisional" && row.hasPersistedPlan && !row.locked && <Button
+                      size="sm"
+                      variant="secondary"
+                      className="mr-1"
+                      disabled={working}
+                      onClick={() => setEditingRow(row)}
+                    >수정</Button>}
                     <Button
                       size="sm"
                       variant="danger"
@@ -862,9 +873,10 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
         </div>
       </Modal>}
       {mode === "plan" && <FixedAssigneeReversePlanner
-        isOpen={isAutoAssignmentOpen}
-        initialMeasurementDate={measurementBaseDate}
-        onClose={() => setIsAutoAssignmentOpen(false)}
+        isOpen={isAutoAssignmentOpen || editingRow != null}
+        initialMeasurementDate={editingRow?.measurementDates?.[0] ?? editingRow?.measurementDate ?? measurementBaseDate}
+        initialTargetId={editingRow?.targetId ?? null}
+        onClose={() => { setIsAutoAssignmentOpen(false); setEditingRow(null); }}
         onApplied={async () => {
           await loadRows();
           setNotice("예비조사 배정 결과를 목록에 반영했습니다.");

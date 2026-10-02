@@ -6,6 +6,7 @@ import {
   type SurveyCode,
 } from "../measurement-assignment";
 import { createRouteMetrics } from "../route-metrics";
+import { samePhysicalSite } from "../same-site";
 import type { Coordinate, RouteMetrics } from "../types";
 import type {
   FixedMeasurementAssignment,
@@ -33,7 +34,6 @@ export type AutomaticMeasurementAssignmentOptions = {
 };
 
 const keyOf = (targetId: number, measurementDate: string) => `${targetId}|${measurementDate}`;
-const normalizedAddress = (value: string | null | undefined) => String(value ?? "").replace(/\s+/g, "").trim();
 
 function positiveInteger(value: unknown, fallback: number) {
   const parsed = Number(value);
@@ -280,8 +280,7 @@ export async function resolveAutomaticMeasurementAssignments(
         const initialCount = initialCounts.get(user.id) ?? 0;
         if (counts[userIndex] <= Math.max(initialCount, 1)) return true;
         const sameUser = occupancy.get(user.id) ?? [];
-        return sameUser.length === 2 && normalizedAddress(sameUser[0].address)
-          && normalizedAddress(sameUser[0].address) === normalizedAddress(sameUser[1].address);
+        return sameUser.length === 2 && samePhysicalSite(sameUser[0], sameUser[1]);
       });
     };
     const canStillSatisfyFirstRotation = (remainingTargets: number) => {
@@ -292,25 +291,16 @@ export async function resolveAutomaticMeasurementAssignments(
         const initialCount = initialCounts.get(user.id) ?? 0;
         if (counts[userIndex] <= Math.max(initialCount, 1)) return false;
         const sameUser = occupancy.get(user.id) ?? [];
-        return sameUser.length !== 2 || !normalizedAddress(sameUser[0].address)
-          || normalizedAddress(sameUser[0].address) !== normalizedAddress(sameUser[1].address);
+        return sameUser.length !== 2 || !samePhysicalSite(sameUser[0], sameUser[1]);
       });
       return !hasOrdinaryDuplicate || zeroCount <= remainingTargets;
     };
     const sameAddressUpperBound = (startIndex: number, sameAddress: number) => {
-      const remainingByAddress = new Map<string, number>();
-      for (const target of targets.slice(startIndex)) {
-        const key = normalizedAddress(target.address);
-        if (key) remainingByAddress.set(key, (remainingByAddress.get(key) ?? 0) + 1);
-      }
-      let additional = 0;
-      for (const [key, remainingCount] of remainingByAddress) {
-        const eligibleSingles = users.filter((user) => (occupancy.get(user.id)?.length ?? 0) < 2
-          && (occupancy.get(user.id) ?? []).some((item) => normalizedAddress(item.address) === key)).length;
-        const matchedSingles = Math.min(remainingCount, eligibleSingles);
-        additional += matchedSingles + Math.floor((remainingCount - matchedSingles) / 2);
-      }
-      return sameAddress + additional;
+      const remaining = targets.slice(startIndex);
+      const compatibleSingles = remaining.filter((target) => users.some((user) =>
+        (occupancy.get(user.id)?.length ?? 0) < 2 && (occupancy.get(user.id) ?? []).some((item) =>
+          samePhysicalSite(item, target)))).length;
+      return sameAddress + compatibleSingles + Math.floor(remaining.length / 2);
     };
     const mergeBestPair = (pair: CandidatePair) => {
       const ids = [pair.left.targetId, pair.right.targetId].sort((left, right) => left - right);
@@ -360,8 +350,7 @@ export async function resolveAutomaticMeasurementAssignments(
       for (const user of candidates) {
         const prior = occupancy.get(user.id) ?? [];
         if (prior.length >= 2) continue;
-        const exact = prior.some((item) => normalizedAddress(item.address)
-          && normalizedAddress(item.address) === normalizedAddress(target.address));
+        const exact = prior.some((item) => samePhysicalSite(item, target));
         if (prior.length === 1 && !exact) {
           const ids = [target.targetId, prior[0].targetId].sort((left, right) => left - right);
           const known = evidence.find((item) => item.date === date && item.leftTargetId === ids[0]
@@ -407,8 +396,7 @@ export async function resolveAutomaticMeasurementAssignments(
     for (const pair of pairs.sort((left, right) => pairKey(left).localeCompare(pairKey(right)))) {
       const key = pairKey(pair);
       if (evidenceKeys.has(key)) continue;
-      const sameAddress = normalizedAddress(pair.left.address)
-        && normalizedAddress(pair.left.address) === normalizedAddress(pair.right.address);
+      const sameAddress = samePhysicalSite(pair.left, pair.right);
       if (sameAddress) {
         evidence.push(routeEvidenceFor(pair, 0, "same_address", 0, 0));
         evidenceKeys.add(key);
@@ -476,7 +464,7 @@ export async function resolveAutomaticMeasurementAssignments(
       if (oversizedTargets.length > 9) {
         for (const [index, left] of oversizedTargets.entries()) {
           for (const right of oversizedTargets.slice(index + 1)) {
-            if (normalizedAddress(left.address) && normalizedAddress(left.address) === normalizedAddress(right.address)) continue;
+            if (samePhysicalSite(left, right)) continue;
             requiredPairKeys.add(`${date}|${Math.min(left.targetId, right.targetId)}|${Math.max(left.targetId, right.targetId)}`);
           }
         }
@@ -504,8 +492,7 @@ export async function resolveAutomaticMeasurementAssignments(
             for (const target of dateTargets) {
               const userId = byTarget.get(target.targetId);
               if (userId == null) continue;
-              sameAddress += Number(current.some((item) => item.userId === userId && normalizedAddress(item.address)
-                && normalizedAddress(item.address) === normalizedAddress(target.address)));
+              sameAddress += Number(current.some((item) => item.userId === userId && samePhysicalSite(item, target)));
               participant += Number(target.measurementParticipantUserIds?.includes(userId) ?? false);
               report += Number(target.reportWriterUserId === userId);
               current.push({ ...target, userId });

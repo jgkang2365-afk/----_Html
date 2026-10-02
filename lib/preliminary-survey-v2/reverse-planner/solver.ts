@@ -23,7 +23,7 @@ export const preferredReviewerByResponsible: Record<string, string> = {
 export function preferredReviewerNameForResponsible(responsibleName: string) {
   return preferredReviewerByResponsible[responsibleName] ?? null;
 }
-const ZERO_OBJECTIVE: PlannerObjective = [0, 0, 0, 0, 0, 0];
+const ZERO_OBJECTIVE: PlannerObjective = [0, 0, 0, 0, 0, 0, 0];
 const sortedTargets = (snapshot: PlanningSnapshot) => [...snapshot.targets]
   .sort((left, right) => natural.compare(left.code, right.code) || left.id - right.id);
 
@@ -140,7 +140,11 @@ function candidateObjective(
   const reportWriterIds = new Set(target.days.map((day) => day.reportWriterUserId).filter((id): id is number => id != null));
   const reviewerPenalty = reviewer && preferredReviewerByResponsible[responsible.name] !== reviewer.name ? 1 : 0;
   const reportPenalty = participants.some((user) => reportWriterIds.has(user.id)) ? 0 : 1;
-  return [fallback, changedPlanCount, 0, reviewerPenalty + reportPenalty, 0, 0];
+  const experiencedMeasurementAssignee = target.businessType === "existing" && target.fixedAssignments.some((item) =>
+    snapshot.users.some((user) => user.id === item.assigneeUserId && user.experienced));
+  const soloPenalty = experiencedMeasurementAssignee && (participants.length !== 1
+    || !measurementAssigneeIds(target).has(participants[0].id)) ? 1 : 0;
+  return [fallback, changedPlanCount, soloPenalty, 0, reviewerPenalty + reportPenalty, 0, 0];
 }
 
 function generatedCandidatesFor(snapshot: PlanningSnapshot, target: PlannerTarget): PlannerCandidate[] {
@@ -254,7 +258,7 @@ function existingAdminOverrideCandidate(snapshot: PlanningSnapshot, target: Plan
     responsibleUserId: plan.responsibleUserId,
     reviewerUserId: plan.reviewerUserId,
     writerUserId: responsible.id,
-    objective: [0, 0, 0, 0, 0, 0],
+    objective: [0, 0, 0, 0, 0, 0, 0],
     reasons: ["ADMIN_EXPLICIT_OVERRIDE", "KEEP_EXISTING"],
   };
 }
@@ -355,9 +359,10 @@ function solveBatch(
   const minimumPriorityCompatibleSuffix = new Array(targets.length + 1).fill(true);
   for (let index = targets.length - 1; index >= 0; index -= 1) {
     const candidates = choices.get(targets[index].id) ?? [];
-    const minimum = ZERO_OBJECTIVE.map((_, objectiveIndex) =>
-      Math.min(...candidates.map((candidate) => candidate.objective[objectiveIndex]))) as unknown as PlannerObjective;
-    const compatible = candidates.filter((candidate) => [0, 1, 2, 3].every((objectiveIndex) =>
+    const minimum = candidates.reduce<PlannerObjective>((best, candidate) =>
+      compareObjective(candidate.objective, best) < 0 ? candidate.objective : best,
+    candidates[0].objective);
+    const compatible = candidates.filter((candidate) => [0, 1, 2, 3, 4].every((objectiveIndex) =>
       candidate.objective[objectiveIndex] === minimum[objectiveIndex]));
     minimumPriorityCandidates.set(targets[index].id, compatible);
     minimumPriorityCompatibleSuffix[index] = compatible.length > 0 && minimumPriorityCompatibleSuffix[index + 1];
@@ -404,7 +409,7 @@ function solveBatch(
         const writingLoad = Number(snapshot.writingCounters[String(candidate.writerUserId)] ?? 0)
           + (writerCounts.get(candidate.writerUserId) ?? 0);
         const nextObjective = addObjective(objective, addObjective(candidate.objective,
-          [0, 0, conflict.phoneReuse, 0, writingLoad, conflict.longRouteCount]));
+          [0, 0, 0, conflict.phoneReuse, 0, writingLoad, conflict.longRouteCount]));
         if (!chosen || compareObjective(nextObjective, chosen.objective) < 0) chosen = { candidate, objective: nextObjective };
       }
       if (!chosen) return;
@@ -424,14 +429,17 @@ function solveBatch(
     }
     if (bestObjective) {
       const staticLowerBound = addObjective(objective, minimumStaticSuffix[index]);
-      const priorityMatchesBest = [0, 1, 2, 3].every((objectiveIndex) =>
-        staticLowerBound[objectiveIndex] === bestObjective![objectiveIndex]);
-      const lowerBound: PlannerObjective = [
-        staticLowerBound[0], staticLowerBound[1], staticLowerBound[2], staticLowerBound[3],
-        staticLowerBound[4] + remainingWritingLowerBound(index, selectedWriterCounts,
-          priorityMatchesBest && minimumPriorityCompatibleSuffix[index]), staticLowerBound[5],
-      ];
-      if (compareObjective(lowerBound, bestObjective) >= 0) return;
+      const priorityDifference = [0, 1, 2, 3, 4].map((objectiveIndex) =>
+        staticLowerBound[objectiveIndex] - bestObjective![objectiveIndex]).find((difference) => difference !== 0) ?? 0;
+      if (priorityDifference > 0) return;
+      if (priorityDifference === 0) {
+        if (!minimumPriorityCompatibleSuffix[index]) return;
+        const lowerBound: PlannerObjective = [
+          staticLowerBound[0], staticLowerBound[1], staticLowerBound[2], staticLowerBound[3], staticLowerBound[4],
+          staticLowerBound[5] + remainingWritingLowerBound(index, selectedWriterCounts, true), staticLowerBound[6],
+        ];
+        if (compareObjective(lowerBound, bestObjective) >= 0) return;
+      }
     }
     if (index === targets.length) {
       best = new Map(selected);
@@ -444,7 +452,7 @@ function solveBatch(
       if (conflict.blocked) continue;
       const selectedWriterCount = selectedWriterCounts.get(candidate.writerUserId) ?? 0;
       const writingLoad = Number(snapshot.writingCounters[String(candidate.writerUserId)] ?? 0) + selectedWriterCount;
-      const dynamic: PlannerObjective = [0, 0, conflict.phoneReuse, 0, writingLoad, conflict.longRouteCount];
+      const dynamic: PlannerObjective = [0, 0, 0, conflict.phoneReuse, 0, writingLoad, conflict.longRouteCount];
       selected.set(target.id, candidate);
       selectedWriterCounts.set(candidate.writerUserId, selectedWriterCount + 1);
       visit(index + 1, selected, addObjective(objective, addObjective(candidate.objective, dynamic)), selectedWriterCounts);

@@ -78,6 +78,76 @@ for (const [noviceId, reviewerId, label] of [[1, 2, "강종구 → 이태환"], 
   });
 }
 
+test("H0274 기존업체 유선은 작성 카운터가 높아도 경력 측정자 한기문 단독을 우선한다", () => {
+  const hanmi = target({ id: 274, code: "H0274", name: "한미타올", days: [{ date: "2026-10-07", collaboratorUserIds: [4], reportWriterUserId: 4 }],
+    fixedAssignments: [{ targetId: 274, measurementDate: "2026-10-07", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" }] });
+  const snapshot = fixture({ targets: [hanmi], writingCounters: { "4": 50, "6": 0 } });
+  const candidates = rankedCandidatesForTarget(snapshot, hanmi);
+  assert.ok(candidates.some((candidate) => candidate.participantUserIds.length === 2 && candidate.participantUserIds.includes(6)));
+  const selected = resultFor(snapshot, 274).candidate!;
+  assert.deepEqual(selected.participantUserIds, [4]);
+  assert.equal(selected.responsibleUserId, 4);
+  assert.equal(selected.writerUserId, 4);
+  assert.equal(selected.reviewerUserId, null);
+});
+
+test("경력 측정자 단독이 불가 일정으로 막히면 기존 유선 경력 reviewer 조합을 탐색한다", () => {
+  const hanmi = target({ id: 274, code: "H0274", days: [{ date: "2026-10-07", collaboratorUserIds: [4], reportWriterUserId: 4 }],
+    fixedAssignments: [{ targetId: 274, measurementDate: "2026-10-07", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" }] });
+  const snapshot = fixture({ targets: [hanmi], scheduleBlocks: [{ userId: 4, startDate: "2026-08-01", endDate: "2026-10-06" }] });
+  const selected = resultFor(snapshot, 274).candidate!;
+  assert.equal(selected.participantUserIds.length, 2);
+  assert.equal(selected.reviewerUserId, 4);
+  assert.notEqual(selected.responsibleUserId, 4);
+});
+
+test("H0248 비경력 측정자 김민영은 responsible와 작성자이며 한기문이 reviewer다", () => {
+  const ys = target({ id: 248, code: "H0248", days: [{ date: "2026-10-07", collaboratorUserIds: [6], reportWriterUserId: 6 }],
+    fixedAssignments: [{ targetId: 248, measurementDate: "2026-10-07", assigneeUserId: 6, confirmedAt: "x", updatedAt: "x" }] });
+  const selected = resultFor(fixture({ targets: [ys] }), 248).candidate!;
+  assert.deepEqual(selected.participantUserIds, [4, 6]);
+  assert.equal(selected.responsibleUserId, 6);
+  assert.equal(selected.writerUserId, 6);
+  assert.equal(selected.reviewerUserId, 4);
+});
+
+test("H0274 저장된 가확정 조합은 유지하되 관리자 정상 수정안은 한기문 단독으로 검증·교체할 수 있다", () => {
+  const hanmi = target({ id: 274, code: "H0274", days: [{ date: "2026-10-07", collaboratorUserIds: [4], reportWriterUserId: 4 }],
+    fixedAssignments: [{ targetId: 274, measurementDate: "2026-10-07", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" }],
+    existingPlan: { id: "stored-H0274", preliminaryDate: "2026-09-23", surveyMethod: "phone",
+      participantUserIds: [4, 6], responsibleUserId: 6, reviewerUserId: 4, protected: false, updatedAt: "x",
+      assignments: [{ measurementDate: "2026-10-07", assigneeUserId: 4, surveyCode: "B", publicSampleCode: "B" }] } });
+  const snapshot = fixture({ targets: [hanmi] });
+  assert.equal(resultFor(snapshot, 274).mutation, "KEEP_EXISTING");
+  const solo = rankedCandidatesForTarget(snapshot, hanmi).find((candidate) => candidate.preliminaryDate === "2026-09-23"
+    && candidate.participantUserIds.length === 1 && candidate.participantUserIds[0] === 4)!;
+  assert.deepEqual(validateCandidateHardRules(snapshot, hanmi, solo), []);
+  const adjusted = planPreliminarySurveyGivenFixedAssignments(snapshot, { forcedCandidates: new Map([[274, solo]]) });
+  assert.equal(adjusted.results[0].decision, "AUTO_ASSIGNED");
+  assert.equal(adjusted.results[0].mutation, "REPLACE");
+  assert.equal(adjusted.results[0].candidate?.responsibleUserId, 4);
+  assert.equal(adjusted.results[0].candidate?.reviewerUserId, null);
+  assert.deepEqual(adjusted.results[0].candidate?.participantUserIds, [4]);
+  const locked = planPreliminarySurveyGivenFixedAssignments({ ...snapshot, targets: [{ ...hanmi, protected: true }] },
+    { forcedCandidates: new Map([[274, solo]]) });
+  assert.equal(locked.results[0].decision, "MANUAL_REQUIRED");
+  assert.equal(locked.results[0].reason, "PROTECTED_PLAN_REQUIRES_REVIEW");
+});
+
+test("가확정 목록 수정은 관리자만 노출하고 서버는 단일 대상·잠금 상태를 재확인한다", () => {
+  const list = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
+  const editor = readFileSync("components/features/FixedAssigneeReversePlanner.tsx", "utf8");
+  const api = readFileSync("app/api/preliminary-survey-v2/reverse-planner/route.ts", "utf8");
+  assert.match(list, /isAdmin && row\.status === "provisional" && row\.hasPersistedPlan && !row\.locked/);
+  assert.match(list, /initialTargetId=\{editingRow\?\.targetId/);
+  assert.match(editor, /persistedFirst \? plan\?\.participantUserIds/);
+  assert.match(editor, /persistedFirst \? plan\?\.preliminaryDate/);
+  assert.match(editor, /action: "validate_adjustment"/);
+  assert.match(api, /session\.role !== "관리자"/);
+  assert.match(api, /!scopedTarget\?\.existingPlan \|\| scopedTarget\.protected/);
+  assert.match(api, /applicable\.length !== 1/);
+});
+
 test("유선 reviewer 불가 일정은 차단하지 않고, 비활성 reviewer면 다른 경력자를 탐색한다", () => {
   const input = fixture({ scheduleBlocks: [{ userId: 2, startDate: "2026-08-01", endDate: "2026-09-30" }] });
   assert.equal(resultFor(input).candidate?.reviewerUserId, 2);
@@ -101,7 +171,7 @@ test("공시료 담당자가 예비조사자에 포함되어야 하며 참여자
     days: [{ date: "2026-09-16", collaboratorUserIds: [2], reportWriterUserId: 2 }],
     fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 1, confirmedAt: "x", updatedAt: "x" }],
   })] });
-  const participantOnly = { preliminaryDate: "2026-08-20", surveyMethod: "phone" as const, participantUserIds: [2], responsibleUserId: 2, reviewerUserId: null, writerUserId: 2, objective: [0, 0, 0, 0, 0, 0] as const, reasons: [] };
+  const participantOnly = { preliminaryDate: "2026-08-20", surveyMethod: "phone" as const, participantUserIds: [2], responsibleUserId: 2, reviewerUserId: null, writerUserId: 2, objective: [0, 0, 0, 0, 0, 0, 0] as const, reasons: [] };
   assert.ok(validateCandidateHardRules(input, input.targets[0], participantOnly).includes("MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED"));
   assert.ok(resultFor(input).candidate?.participantUserIds.includes(1));
 });
@@ -262,10 +332,10 @@ test("9개 clean 기존업체 batch는 2초 안에 exact optimum의 예비조사
     ["H0011", "2026-09-11", 2, null, 2],
     ["H0012", "2026-09-14", 3, 5, 3],
     ["H0047", "2026-09-15", 6, 4, 6],
-    ["H0081", "2026-09-16", 3, 5, 3],
+    ["H0081", "2026-09-16", 5, null, 5],
     ["H0082", "2026-09-17", 4, null, 4],
     ["H0084", "2026-09-18", 3, 5, 3],
-    ["H0085", "2026-09-21", 3, 5, 3],
+    ["H0085", "2026-09-21", 5, null, 5],
     ["H0094", "2026-09-22", 4, null, 4],
     ["H0131", "2026-09-23", 1, 2, 1],
   ]);
@@ -416,6 +486,25 @@ test("9개 global batch는 계산된 candidate universe를 pair별 단방향 1�
     `${item.date}|${item.leftTargetId}|${item.rightTargetId}`)).size, calls);
 });
 
+test("H0248/H0249 동일 좌표는 주소 문자열이 달라도 김민영에게 묶고 차량 Route를 호출하지 않는다", async () => {
+  const coordinate = { latitude: 36.876543210123, longitude: 127.123456789012 };
+  const shared = { coordinate, businessType: "existing" as const,
+    days: [{ date: "2026-10-07", collaboratorUserIds: [6], reportWriterUserId: 6 }], fixedAssignments: [] };
+  const targets = [
+    target({ ...shared, id: 248, code: "H0248", address: "충청남도 천안시 서북구 직산읍 군수1길 96, 1동" }),
+    target({ ...shared, id: 249, code: "H0249", address: "충청남도 천안시 서북구 직산읍 군수1길 96" }),
+  ];
+  let calls = 0;
+  const resolved = await resolveAutomaticMeasurementAssignments(fixture({
+    targets, users: users.filter((user) => user.id === 4 || user.id === 6),
+  }), { routes: { async between() { calls += 1; throw new Error("route 호출 불필요"); } } });
+  const assignments = resolved.snapshot.targets.flatMap((item) => item.fixedAssignments);
+  assert.equal(calls, 0);
+  assert.deepEqual(assignments.map((item) => [item.targetId, item.assigneeUserId]), [[248, 6], [249, 6]]);
+  assert.ok(resolved.routeEvidence.every((item) => item.sameAddress));
+  assert.ok(resolved.snapshot.targets.every((item) => item.automaticAssignmentIssue !== "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"));
+});
+
 test("9개 clean sample route universe는 targetId prefix와 무관하게 H0011/H0012 pair를 포함한다", async () => {
   const raw = JSON.parse(readFileSync("tests/fixtures/preliminary-survey-2026-08-21-clean-upstream.json", "utf8"));
   const experienced = new Set(["이태환", "한기문", "이주형"]);
@@ -561,7 +650,7 @@ test("fixed assignee가 빠지고 collaborator만 일치하면 자동 배정하�
   const candidate = {
     preliminaryDate: candidateDates("2026-09-16", "existing").primary[0], surveyMethod: "phone" as const,
     participantUserIds: [1, 2], responsibleUserId: 1, reviewerUserId: 2, writerUserId: 1,
-    objective: [0, 0, 0, 0, 0, 0] as const, reasons: [],
+    objective: [0, 0, 0, 0, 0, 0, 0] as const, reasons: [],
   };
   assert.ok(validateCandidateHardRules(input, input.targets[0], candidate)
     .includes("MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED"));
@@ -653,8 +742,14 @@ test("작성업무 균등은 persisted counter와 batch 선택 writer를 함께 
     fixedAssignments: [{ targetId: 10, measurementDate: "2026-09-16", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" }] });
   const second = target({ id: 11, code: "H0011", days: sharedDays,
     fixedAssignments: [{ targetId: 11, measurementDate: "2026-09-16", assigneeUserId: 4, confirmedAt: "x", updatedAt: "x" }] });
-  const output = planPreliminarySurveyGivenFixedAssignments(fixture({ targets: [first, second] }));
-  assert.equal(new Set(output.results.map((result) => result.candidate?.writerUserId)).size, 2);
+  // 경력 측정자 단독이 유효하면 새 정책이 작성 균등보다 우선한다. 이 fixture는 단독 수행일을 막아
+  // 두 비경력 작성 후보가 모두 유효할 때의 작성량 균등을 검증한다.
+  const output = planPreliminarySurveyGivenFixedAssignments(fixture({ targets: [first, second],
+    users: users.filter((user) => [1, 3, 4].includes(user.id)),
+    scheduleBlocks: [{ userId: 4, startDate: "2026-08-01", endDate: "2026-09-15" }] }));
+  assert.equal(new Set(output.results.map((result) => result.candidate?.writerUserId)).size, 2,
+    JSON.stringify(output.results.map((result) => [result.code, result.reason, result.candidate?.preliminaryDate,
+      result.candidate?.writerUserId, result.candidate?.objective])));
 });
 
 test("C/CC/CCC Preview는 batch 밖 persisted 그룹까지 natural sort한다", () => {
@@ -857,7 +952,7 @@ test("사용자 검토 수정안은 forced candidate로 batch 재계산되어 �
   const input = fixture({ targets: [h0527] });
   const base = resultFor(input).candidate!;
   const forced = { ...base, preliminaryDate: candidateDates("2026-09-02", "first_measurement").primary[1],
-    objective: [0, 0, 0, 0, 0, 0] as const, reasons: ["USER_REVIEW_ADJUSTMENT"] };
+    objective: [0, 0, 0, 0, 0, 0, 0] as const, reasons: ["USER_REVIEW_ADJUSTMENT"] };
   const output = planPreliminarySurveyGivenFixedAssignments(input, { forcedCandidates: new Map([[10, forced]]) });
   assert.equal(output.results[0].decision, "AUTO_ASSIGNED");
   assert.equal(output.results[0].candidate?.preliminaryDate, forced.preliminaryDate);
@@ -916,7 +1011,7 @@ test("v1.1 정상 Apply만 재활성화하고 legacy manual write는 계속 차�
   const ui = readFileSync("components/features/FixedAssigneeReversePlanner.tsx", "utf8");
   assert.doesNotMatch(route, /REVERSE_PLANNER_APPLY_TEMPORARILY_DISABLED/);
   assert.match(route, /body\.action !== "apply"/);
-  assert.match(ui, />\s*배정 확정\s*</);
+  assert.match(ui, /initialTargetId == null \? "배정 확정" : "수정 저장"/);
 });
 
 

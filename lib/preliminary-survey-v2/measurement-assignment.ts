@@ -1,4 +1,5 @@
 import type { Availability, Coordinate, ExistingAssignment, RouteMetrics, SurveyTarget } from "./types";
+import { samePhysicalSite } from "./same-site";
 
 export type SurveyCode = "A" | "B" | "C" | "D" | "F" | "G";
 
@@ -92,10 +93,6 @@ export class MeasurementAssignmentDailyLimitError extends Error {
   }
 }
 
-function normalizedAddress(value: string | null) {
-  return String(value ?? "").replace(/\s+/g, "").trim();
-}
-
 function isSurveyCode(value: string | null): value is SurveyCode {
   return value === "A" || value === "B" || value === "C" || value === "D" || value === "F" || value === "G";
 }
@@ -144,7 +141,7 @@ export async function collectMeasurementVehicleRouteEvidence(input: {
     for (const other of all) {
       if (target.measurementDate !== other.measurementDate ||
           (target.targetId === other.targetId && target.measurementDate === other.measurementDate)) continue;
-      if (normalizedAddress(target.address) && normalizedAddress(target.address) === normalizedAddress(other.address)) continue;
+      if (samePhysicalSite(target, other)) continue;
       const keys = [`${target.targetId}|${target.measurementDate}`, `${other.targetId}|${other.measurementDate}`].sort();
       const key = keys.join("->");
       if (seen.has(key)) continue;
@@ -215,7 +212,7 @@ export function assignMeasurementAssignees(input: {
     const routeInfo = (target: MeasurementAssignmentTarget, userId: number, current: ExistingMeasurementAssignment[]) => {
       const sameUser = current.filter((item) => item.userId === userId);
       if (!sameUser.length) return { allowed: true, minutes: 0, exact: false, vehicle: false };
-      const exact = sameUser.some((item) => normalizedAddress(item.address) && normalizedAddress(item.address) === normalizedAddress(target.address));
+      const exact = sameUser.some((item) => samePhysicalSite(item, target));
       if (exact) return { allowed: true, minutes: 0, exact: true, vehicle: false };
       const minutes = Math.min(...sameUser.map((item) => routeMinutes(target, item, evidence)), Number.POSITIVE_INFINITY);
       return {
@@ -265,7 +262,7 @@ export function assignMeasurementAssignees(input: {
     const duplicateRouteFloor = (() => {
       const allTargets = [...dateTargets, ...dateExisting];
       if (allTargets.some((left, index) => allTargets.slice(index + 1).some((right) =>
-        normalizedAddress(left.address) && normalizedAddress(left.address) === normalizedAddress(right.address)))) return 0;
+        samePhysicalSite(left, right)))) return 0;
       return Math.min(...evidence.filter((item) => item.allowed && item.source === "vehicle"
         && item.durationMinutes != null && item.fromMeasurementDate === measurementDate
         && item.toMeasurementDate === measurementDate).map((item) => item.durationMinutes as number), Number.POSITIVE_INFINITY);
@@ -312,8 +309,7 @@ export function assignMeasurementAssignees(input: {
         const initialCount = initialCounts.get(user.id) ?? 0;
         if (state.counts[userIndex] <= Math.max(initialCount, 1)) return true;
         const sameUser = state.current.filter((item) => item.measurementDate === measurementDate && item.userId === user.id);
-        return sameUser.length === 2 && normalizedAddress(sameUser[0].address)
-          && normalizedAddress(sameUser[0].address) === normalizedAddress(sameUser[1].address);
+        return sameUser.length === 2 && samePhysicalSite(sameUser[0], sameUser[1]);
       });
     };
     const canStillSatisfyFirstRotation = (state: SearchState, remainingTargets: number) => {
@@ -323,25 +319,17 @@ export function assignMeasurementAssignees(input: {
         const initialCount = initialCounts.get(user.id) ?? 0;
         if (state.counts[userIndex] <= Math.max(initialCount, 1)) return false;
         const sameUser = state.current.filter((item) => item.measurementDate === measurementDate && item.userId === user.id);
-        return sameUser.length !== 2 || !normalizedAddress(sameUser[0].address)
-          || normalizedAddress(sameUser[0].address) !== normalizedAddress(sameUser[1].address);
+        return sameUser.length !== 2 || !samePhysicalSite(sameUser[0], sameUser[1]);
       });
       return !hasOrdinaryDuplicate || zeroCount <= remainingTargets;
     };
     const sameAddressUpperBound = (startIndex: number, state: SearchState) => {
-      const remainingByAddress = new Map<string, number>();
-      for (const target of dateTargets.slice(startIndex)) {
-        const key = normalizedAddress(target.address);
-        if (key) remainingByAddress.set(key, (remainingByAddress.get(key) ?? 0) + 1);
-      }
-      let additional = 0;
-      for (const [key, remainingCount] of remainingByAddress) {
-        const eligibleSingles = availableUsers.filter((user, userIndex) => state.counts[userIndex] < maxAutomaticCount
-          && state.current.some((item) => item.userId === user.id && normalizedAddress(item.address) === key)).length;
-        const matchedSingles = Math.min(remainingCount, eligibleSingles);
-        additional += matchedSingles + Math.floor((remainingCount - matchedSingles) / 2);
-      }
-      return state.sameAddress + additional;
+      const remaining = dateTargets.slice(startIndex);
+      const compatibleSingles = remaining.filter((target) => availableUsers.some((user, userIndex) =>
+        state.counts[userIndex] < maxAutomaticCount && state.current.some((item) =>
+          item.userId === user.id && samePhysicalSite(item, target)))).length;
+      // 상한은 넉넉하게 계산한다. 위치가 거의 같은 좌표가 경계에서 갈리는 경우도 탐색에서 버리지 않는다.
+      return state.sameAddress + compatibleSingles + Math.floor(remaining.length / 2);
     };
     let bestComplete: SearchState | null = null;
     let bestPartial: SearchState | null = null;

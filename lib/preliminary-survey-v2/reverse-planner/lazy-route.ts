@@ -1,7 +1,8 @@
 import { createRouteMetrics } from "../route-metrics";
+import { samePhysicalSite } from "../same-site";
 import type { Coordinate, RouteMetrics } from "../types";
 import { planPreliminarySurveyGivenFixedAssignments } from "./solver";
-import { collectRequiredRoutePairs, normalizeRouteAddress, routeRequirementKey } from "./route-requirements";
+import { collectRequiredRoutePairs, routeRequirementKey } from "./route-requirements";
 import type {
   PlannerRouteEvidence,
   PlannerRouteStats,
@@ -190,9 +191,7 @@ export async function resolveLazyRouteEvidence(snapshot: PlanningSnapshot, optio
         const key = routeRequirementKey(requirement);
         const left = locations.get(requirement.leftTargetId);
         const right = locations.get(requirement.rightTargetId);
-        const leftAddress = normalizeRouteAddress(left?.address);
-        const rightAddress = normalizeRouteAddress(right?.address);
-        if (leftAddress && leftAddress === rightAddress) {
+        if (left && right && samePhysicalSite(left, right)) {
           evidence.set(key, evidenceFor(requirement, capturedAt, {
             sameAddress: true,
             durationMinutes: 0,

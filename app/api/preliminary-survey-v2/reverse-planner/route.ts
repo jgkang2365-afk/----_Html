@@ -100,6 +100,18 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
     ...occupancyTargets,
     ...(candidates ?? []).filter((target: any) => planTargetIds.has(Number(target.id))),
   ].map((target: any) => [Number(target.id), target])).values()];
+  const locationCodes = [...new Set(snapshotTargets.map((target: any) => String(target.code)))];
+  const locationResult = locationCodes.length
+    ? await supabase.from("business_info").select("code, latitude, longitude").in("code", locationCodes)
+    : { data: [], error: null };
+  if (locationResult.error) throw locationResult.error;
+  const coordinateByCode = new Map<string, { latitude: number; longitude: number }>((locationResult.data ?? []).flatMap((row: any) => {
+    const latitude = Number(row.latitude);
+    const longitude = Number(row.longitude);
+    return row.latitude != null && row.longitude != null && latitude >= 33 && latitude <= 39
+      && longitude >= 124 && longitude <= 132
+      ? [[String(row.code), { latitude, longitude }] as const] : [];
+  }));
   const planIds = plans.map((plan: any) => String(plan.id));
   const { data: planAssignments, error: assignmentError } = planIds.length
     ? await supabase.from("preliminary_survey_v2_measurement_assignments")
@@ -158,7 +170,10 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
     || protectedPlanIds.has(String(plans.find((plan: any) => Number(plan.measurement_target_business_id) === Number(target.id))?.id ?? ""))
   ).map((target: any) => Number(target.id));
   const snapshot = buildPlanningSnapshot({
-      targets: snapshotTargets,
+      targets: snapshotTargets.map((target: any) => ({ ...target,
+        latitude: coordinateByCode.get(String(target.code))?.latitude ?? target.latitude ?? null,
+        longitude: coordinateByCode.get(String(target.code))?.longitude ?? target.longitude ?? null,
+      })),
       users: users ?? [],
       fixedAssignments: fixedResult.data ?? [],
       plans,
@@ -328,7 +343,7 @@ function parseReviewAdjustments(snapshot: PlanningSnapshot, value: unknown) {
         responsibleUserId,
         reviewerUserId,
         writerUserId,
-        objective: [0, 0, 0, 0, 0, 0] as const,
+        objective: [0, 0, 0, 0, 0, 0, 0] as const,
         reasons: ["USER_REVIEW_ADJUSTMENT"],
       };
       localViolations.push(...validateCandidateHardRules(snapshot, target, candidate));
@@ -658,7 +673,7 @@ export async function POST(request: NextRequest) {
         responsibleUserId,
         reviewerUserId,
         writerUserId: overrideWriter?.id ?? responsibleUserId,
-        objective: [0, 0, 0, 0, 0, 0] as const,
+        objective: [0, 0, 0, 0, 0, 0, 0] as const,
         reasons: ["ADMIN_EXPLICIT_OVERRIDE"],
       };
       const violations = [...new Set([
@@ -732,6 +747,21 @@ export async function POST(request: NextRequest) {
     if (String(body.sourceFingerprint ?? "") !== output.sourceFingerprint) {
       return NextResponse.json({ error: "원천이 변경되어 적용하지 않았습니다.", code: "SOURCE_CHANGED", appliedCount: 0 }, { status: 409 });
     }
+    const scopedTargetId = body.targetId == null ? null : Number(body.targetId);
+    if (scopedTargetId != null) {
+      const scopedTarget = snapshot.targets.find((item) => item.id === scopedTargetId);
+      if (session.role !== "관리자") {
+        return NextResponse.json({ error: "관리자만 가확정 계획을 수정할 수 있습니다." }, { status: 403 });
+      }
+      if (!Number.isInteger(scopedTargetId) || !scopedTarget?.existingPlan || scopedTarget.protected
+          || scopedTarget.adminOverrideProtected) {
+        return NextResponse.json({ error: "수정할 수 있는 가확정 계획을 찾지 못했습니다." }, { status: 409 });
+      }
+      if (!Array.isArray(body.reviewAdjustments) || body.reviewAdjustments.length !== 1
+          || Number(body.reviewAdjustments[0]?.targetId) !== scopedTargetId) {
+        return NextResponse.json({ error: "해당 사업장의 검증된 수정안 1건이 필요합니다." }, { status: 400 });
+      }
+    }
     const parsedReview = parseReviewAdjustments(frozenSnapshot, body.reviewAdjustments);
     if (parsedReview.violations.size) {
       return NextResponse.json({
@@ -757,8 +787,12 @@ export async function POST(request: NextRequest) {
       output = adjustedOutput;
     }
     const reviewAdjustedTargetIds = new Set(parsedReview.candidates.keys());
-    const applicable = output.results.filter((result) => result.decision === "AUTO_ASSIGNED"
+    const applicable = output.results.filter((result) => (scopedTargetId == null || result.targetId === scopedTargetId)
+      && result.decision === "AUTO_ASSIGNED"
       && (result.mutation === "CREATE" || result.mutation === "REPLACE"));
+    if (scopedTargetId != null && (applicable.length !== 1 || !reviewAdjustedTargetIds.has(scopedTargetId))) {
+      return NextResponse.json({ error: "해당 사업장 수정안이 적용 가능한 상태가 아닙니다.", appliedCount: 0 }, { status: 409 });
+    }
     const userById = new Map(snapshot.users.map((user) => [user.id, user]));
     const targetById = new Map(snapshot.targets.map((target) => [target.id, target]));
     const applicableTargetIds = new Set(applicable.map((result) => result.targetId));

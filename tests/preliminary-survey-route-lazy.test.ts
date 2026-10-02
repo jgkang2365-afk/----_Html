@@ -4,6 +4,7 @@ import test from "node:test";
 import { candidateDates, earliestMeasurementDate } from "../lib/preliminary-survey-v2/reverse-planner/candidate-dates";
 import { createRouteMetrics } from "../lib/preliminary-survey-v2/route-metrics";
 import { resolveLazyRouteEvidence } from "../lib/preliminary-survey-v2/reverse-planner/lazy-route";
+import { samePhysicalSite } from "../lib/preliminary-survey-v2/same-site";
 import {
   createSignedPreviewToken,
   PREVIEW_TOKEN_TTL_MS,
@@ -71,6 +72,15 @@ const unknownRoute: RouteMetric = {
   source: "unknown", durationMinutes: null, distanceKm: null, sameRegion: false,
 };
 
+test("동일현장 좌표 오차는 0.5m까지만 인정하고 좌표 없는 유사 주소는 인정하지 않는다", () => {
+  const left = { address: "충남 천안시 군수1길 96, 1동", coordinate: { latitude: 36.8765, longitude: 127.1234 } };
+  assert.equal(samePhysicalSite(left, { address: "충남 천안시 군수1길 96",
+    coordinate: { latitude: 36.876502, longitude: 127.1234 } }), true);
+  assert.equal(samePhysicalSite(left, { address: "충남 천안시 군수1길 96",
+    coordinate: { latitude: 36.87651, longitude: 127.1234 } }), false);
+  assert.equal(samePhysicalSite({ ...left, coordinate: null }, { address: "충남 천안시 군수1길 96", coordinate: null }), false);
+});
+
 test("shared-person index는 무관한 1,000개 사업장을 route pair로 만들지 않는다", () => {
   const unrelated = Array.from({ length: 1_000 }, (_, index) => ({
     targetId: 1000 + index, businessCode: `U${index}`, address: `주소 ${index}`,
@@ -111,6 +121,39 @@ test("동일주소 shared-person pair는 외부 Route 호출 없이 해결한다
     if (originalKey == null) delete process.env.KAKAO_REST_API_KEY;
     else process.env.KAKAO_REST_API_KEY = originalKey;
   }
+});
+
+test("H0248/H0249처럼 주소 부가표현이 달라도 저장 좌표가 같으면 Route를 호출하지 않는다", async () => {
+  const coordinate = { latitude: 36.876543210123, longitude: 127.123456789012 };
+  const routes = fakeRoutes(async () => { throw new Error("동일현장에는 차량경로를 조회하지 않는다"); });
+  const snapshot = fixture({
+    targets: [target({ id: 248, code: "H0248", address: "충청남도 천안시 서북구 직산읍 군수1길 96, 1동", coordinate })],
+    actualMeasurementOccupancy: [
+      { targetId: 248, businessCode: "H0248", address: "충청남도 천안시 서북구 직산읍 군수1길 96, 1동", coordinate,
+        date: "2026-09-16", participantUserIds: [1] },
+      { targetId: 249, businessCode: "H0249", address: "충청남도 천안시 서북구 직산읍 군수1길 96", coordinate,
+        date: "2026-09-16", participantUserIds: [1] },
+    ],
+  });
+  const result = await resolveLazyRouteEvidence(snapshot, { routes });
+  assert.equal(routes.stats?.requests, 0);
+  assert.equal(result.stats.externalCalls, 0);
+  assert.equal(result.snapshot.routeEvidence[0].sameAddress, true);
+  assert.notEqual(planPreliminarySurveyGivenFixedAssignments(result.snapshot).results[0].reason,
+    "ROUTE_EVIDENCE_REQUIRED");
+});
+
+test("같은 읍면동의 다른 좌표는 Route 근거 없이는 동일현장이 아니다", async () => {
+  const routes = fakeRoutes(async () => unknownRoute);
+  const snapshot = fixture({ actualMeasurementOccupancy: [
+    ...fixture().actualMeasurementOccupancy,
+    { targetId: 20, businessCode: "H0020", address: "대전광역시 중구 2동",
+      coordinate: { latitude: 36.3211, longitude: 127.4211 }, date: "2026-09-16", participantUserIds: [1] },
+  ] });
+  const result = await resolveLazyRouteEvidence(snapshot, { routes });
+  assert.equal(routes.stats?.requests, 1);
+  assert.equal(result.snapshot.routeEvidence[0].sameAddress, false);
+  assert.equal(result.snapshot.routeEvidence[0].provider, "route_unavailable");
 });
 
 test("공유 직원 + 다른 주소는 필요한 단방향만 한 번 조회한다", async () => {
