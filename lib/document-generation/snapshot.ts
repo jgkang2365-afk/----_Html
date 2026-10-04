@@ -170,7 +170,7 @@ export async function buildDocumentSnapshot(supabase: any, businessId: number) {
   ] = await Promise.all([
     supabase
       .from("business_info")
-      .select("invoice_email, main_product")
+      .select("invoice_email, main_product, business_category")
       .eq("code", target.code)
       .maybeSingle(),
     supabase
@@ -195,7 +195,7 @@ export async function buildDocumentSnapshot(supabase: any, businessId: number) {
     business_name: normalizeText(target.business_name),
     representative_name: normalizeText(target.representative_name),
     address: normalizeText(target.address),
-    business_category: normalizeText(target.business_category),
+    business_category: normalizeText(businessInfo?.business_category),
     phone: normalizeText(target.phone),
     main_product: normalizeText(businessInfo?.main_product),
     fax: normalizeText(target.fax),

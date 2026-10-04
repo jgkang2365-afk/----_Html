@@ -77,6 +77,7 @@ async function getContext(businessId: number) {
       outputPath: null,
       measurementYear: target.year,
       measurementPeriod: period,
+      targetBusinessCategory: target.business_category,
     };
   }
 
@@ -147,6 +148,7 @@ async function getContext(businessId: number) {
     snapshot,
     measurementYear: target.year,
     measurementPeriod: period,
+    targetBusinessCategory: target.business_category,
     outputPath: buildDocumentOutputPath(
       outputRoot(),
       target.year,
@@ -163,7 +165,8 @@ export async function GET(request: NextRequest) {
     const businessId = Number(new URL(request.url).searchParams.get("businessId"));
     if (!Number.isInteger(businessId))
       return NextResponse.json({ error: "사업장 ID가 필요합니다." }, { status: 400 });
-    return NextResponse.json(await getContext(businessId), {
+    const context = await getContext(businessId);
+    return NextResponse.json({ ...context, targetBusinessCategory: undefined }, {
       headers: { "Cache-Control": "no-store, max-age=0" },
     });
   } catch (error: any) {
@@ -254,7 +257,9 @@ export async function POST(request: NextRequest) {
       if (
         missingDefinitions.some(
           (definition) =>
-            !isPreliminarySurveyVariantEligibleForTarget(definition, context.snapshot || {})
+            !isPreliminarySurveyVariantEligibleForTarget(definition, {
+              business_category: context.targetBusinessCategory,
+            })
         )
       )
         return NextResponse.json(
