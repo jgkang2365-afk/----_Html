@@ -87,6 +87,21 @@ class DynamicDocumentWorkerTest(unittest.TestCase):
             "H0507 테스트_사업장(안내문-26하).xlsx",
         )
 
+    def test_custom_preliminary_survey_variants_share_filename(self):
+        snapshot = {**self.snapshot, "business_name": "삼원피에치"}
+        for name in ("일반사업장_예비조사표", "공업사_예비조사표",
+                     "일반사업장(예비조사표)", "공업사(예비조사표)"):
+            with self.subTest(name=name):
+                definition = {
+                    "name": name,
+                    "file_format": "HWPX",
+                    "filename_pattern": "{business_name}(예비조사표-{short_year}{short_period})",
+                }
+                self.assertEqual(
+                    build_filename_from_definition(definition, snapshot),
+                    "삼원피에치(예비조사표-26하).hwpx",
+                )
+
     def test_required_value_uses_snapshot_then_default(self):
         resolved = resolve_mapping_values(
             [

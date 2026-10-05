@@ -7,6 +7,11 @@ export const PRELIMINARY_SURVEY_FILENAME_PATTERN =
 
 const LEGACY_GENERAL_PRELIMINARY_SURVEY_NAME = "일반 예비조사표";
 const LEGACY_INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_NAME = "공업사(예비조사표)";
+const CUSTOM_GENERAL_PRELIMINARY_SURVEY_NAMES = new Set([
+  "일반사업장_예비조사표",
+  "일반사업장(예비조사표)",
+]);
+const CUSTOM_INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_NAME = "공업사_예비조사표";
 
 const NEW_BUSINESS_TYPES = new Set(["first_measurement", "external_new"]);
 
@@ -33,7 +38,8 @@ export function isIndustrialShopPreliminarySurvey(definition: DocumentDefinition
   return (
     definition.code === INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_CODE ||
     definition.name === INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_NAME ||
-    definition.name === LEGACY_INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_NAME
+    definition.name === LEGACY_INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_NAME ||
+    definition.name === CUSTOM_INDUSTRIAL_SHOP_PRELIMINARY_SURVEY_NAME
   );
 }
 
@@ -41,7 +47,8 @@ export function isGeneralPreliminarySurvey(definition: DocumentDefinitionIdentit
   return (
     definition.code === GENERAL_PRELIMINARY_SURVEY_CODE ||
     definition.name === GENERAL_PRELIMINARY_SURVEY_NAME ||
-    definition.name === LEGACY_GENERAL_PRELIMINARY_SURVEY_NAME
+    definition.name === LEGACY_GENERAL_PRELIMINARY_SURVEY_NAME ||
+    CUSTOM_GENERAL_PRELIMINARY_SURVEY_NAMES.has(String(definition.name ?? ""))
   );
 }
 

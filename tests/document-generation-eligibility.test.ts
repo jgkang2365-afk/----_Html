@@ -15,6 +15,8 @@ import {
   documentDefinitionDisplayName,
   documentDefinitionFilenamePattern,
   isDocumentDefinitionEligibleForTarget,
+  isGeneralPreliminarySurvey,
+  isIndustrialShopPreliminarySurvey,
   isNewBusinessDocumentGenerationEligible,
 } from "../lib/document-generation/business-eligibility";
 
@@ -148,6 +150,40 @@ test("예비조사표 표시명과 파일명 규칙은 code를 바꾸지 않고 
       documentDefinitionFilenamePattern({ code }, "{business_name}({document_name})"),
       PRELIMINARY_SURVEY_FILENAME_PATTERN
     );
+});
+
+test("활성 CUSTOM 예비조사표의 정확한 이름만 양식과 공통 파일명 규칙으로 인식한다", () => {
+  const oldPattern = "{business_name}({document_name}-{short_year}{short_period})";
+  for (const name of ["일반사업장_예비조사표", "일반사업장(예비조사표)"]) {
+    const definition = { code: "CUSTOM_GENERAL", name };
+    assert.equal(isGeneralPreliminarySurvey(definition), true);
+    assert.equal(isDocumentDefinitionEligibleForTarget(definition, target({ business_category: "제조업" })), true);
+    assert.equal(isDocumentDefinitionEligibleForTarget(definition, target()), false);
+    assert.equal(documentDefinitionFilenamePattern(definition, oldPattern), PRELIMINARY_SURVEY_FILENAME_PATTERN);
+  }
+  for (const name of ["공업사_예비조사표", "공업사(예비조사표)"]) {
+    const definition = { code: "CUSTOM_INDUSTRIAL", name };
+    assert.equal(isIndustrialShopPreliminarySurvey(definition), true);
+    assert.equal(isDocumentDefinitionEligibleForTarget(definition, target()), true);
+    assert.equal(isDocumentDefinitionEligibleForTarget(definition, target({ business_category: "제조업" })), false);
+    assert.equal(documentDefinitionFilenamePattern(definition, oldPattern), PRELIMINARY_SURVEY_FILENAME_PATTERN);
+  }
+  assert.equal(documentDefinitionFilenamePattern({ name: "현장 예비조사표" }, oldPattern), oldPattern);
+  assert.equal(documentDefinitionFilenamePattern({ name: "일반사업장 예비조사표" }, oldPattern), oldPattern);
+});
+
+test("CUSTOM 파일명 migration은 활성 일반·공업사 HWPX 정의만 수정한다", () => {
+  const filenameMigration = readFileSync(
+    "supabase/migrations/20261005034636_fix_active_preliminary_survey_filename_patterns.sql",
+    "utf8"
+  );
+  for (const name of ["일반사업장_예비조사표", "일반사업장(예비조사표)", "공업사_예비조사표", "공업사(예비조사표)"])
+    assert.match(filenameMigration, new RegExp(name.replace(/[()]/g, "\\$&")));
+  assert.match(filenameMigration, /is_active = true/);
+  assert.match(filenameMigration, /deleted_at IS NULL/);
+  assert.match(filenameMigration, /file_format = 'HWPX'/);
+  assert.match(filenameMigration, /\{business_name\}\(예비조사표-\{short_year\}\{short_period\}\)/);
+  assert.doesNotMatch(filenameMigration, /FIELD_PRELIMINARY_SURVEY/);
 });
 
 test("후속 migration은 두 예비조사표 이름·파일명과 queue 상호배타 정책만 갱신한다", () => {
