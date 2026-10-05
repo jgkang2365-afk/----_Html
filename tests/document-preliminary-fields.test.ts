@@ -62,11 +62,23 @@ test("V2 날짜가 없으면 legacy 측정일을 조회하거나 fallback하지 
   assert.equal(snapshot.preliminary_surveyor, "이 태 환, 강 종 구");
 });
 
-test("날짜 선행 0만 제거하고 혼합 이름은 문자 단위로 분해하지 않는다", async () => {
-  const client = mockClient({ recommended_date: "2026-10-06", participant_names: ["이 태 환", "John   Kim", "김 A"] });
+test("예비조사 날짜의 월일 선행 0을 유지하고 혼합 이름은 문자 단위로 분해하지 않는다", async () => {
+  const client = mockClient({ recommended_date: "2026-09-08", participant_names: ["이 태 환", "John   Kim", "김 A"] });
   const { snapshot } = await buildDocumentSnapshot(client.supabase, 7);
-  assert.equal(snapshot.preliminary_survey_day, "6");
+  assert.deepEqual(
+    [snapshot.preliminary_survey_year, snapshot.preliminary_survey_month, snapshot.preliminary_survey_day],
+    ["2026", "09", "08"]
+  );
   assert.equal(snapshot.preliminary_surveyor, "이 태 환, John Kim, 김 A");
+});
+
+test("잘못된 형식의 예비조사 날짜는 빈 문자열로 유지한다", async () => {
+  const client = mockClient({ recommended_date: "2026/09/08", participant_names: [] });
+  const { snapshot } = await buildDocumentSnapshot(client.supabase, 7);
+  assert.deepEqual(
+    [snapshot.preliminary_survey_year, snapshot.preliminary_survey_month, snapshot.preliminary_survey_day],
+    ["", "", ""]
+  );
 });
 
 test("source-field CHECK는 예비조사 날짜 세 필드를 허용하고 mapping 행은 만들지 않는다", () => {

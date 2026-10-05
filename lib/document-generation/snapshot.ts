@@ -32,8 +32,8 @@ function preliminaryDateParts(value: unknown) {
   if (!match) return { preliminary_survey_year: "", preliminary_survey_month: "", preliminary_survey_day: "" };
   return {
     preliminary_survey_year: match[1],
-    preliminary_survey_month: String(Number(match[2])),
-    preliminary_survey_day: String(Number(match[3])),
+    preliminary_survey_month: match[2],
+    preliminary_survey_day: match[3],
   };
 }
 
