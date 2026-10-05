@@ -150,6 +150,22 @@ test("신청결과 목록은 snapshot이 없을 때 현재 신청 대표자 over
   assert.match(source, /representative_name: entry\.representative_name \|\| targetInfo\.representative_name/);
 });
 
+test("Excel 확정결과는 신청 대표자를 snapshot으로 저장하고 export에서 우선한다", () => {
+  const upload = fs.readFileSync(
+    path.join(process.cwd(), "app/api/businesses/national-support/upload/route.ts"), "utf8",
+  );
+  assert.match(upload, /\.from\("national_support_application"\)\s*\.upsert\(\{[\s\S]*?representative_name: representative \|\| null,[\s\S]*?status_source: "confirmed_result"/);
+  assert.ok(upload.indexOf("data.forEach((row, index) => assertNationalSupportPeriod") < upload.indexOf("// 데이터 처리"));
+
+  const exportSource = fs.readFileSync(
+    path.join(process.cwd(), "app/api/export/national-support/route.ts"), "utf8",
+  );
+  assert.match(exportSource, /representative: entry\.representative_name \|\| resolveNationalSupportRepresentative\(/);
+  const sync = fs.readFileSync(path.join(process.cwd(), "lib/sync/national-support.ts"), "utf8");
+  assert.match(sync, /hasExisting && existing\.industrial_accident_number/);
+  assert.match(sync, /hasExisting && existing\.commencement_number/);
+});
+
 test("수시 주기는 UI와 서버에서 대상 수동확정을 차단한다", () => {
   const manualApi = fs.readFileSync(
     path.join(process.cwd(), "app/api/businesses/national-support/manual-status/route.ts"),

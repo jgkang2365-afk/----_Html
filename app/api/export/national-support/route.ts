@@ -3,6 +3,9 @@ export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import * as XLSX from "xlsx";
+import { exportRow, headersFor } from "@/lib/excel-contract/contract";
+import { nationalSupportFields } from "@/lib/excel-contract/national-support";
+import { resolveNationalSupportRepresentative } from "@/lib/national-support/representative";
 
 /**
  * 건강디딤돌 신청결과 엑셀 다운로드 API
@@ -56,13 +59,15 @@ export async function GET(request: NextRequest) {
 
     // code 목록 추출 및 사업장 정보 조회
     const codes = (entries || []).map((entry: any) => entry.code).filter(Boolean);
-    let businessMap = new Map<string, { name: string; address: string }>();
+    let businessMap = new Map<string, { name: string; address: string; representative: string | null; representativeOverride: string | null }>();
+    const targetMap = new Map<string, any>();
+    const measurementMap = new Map<string, any>();
     if (codes.length > 0) {
       try {
         // 1차: business_info에서 조회
         const { data: infoBusinesses, error: infoError } = await supabase
           .from("business_info")
-          .select("code, business_name, address1, address2")
+          .select("code, business_name, address1, address2, representative_name, national_support_representative_name")
           .in("code", codes);
 
         if (infoError) {
@@ -73,7 +78,9 @@ export async function GET(request: NextRequest) {
               const fullAddress = [info.address1, info.address2].filter(Boolean).join(" ");
               businessMap.set(info.code, {
                 name: info.business_name || "",
-                address: fullAddress
+                address: fullAddress,
+                representative: info.representative_name || null,
+                representativeOverride: info.national_support_representative_name || null,
               });
             }
           });
@@ -86,7 +93,7 @@ export async function GET(request: NextRequest) {
           try {
             const { data: businesses, error: businessError } = await supabase
               .from("measurement_business")
-              .select("code, business_name, address")
+              .select("code, business_name, address, representative_name")
               .in("code", missingCodes);
 
             if (businessError) {
@@ -96,7 +103,9 @@ export async function GET(request: NextRequest) {
                 if (business.code) {
                   businessMap.set(business.code, {
                     name: business.business_name || "",
-                    address: business.address || ""
+                    address: business.address || "",
+                    representative: business.representative_name || null,
+                    representativeOverride: null,
                   });
                 }
               });
@@ -105,6 +114,18 @@ export async function GET(request: NextRequest) {
             console.error("측정사업장 추가 조회 중 예외:", mbErr);
           }
         }
+        const { data: targets } = await supabase.from("measurement_target_business")
+          .select("code, year, period, representative_name, industrial_accident_number, commencement_number")
+          .in("code", codes);
+        (targets || []).forEach((target: any) => targetMap.set(`${target.code}-${target.year}-${target.period}`, target));
+        const { data: measurements } = await supabase.from("measurement_business")
+          .select("code, year, period, representative_name, industrial_accident_number, commencement_number")
+          .in("code", codes)
+          .order("year", { ascending: false })
+          .order("period", { ascending: false });
+        (measurements || []).forEach((measurement: any) => {
+          if (!measurementMap.has(measurement.code)) measurementMap.set(measurement.code, measurement);
+        });
       } catch (err) {
         console.error("사업장 정보 조회 오류:", err);
       }
@@ -112,27 +133,28 @@ export async function GET(request: NextRequest) {
 
     // 엑셀 데이터 준비
     const excelData = (entries || []).map((entry) => {
-      const businessInfo = businessMap.get(entry.code) || { name: "", address: "" };
-      return {
-        코드: entry.code || "",
-        사업장명: businessInfo.name,
-        주소: businessInfo.address,
-        측정년도: entry.year || "",
-        측정주기: entry.period || "",
-        신청여부: entry.application_status || "",
-        신청결과: entry.result || "",
-        국고지원상태: entry.national_support_status || "",
-        등록일시: entry.created_at
-          ? new Date(entry.created_at).toLocaleString("ko-KR")
-          : "",
-        수정일시: entry.updated_at
-          ? new Date(entry.updated_at).toLocaleString("ko-KR")
-          : "",
-      };
+      const businessInfo = businessMap.get(entry.code);
+      const target = targetMap.get(`${entry.code}-${entry.year}-${entry.period}`);
+      const measurement = measurementMap.get(entry.code);
+      return exportRow(nationalSupportFields, {
+        ...entry,
+        business_name: businessInfo?.name,
+        address: businessInfo?.address,
+        representative: entry.representative_name || resolveNationalSupportRepresentative(
+          businessInfo?.representativeOverride,
+          target?.representative_name || measurement?.representative_name || businessInfo?.representative,
+        ),
+        industrial_accident_number: target?.industrial_accident_number || measurement?.industrial_accident_number,
+        commencement_number: target?.commencement_number || measurement?.commencement_number,
+        national_support_status: ["지원", "지원대상"].includes(entry.national_support_status || "")
+          ? "대상"
+          : entry.national_support_status === "미지원" ? "비대상" : entry.national_support_status,
+        updated_at: entry.updated_at ? new Date(entry.updated_at).toLocaleString("ko-KR") : "",
+      });
     });
 
     // 엑셀 워크북 생성
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const worksheet = XLSX.utils.json_to_sheet(excelData, { header: headersFor(nationalSupportFields, "export") });
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "건강디딤돌신청결과");
 

@@ -5,6 +5,8 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import * as XLSX from "xlsx";
 import { syncBusinessData, normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 import { ensureBusinessCoordinate } from "@/lib/business-coordinates/service";
+import { importRow } from "@/lib/excel-contract/contract";
+import { measurementTargetFields } from "@/lib/excel-contract/measurement-target";
 
 // 최대 처리 행 수 (타임아웃 방지)
 const MAX_ROWS = 500;
@@ -45,23 +47,7 @@ export async function POST(request: NextRequest) {
             errors: [] as string[]
         };
 
-        // 헤더 매핑 헬퍼
-        const getValue = (row: any, keys: string[]) => {
-            for (const key of keys) {
-                if (row[key] !== undefined && row[key] !== null) {
-                    return String(row[key]).trim();
-                }
-            }
-            return null;
-        };
-
-        const normalizeFuturePeriod = (value: string | null) => {
-            if (!value) return null;
-            const match = value.match(/\d+/);
-            if (!match) return null;
-            const number = parseInt(match[0], 10);
-            return value.includes("년") || number === 1 ? number * 12 : number;
-        };
+        const parseRow = (row: any) => importRow(measurementTargetFields, row);
 
         const calculateFutureMeasurementDate = (previousDate: string | null, futurePeriodMonths: number | null) => {
             if (!previousDate || !futurePeriodMonths) return null;
@@ -83,19 +69,9 @@ export async function POST(request: NextRequest) {
             const dd = String(calculated.getDate()).padStart(2, "0");
             return `${yyyy}-${mm}-${dd}`;
         };
-        const normalizeDate = (value: string | null) => {
-            if (!value) return null;
-
-            const compactDate = value.replace(/[^0-9]/g, "");
-            if (/^\d{8}$/.test(compactDate)) {
-                return `${compactDate.slice(0, 4)}-${compactDate.slice(4, 6)}-${compactDate.slice(6, 8)}`;
-            }
-
-            return value;
-        };
 
         // 1. 업로드 대상 사업장 코드, 년도, 주기 수집하여 건강디딤돌 결과 Bulk 조회 (상호 동기화 안전장치)
-        const uploadCodes = rawData.map(row => getValue(row, ["code", "m.i_code", "사업장코드", "관리번호", "코드"])).filter(Boolean) as string[];
+        const uploadCodes = rawData.map(row => parseRow(row).code).filter(Boolean) as string[];
         const uniqueCodes = Array.from(new Set(uploadCodes));
         const nationalSupportMap = new Map<string, string>(); // 'code-year-period' -> '대상' | '비대상'
 
@@ -125,15 +101,16 @@ export async function POST(request: NextRequest) {
                 try {
                     const rowNumber = currentIndex + 2;
 
-                    const code = getValue(row, ["code", "m.i_code", "사업장코드", "관리번호", "코드"]);
-                    let yearInput = getValue(row, ["year", "년도", "측정년도"]);
-                    const period = getValue(row, ["period", "주기", "측정주기", "분기"]);
+                    const fields = parseRow(row);
+                    const code = String(fields.code || "");
+                    const yearInput = fields.year;
+                    const period = String(fields.period || "");
 
                     if (!code) throw new Error(`[${rowNumber}행] 사업장 코드가 없습니다.`);
                     if (!yearInput) throw new Error(`[${rowNumber}행] 측정년도가 없습니다.`);
                     if (!period) throw new Error(`[${rowNumber}행] 측정주기가 없습니다.`);
 
-                    const year = parseInt(yearInput, 10);
+                    const year = parseInt(String(yearInput), 10);
                     if (isNaN(year)) throw new Error(`[${rowNumber}행] 측정년도가 유효하지 않습니다: ${yearInput}`);
 
                     const key = `${code}-${year}-${period}`;
@@ -146,24 +123,24 @@ export async function POST(request: NextRequest) {
                         code,
                         year,
                         period,
-                        business_name: getValue(row, ["business_name", "사업장명", "업체명"]),
-                        address: getValue(row, ["address", "주소", "소재지"]),
-                        business_category: getValue(row, ["business_category", "업종", "업태"]),
-                        manager_name: getValue(row, ["manager_name", "담당자", "계획담당자"]),
-                        plan_manager: getValue(row, ["plan_manager", "계획담당자", "담당"]),
-                        manager_mobile: getValue(row, ["manager_mobile", "연락처", "휴대폰"]),
-                        phone: getValue(row, ["phone", "전화번호", "회사전화"]),
-                        fax: getValue(row, ["fax", "팩스", "전송"]),
-                        business_number: getValue(row, ["business_number", "사업자번호", "등록번호"]),
-                        industrial_accident_number: getValue(row, ["industrial_accident_number", "산재번호", "관리번호_산재"]),
-                        commencement_number: getValue(row, ["commencement_number", "사업개시번호", "개시번호"]),
-                        representative_name: getValue(row, ["representative_name", "대표자명", "대표자", "대표", "대표이사", "사장님"]),
-                        notes: getValue(row, ["notes", "비고", "특이사항"]),
-                        is_registered_text: normalizeBusinessStatus(getValue(row, ["is_registered", "계획진행", "실시여부", "상태"])),
-                        office_jurisdiction: getValue(row, ["office_jurisdiction", "관할청", "소재지관할청"]),
-                        previous_measurement_date: normalizeDate(getValue(row, ["previous_measurement_date", "전회측정일", "전회측정"])),
-                        previous_measurement_period: getValue(row, ["previous_measurement_period", "전회측정주기", "전회주기"]),
-                        future_measurement_period: normalizeFuturePeriod(getValue(row, ["future_measurement_period", "향후측정주기", "향후 측정 주기"])),
+                        business_name: fields.business_name || null,
+                        address: fields.address || null,
+                        business_category: fields.business_category || null,
+                        manager_name: fields.manager_name || fields.plan_manager || null,
+                        plan_manager: fields.plan_manager || null,
+                        manager_mobile: fields.manager_mobile || null,
+                        phone: fields.phone || null,
+                        fax: fields.fax || null,
+                        business_number: fields.business_number || null,
+                        industrial_accident_number: fields.industrial_accident_number || null,
+                        commencement_number: fields.commencement_number || null,
+                        representative_name: fields.representative_name || null,
+                        notes: fields.notes || null,
+                        is_registered_text: normalizeBusinessStatus(String(fields.is_registered || "")),
+                        office_jurisdiction: fields.office_jurisdiction || null,
+                        previous_measurement_date: fields.previous_measurement_date || null,
+                        previous_measurement_period: fields.previous_measurement_period || null,
+                        future_measurement_period: fields.future_measurement_period || null,
                     };
 
                     const syncedData = await syncBusinessData(supabase, code, year, period, {

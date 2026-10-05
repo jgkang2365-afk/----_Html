@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import * as XLSX from "xlsx";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { syncNationalSupportToBusiness } from "@/lib/sync/national-support";
+import { importRow } from "@/lib/excel-contract/contract";
+import { assertNationalSupportPeriod, nationalSupportFields } from "@/lib/excel-contract/national-support";
 
 /**
  * 건강디딤돌 신청 결과 업로드 API
@@ -74,48 +74,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check the whole file before the first write, so a later mismatched row cannot partially apply.
+    try {
+      data.forEach((row, index) => assertNationalSupportPeriod(row as Record<string, unknown>, year, period, index + 2));
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+
     const errors: string[] = [];
     let successCount = 0;
     let updateCount = 0;
 
-    // 헤더 매칭 (여러 가능한 컬럼명 시도)
-    const codeHeader = Object.keys(data[0] || {}).find(
-      (key) =>
-        key.includes("코드") ||
-        key.includes("사업장코드") ||
-        key === "code"
-    );
-    const applicationStatusHeader = Object.keys(data[0] || {}).find(
-      (key) =>
-        key.includes("신청 여부") ||
-        key.includes("신청여부") ||
-        key === "application_status"
-    );
-    const resultHeader = Object.keys(data[0] || {}).find(
-      (key) =>
-        key.includes("신청결과") ||
-        key.includes("결과") ||
-        key === "result"
-    );
-    const representativeHeader = Object.keys(data[0] || {}).find(
-      (key) =>
-        key.includes("대표자") ||
-        key === "representative"
-    );
-    const sanjaeHeader = Object.keys(data[0] || {}).find(
-      (key) =>
-        key.includes("사업장관리번호") ||
-        key.includes("산재관리번호") ||
-        key.includes("산재번호") ||
-        key === "industrial_accident_number"
-    );
-    const commencementHeader = Object.keys(data[0] || {}).find(
-      (key) =>
-        key.includes("사업개시번호") ||
-        key === "commencement_number"
-    );
-
-    if (!codeHeader) {
+    if (!data.some((row) => importRow(nationalSupportFields, row as Record<string, unknown>).code)) {
       return NextResponse.json(
         { error: "Excel 파일에 '코드' 또는 '사업장코드' 컬럼을 찾을 수 없습니다." },
         { status: 400 }
@@ -124,38 +94,28 @@ export async function POST(request: NextRequest) {
 
     // 데이터 처리
     for (let i = 0; i < data.length; i++) {
-      const row = data[i] as any;
-      const code = String(row[codeHeader] || "").trim();
+      const row = importRow(nationalSupportFields, data[i] as Record<string, unknown>);
+      const code = String(row.code || "").trim();
 
       if (!code) {
         continue; // 코드가 없으면 스킵
       }
 
       // 신청 여부 및 신청결과 확인
-      const applicationStatus = applicationStatusHeader
-        ? String(row[applicationStatusHeader] || "").trim()
-        : "";
-      const result = resultHeader
-        ? String(row[resultHeader] || "").trim()
-        : "";
+      const applicationStatus = String(row.application_status || "");
+      const result = String(row.result || "");
 
       // 대표자, 산재번호, 사업개시번호 확인
-      const representative = representativeHeader
-        ? String(row[representativeHeader] || "").trim()
-        : "";
-      const sanjae = sanjaeHeader
-        ? String(row[sanjaeHeader] || "").trim()
-        : "";
-      const commencement = commencementHeader
-        ? String(row[commencementHeader] || "").trim()
-        : "";
+      const representative = String(row.representative || "");
+      const sanjae = String(row.industrial_accident_number || "");
+      const commencement = String(row.commencement_number || "");
 
       // 국고지원 상태 결정
       // 신청결과가 "대상"인 경우: "대상"
       // 그 외: "비대상"
       let nationalSupportStatus: "대상" | "비대상" | null = null;
 
-      if (result && (result === "대상" || (result.includes("대상") && !result.includes("비대상")))) {
+      if (result && (result === "지원" || result === "지원대상" || result === "대상" || (result.includes("대상") && !result.includes("비대상")))) {
         nationalSupportStatus = "대상";
       } else if (result || applicationStatus) {
         // 신청결과가 있지만 "대상"이 아니면 "비대상"
@@ -178,6 +138,7 @@ export async function POST(request: NextRequest) {
           application_status: applicationStatus || null,
           result: result || null,
           national_support_status: nationalSupportStatus,
+          representative_name: representative || null,
           status_source: "confirmed_result",
           updated_at: new Date().toISOString(),
         }, {

@@ -36,6 +36,8 @@ import {
     sanitizeBusinessForMap,
 } from "@/lib/measurement-map/types";
 import * as XLSX from "xlsx";
+import { exportRow, headersFor } from "@/lib/excel-contract/contract";
+import { measurementTargetFields } from "@/lib/excel-contract/measurement-target";
 import { useUser } from "@/hooks/use-user";
 import {
     canRequestNationalSupportLookup,
@@ -1684,29 +1686,17 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         const [year, period] = filters.yearPeriod.split("-");
         const measurerMap = new Map(measurers.map(m => [m.id, m.name]));
 
-        const ws = XLSX.utils.json_to_sheet(filteredData.map((item, idx) => ({
-            "No": idx + 1,
-            "년도": item.year,
-            "주기": item.period,
-            "지정지청": item.designated_office || "",
-            "소재지지청": toShortName(item.office_jurisdiction || ""),
-            "코드": item.code,
-            "사업자등록번호": item.business_number || "",
-            "산재관리번호": item.industrial_accident_number || item.sanjae || "",
-            "사업장명": item.business_name,
-            "소재지": item.address,
-            "실시여부": item.is_registered_text === '확정' || item.is_registered_text === '실시' ? '실시' : item.is_registered_text === '미확정' || item.is_registered_text === '미실시' ? '미실시' : item.is_registered_text === '종료' || item.is_registered_text === '거래종료' ? '거래종료' : item.is_registered_text || '미실시',
-            "국고결과": item.national_support_status,
-            "계획담당": item.plan_manager,
-            "업종분류": item.business_category,
-            "담당자명": item.manager_name || "",
-            "휴대폰": item.manager_mobile || "",
-            "유선전화": item.manager_phone || item.phone || "",
-            "담당자 메일": item.manager_email || "",
-            "보고서 담당": item.measurer_id ? measurerMap.get(item.measurer_id) || "" : "",
-            "향후측정주기": item.future_measurement_period ? (item.future_measurement_period === 6 ? "6개월" : item.future_measurement_period === 12 ? "1년" : item.future_measurement_period + "개월") : "-",
-            "비고": item.notes
-        })));
+        const ws = XLSX.utils.json_to_sheet(filteredData.map((item) => exportRow(measurementTargetFields, {
+            ...item,
+            is_registered: item.is_registered_text,
+            national_support_status: item.national_support_status,
+            plan_manager: item.plan_manager,
+            business_type: item.business_type ? getTargetBusinessTypeLabel(item.business_type) : "",
+            office_jurisdiction: toShortName(item.office_jurisdiction || ""),
+            unpaid_count: (item.unpaid_count || 0) + (item.national_unpaid_count || 0),
+            report_writer: item.measurer_id ? measurerMap.get(item.measurer_id) || "" : "",
+            phone: item.manager_phone || item.phone,
+        })), { header: headersFor(measurementTargetFields, "export") });
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "측정대상사업장");
         XLSX.writeFile(wb, `측정대상사업장_${year}_${period}.xlsx`);

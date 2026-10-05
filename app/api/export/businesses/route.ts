@@ -3,6 +3,12 @@ export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import * as XLSX from "xlsx";
+import { exportRow, headersFor } from "@/lib/excel-contract/contract";
+import { measurementTargetFields } from "@/lib/excel-contract/measurement-target";
+import { resolveTargetBusinessCategory } from "@/lib/business/target-classification";
+import { getTargetBusinessTypeLabel } from "@/lib/business/target-business-form";
+import { toShortName } from "@/lib/constants/designated-offices";
+import { normalizeBusinessStatus } from "@/lib/utils/sync-helper";
 
 /**
  * 측정 대상 사업장 목록 엑셀 다운로드 API
@@ -47,6 +53,35 @@ export async function GET(request: NextRequest) {
     // 건강디딤돌 신청결과 조회 (국고지원 상태)
     const codes = (businesses || []).map((b: any) => b.code).filter(Boolean);
     let nationalSupportMap = new Map<string, string | null>();
+    const unpaidMap = new Map<string, { regular: number; adHoc: number }>();
+    const reportWriterMap = new Map<number, string>();
+    const latestCategoryMap = new Map<string, string | null>();
+    const latestJournalCategoryMap = new Map<string, string | null>();
+
+    if (codes.length > 0) {
+      const [{ data: receivables }, { data: users }, { data: latestBusinesses }, { data: latestJournals }] = await Promise.all([
+        supabase.from("measurement_journal").select("code, measurement_period, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national").in("code", codes),
+        supabase.from("users").select("id, name"),
+        supabase.from("measurement_business").select("code, year, period, business_category").in("code", codes).order("year", { ascending: false }).order("period", { ascending: false }),
+        supabase.from("measurement_journal").select("code, measurement_year, measurement_period, business_category").in("code", codes).order("measurement_year", { ascending: false }).order("measurement_period", { ascending: false }),
+      ]);
+      (receivables || []).forEach((item: any) => {
+        const count = Number(item.measurement_fee_business || 0) > Number(item.deposit_amount_business || 0) + Number(item.deposit_amount_business_2 || 0)
+          ? 1 : 0;
+        const nationalCount = Number(item.measurement_fee_national || 0) > Number(item.deposit_amount_national || 0) ? 1 : 0;
+        const current = unpaidMap.get(item.code) || { regular: 0, adHoc: 0 };
+        const kind = String(item.measurement_period || "").includes("(수시)") ? "adHoc" : "regular";
+        current[kind] += count + nationalCount;
+        unpaidMap.set(item.code, current);
+      });
+      (users || []).forEach((user: any) => reportWriterMap.set(Number(user.id), String(user.name)));
+      (latestBusinesses || []).forEach((item: any) => {
+        if (!latestCategoryMap.has(item.code)) latestCategoryMap.set(item.code, item.business_category || null);
+      });
+      (latestJournals || []).forEach((item: any) => {
+        if (!latestJournalCategoryMap.has(item.code)) latestJournalCategoryMap.set(item.code, item.business_category || null);
+      });
+    }
 
     if (codes.length > 0) {
       let nationalSupportQuery = supabase
@@ -184,21 +219,27 @@ export async function GET(request: NextRequest) {
 
     // 엑셀 데이터 준비
     const excelData = (businesses || []).map((business) => {
-      // 국고지원 상태 결정 (우선순위: measurement_journal > national_support_application > measurement_target_business)
+      // 측정대상 목록의 현재 대상 상태를 우선한다.
       const nationalSupportKey = `${business.code}-${business.year}-${business.period}`;
       let nationalSupportStatus =
-        journalNationalSupportMap.get(nationalSupportKey) ||
-        nationalSupportMap.get(nationalSupportKey) ||
         business.national_support_status ||
+        nationalSupportMap.get(nationalSupportKey) ||
+        journalNationalSupportMap.get(nationalSupportKey) ||
         null;
 
       // '지원' 용어를 '대상'으로 통일
-      if (nationalSupportStatus === "지원") {
+      if (nationalSupportStatus === "지원" || nationalSupportStatus === "지원대상") {
         nationalSupportStatus = "대상";
+      } else if (nationalSupportStatus === "미지원") {
+        nationalSupportStatus = "비대상";
       }
 
       // business_category 조회
-      const businessCategory = businessCategoryMap.get(nationalSupportKey) || null;
+      const businessCategory = resolveTargetBusinessCategory(
+        business.business_category,
+        latestCategoryMap.get(business.code),
+        latestJournalCategoryMap.get(business.code) || businessCategoryMap.get(nationalSupportKey) || null,
+      );
 
       // 전회측정일 조회 및 포맷팅
       let previousMeasurementDateFormatted = "";
@@ -246,28 +287,26 @@ export async function GET(request: NextRequest) {
         } catch { }
       }
 
-      return {
-        코드: business.code || "",
-        국고결과: nationalSupportStatus || "",
-        계획담당자: business.measurer || "",
-        전회측정일: previousMeasurementDateFormatted,
-        "전회 측정 주기": business.future_measurement_period ? `${business.future_measurement_period}개월` : "",
-        금회예정일: futureMeasurementDateFormatted || "",
-        금회측정확정일: measurementDateFormatted,
-        측정월: measurementMonth,
-        업종분류: businessCategory || "",
-        사업장명: business.business_name || "",
-        주소: business.address || "",
-        "소재지 관할청": business.office_jurisdiction || "",
-        담당자명: business.manager_name || "",
-        "담당자 휴대폰": business.manager_mobile || "",
-        회사전화번호: business.manager_phone || "",
-        비고: business.notes || "",
-      };
+      return exportRow(measurementTargetFields, {
+        ...business,
+        is_registered: normalizeBusinessStatus(business.is_registered),
+        national_support_status: nationalSupportStatus,
+        plan_manager: business.plan_manager || business.measurer,
+        business_category: businessCategory,
+        business_type: business.business_type ? getTargetBusinessTypeLabel(business.business_type) : "",
+        office_jurisdiction: toShortName(business.office_jurisdiction || ""),
+        unpaid_count: unpaidMap.get(business.code)?.[String(business.period).includes("(수시)") ? "adHoc" : "regular"] || 0,
+        previous_measurement_date: business.previous_measurement_date || previousMeasurementDateFormatted,
+        measurement_month: business.measurement_month || measurementMonth,
+        future_measurement_date: futureMeasurementDateFormatted,
+        report_writer: business.measurer_id ? reportWriterMap.get(Number(business.measurer_id)) || "" : "",
+        measurement_date: measurementDateFormatted,
+        phone: business.phone || business.manager_phone,
+      });
     });
 
     // 엑셀 워크북 생성
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
+    const worksheet = XLSX.utils.json_to_sheet(excelData, { header: headersFor(measurementTargetFields, "export") });
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "측정대상사업장목록");
 

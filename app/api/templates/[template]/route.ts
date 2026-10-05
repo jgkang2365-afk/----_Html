@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import * as XLSX from "xlsx";
+import { headersFor } from "@/lib/excel-contract/contract";
+import { measurementTargetFields } from "@/lib/excel-contract/measurement-target";
+import { nationalSupportFields } from "@/lib/excel-contract/national-support";
 
 export const dynamic = "force-dynamic";
 
@@ -16,24 +19,14 @@ const templates: Record<string, Template> = {
   "national-support": {
     fileName: "건강디딤돌_업로드_양식.xlsx",
     sheetName: "건강디딤돌 신청결과",
-    headers: [
-      "사업장관리번호", "사업개시번호", "사업장명", "대표자",
-      "주소(필수 값 아님)", "담당자", "휴대전화번호\n(010 제외한 번호만 입력)",
-      "신청 여부", "신청결과", "사업장코드",
-    ],
-    example: ["", "", "예시 사업장", "홍길동", "", "", "", "○", "대상", "H0138"],
-    widths: [20, 18, 24, 14, 32, 14, 24, 12, 12, 14],
+    headers: headersFor(nationalSupportFields, "template"),
+    example: ["H0138", "홍길동", "", "", "○", "대상"],
   },
   "measurement-target": {
     fileName: "측정대상사업장_등록양식.xlsx",
     sheetName: "측정대상사업장",
-    headers: [
-      "사업장코드", "측정년도", "측정주기", "사업장명", "주소", "업종",
-      "담당자", "계획담당자", "휴대폰", "전화번호", "팩스",
-      "산재번호", "사업개시번호", "대표자명", "관할청",
-      "전회측정일", "향후측정주기", "비고",
-    ],
-    example: ["H0138", new Date().getFullYear(), "상반기", "예시 사업장", "", "", "", "", "", "", "", "", "", "", "", "", "6개월", ""],
+    headers: headersFor(measurementTargetFields, "template"),
+    example: ["H0138", new Date().getFullYear(), "상반기", "", "", "", "예시 사업장"],
   },
   journal: {
     fileName: "측정일지_업로드_양식.xlsx",
