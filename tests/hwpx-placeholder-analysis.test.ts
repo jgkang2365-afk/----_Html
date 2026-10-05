@@ -248,3 +248,8 @@ test("분석 API 오류 계약과 기존 수동 매핑·템플릿 수정 경로�
   assert.match(management, /method: "PATCH"/);
   assert.match(management, /changeActive\(template, !template\.is_active\)/);
 });
+
+test("Turbopack 서버는 HWPX 분석용 JSZip을 외부 패키지로 로드한다", () => {
+  const config = readFileSync("next.config.mjs", "utf8");
+  assert.match(config, /serverComponentsExternalPackages:\s*\[[^\]]*["']jszip["']/);
+});

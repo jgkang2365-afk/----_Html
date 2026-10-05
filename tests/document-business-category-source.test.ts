@@ -36,6 +36,7 @@ function mockClient(targetCategory: string, infoCategory: string | null) {
           if (table === "business_info")
             return { data: { invoice_email: null, main_product: null, business_category: infoCategory }, error: null };
           if (table === "preliminary_survey") return { data: null, error: null };
+          if (table === "preliminary_survey_v2_plans") return { data: null, error: null };
           throw new Error(`Unexpected table: ${table}`);
         },
       };

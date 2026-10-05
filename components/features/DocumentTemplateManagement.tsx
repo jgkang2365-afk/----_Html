@@ -78,7 +78,7 @@ type AnalysisSummary = {
   duplicate_names: number;
   warnings: number;
 };
-type Field = { value?: string; code?: string; name?: string; label?: string };
+type Field = { value?: string; code?: string; name?: string; label?: string; origin?: string };
 type Template = {
   id: string;
   document_definition_id?: string;
@@ -96,6 +96,7 @@ type RegistrationSuccess = {
   measurementPeriod: Period;
   mappingCount: number;
 };
+type Notice = { text: string; tone: "info" | "warning" | "error" };
 
 const mappingStatusPresentation = {
   normal: { label: "정상", badge: "bg-emerald-50 text-emerald-700", row: "" },
@@ -106,7 +107,7 @@ const mappingStatusPresentation = {
 
 const warningPresentation = {
   info: { label: "정보", className: "text-blue-700" },
-  caution: { label: "주의", className: "text-amber-700" },
+  caution: { label: "주의", className: "text-rose-700" },
   fatal: { label: "오류", className: "text-rose-700" },
 } as const;
 
@@ -140,7 +141,7 @@ export function DocumentTemplateManagement() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<Notice | null>(null);
   const [definitionModal, setDefinitionModal] = useState(false);
   const [editing, setEditing] = useState<Definition | null>(null);
   const [definitionForm, setDefinitionForm] = useState(emptyDefinition());
@@ -163,7 +164,9 @@ export function DocumentTemplateManagement() {
   });
   const [file, setFile] = useState<File | null>(null);
   const selected = definitions.find((definition) => definition.id === selectedId) || null;
-  const notify = (text: string) => setMessage(text);
+  const notify = (text: string, tone: Notice["tone"] = "info") => setMessage({ text, tone });
+  const notifyError = (text: string) => notify(text, "error");
+  const notifyWarning = (text: string) => notify(text, "warning");
   const request = async (url: string, options?: RequestInit) => {
     const response = await fetch(url, { cache: "no-store", ...options });
     const result = await response.json().catch(() => ({}));
@@ -233,13 +236,13 @@ export function DocumentTemplateManagement() {
   useEffect(() => {
     void loadDefinitions()
       .catch((error) =>
-        notify(error instanceof Error ? error.message : "문서 설정을 불러오지 못했습니다.")
+        notifyError(error instanceof Error ? error.message : "문서 설정을 불러오지 못했습니다.")
       )
       .finally(() => setLoading(false));
   }, [loadDefinitions]);
   useEffect(() => {
     void loadTemplates(selectedId).catch((error) =>
-      notify(error instanceof Error ? error.message : "템플릿을 불러오지 못했습니다.")
+      notifyError(error instanceof Error ? error.message : "템플릿을 불러오지 못했습니다.")
     );
   }, [selectedId, loadTemplates]);
   const openDefinition = (definition?: Definition) => {
@@ -278,7 +281,7 @@ export function DocumentTemplateManagement() {
         notify(editing ? "문서 종류를 수정했습니다." : "문서 종류를 추가했습니다.");
       }
     } catch (error) {
-      notify(error instanceof Error ? error.message : "저장에 실패했습니다.");
+      notifyError(error instanceof Error ? error.message : "저장에 실패했습니다.");
     } finally {
       setSaving(false);
     }
@@ -296,7 +299,7 @@ export function DocumentTemplateManagement() {
         definition.is_active ? "문서 종류를 사용 중지했습니다." : "문서 종류를 재활성화했습니다."
       );
     } catch (error) {
-      notify(error instanceof Error ? error.message : "상태 변경에 실패했습니다.");
+      notifyError(error instanceof Error ? error.message : "상태 변경에 실패했습니다.");
     } finally {
       setSaving(false);
     }
@@ -314,7 +317,7 @@ export function DocumentTemplateManagement() {
       await loadDefinitions();
       notify("문서 종류를 삭제했습니다. 기존 템플릿, 매핑 및 생성 이력은 보존됩니다.");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "문서 종류 삭제에 실패했습니다.");
+      notifyError(error instanceof Error ? error.message : "문서 종류 삭제에 실패했습니다.");
     } finally {
       setSaving(false);
     }
@@ -330,7 +333,7 @@ export function DocumentTemplateManagement() {
       await loadDefinitions();
       notify("문서 종류를 복구했습니다. 사용 중지 상태이므로 필요할 때 활성화해 주세요.");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "문서 종류 복구에 실패했습니다.");
+      notifyError(error instanceof Error ? error.message : "문서 종류 복구에 실패했습니다.");
     } finally {
       setSaving(false);
     }
@@ -359,7 +362,7 @@ export function DocumentTemplateManagement() {
         }))
       );
     } catch (error) {
-      notify(error instanceof Error ? error.message : "입력 설정을 불러오지 못했습니다.");
+      notifyError(error instanceof Error ? error.message : "입력 설정을 불러오지 못했습니다.");
       setMappings([]);
     }
   };
@@ -367,7 +370,8 @@ export function DocumentTemplateManagement() {
     if (!selected || selected.file_format !== "HWPX") return;
     if (!selectedFile.name.toLowerCase().endsWith(".hwpx")) {
       setFile(null);
-      return notify("HWPX 형식 파일만 등록할 수 있습니다.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return notifyWarning("HWPX 형식 파일만 등록할 수 있습니다.");
     }
     const requestId = analysisRequest.current + 1;
     analysisRequest.current = requestId;
@@ -437,12 +441,16 @@ export function DocumentTemplateManagement() {
       setAnalysisSummary(summary);
       setMappingMode("analysis");
       notify(
-        `누름틀 ${summary.discovered}개 발견 / 자동매칭 ${summary.auto_matched}개 / 확인 필요 ${summary.requires_confirmation}개`
+        `누름틀 ${summary.discovered}개 발견 / 자동매칭 ${summary.auto_matched}개 / 확인 필요 ${summary.requires_confirmation}개`,
+        summary.warnings > 0 || summary.unmatched > 0 || summary.requires_confirmation > 0
+          ? "warning"
+          : "info"
       );
     } catch (error) {
       if (requestId !== analysisRequest.current) return;
       setFile(null);
-      notify(error instanceof Error ? error.message : "HWPX 누름틀 분석에 실패했습니다.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      notifyError(error instanceof Error ? error.message : "HWPX 누름틀 분석에 실패했습니다.");
     } finally {
       if (requestId === analysisRequest.current) setAnalyzing(false);
     }
@@ -461,7 +469,7 @@ export function DocumentTemplateManagement() {
     if (!selected) return;
     if (mappingMode === "analysis") {
       const review = reviewHwpxRegistration(mappings);
-      if (!file) return notify("분석한 HWPX 파일을 다시 선택해 주세요.");
+      if (!file) return notifyWarning("분석한 HWPX 파일을 다시 선택해 주세요.");
       setPendingMappings(
         mappings.map((mapping) => ({
           ...mapping,
@@ -478,7 +486,8 @@ export function DocumentTemplateManagement() {
           ? "분석 결과를 확인했습니다. 등록 불가 항목을 해결한 뒤 다시 분석해 주세요."
           : review.status === "review"
           ? `분석 결과를 확인했습니다. 확인 필요 ${review.confirmation_count}건을 검토한 뒤 등록해 주세요.`
-          : "분석 결과를 확인했습니다. 원본과 매핑을 함께 등록할 수 있습니다."
+          : "분석 결과를 확인했습니다. 원본과 매핑을 함께 등록할 수 있습니다.",
+        review.status === "ready" ? "info" : "warning"
       );
       return;
     }
@@ -503,22 +512,22 @@ export function DocumentTemplateManagement() {
       await loadDefinitions();
       notify("입력 매핑을 저장했습니다.");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "입력 매핑 저장에 실패했습니다.");
+      notifyError(error instanceof Error ? error.message : "입력 매핑 저장에 실패했습니다.");
     } finally {
       setSaving(false);
     }
   };
   const uploadTemplate = async (event: FormEvent) => {
     event.preventDefault();
-    if (!selected || !file) return notify("등록할 문서 종류와 원본 파일을 선택해 주세요.");
+    if (!selected || !file) return notifyWarning("등록할 문서 종류와 원본 파일을 선택해 주세요.");
     if (!file.name.toLowerCase().endsWith(extension(selected.file_format)))
-      return notify(`${selected.file_format} 형식 파일만 등록할 수 있습니다.`);
+      return notifyWarning(`${selected.file_format} 형식 파일만 등록할 수 있습니다.`);
     if (selected.file_format === "HWPX" && confirmedAnalysisFile !== fileKey(file)) {
       void analyzeHwpxFile(file);
-      return notify("HWPX 누름틀 자동 분석 결과를 먼저 확인해 주세요.");
+      return notifyWarning("HWPX 누름틀 자동 분석 결과를 먼저 확인해 주세요.");
     }
     if (selected.file_format === "HWPX" && !analysisReview.can_register)
-      return notify("등록을 차단하는 미매핑 또는 누름틀 구조 오류를 먼저 해결해 주세요.");
+      return notifyWarning("등록을 차단하는 미매핑 또는 누름틀 구조 오류를 먼저 해결해 주세요.");
     setSaving(true);
     try {
       const body = new FormData();
@@ -568,7 +577,7 @@ export function DocumentTemplateManagement() {
       if (fileInputRef.current) fileInputRef.current.value = "";
       notify("템플릿과 입력 매핑을 등록했습니다.");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "템플릿 등록에 실패했습니다.");
+      notifyError(error instanceof Error ? error.message : "템플릿 등록에 실패했습니다.");
     } finally {
       setSaving(false);
     }
@@ -584,7 +593,7 @@ export function DocumentTemplateManagement() {
       if (selected) await loadTemplates(selected.id);
       notify(isActive ? "선택한 버전을 활성화했습니다." : "템플릿을 비활성화했습니다.");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "상태 변경에 실패했습니다.");
+      notifyError(error instanceof Error ? error.message : "상태 변경에 실패했습니다.");
     } finally {
       setSaving(false);
     }
@@ -597,6 +606,10 @@ export function DocumentTemplateManagement() {
           label: field.label || field.name || field.code || "",
         }))
         .filter((option) => option.value),
+    [fields]
+  );
+  const fieldOriginByValue = useMemo(
+    () => new Map(fields.map((field) => [field.value || field.code || "", field.origin || ""])),
     [fields]
   );
   const selectedMappingCount = selected
@@ -627,8 +640,11 @@ export function DocumentTemplateManagement() {
           </div>
         </header>
         {message && (
-          <p className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-            {message}
+          <p
+            role={message.tone === "info" ? "status" : "alert"}
+            className={`rounded-md border px-3 py-2 text-xs ${message.tone === "info" ? "border-blue-100 bg-blue-50 text-blue-700" : "border-rose-200 bg-rose-50 text-rose-800"}`}
+          >
+            {message.text}
           </p>
         )}
 
@@ -739,19 +755,19 @@ export function DocumentTemplateManagement() {
           {selected ? (
             <>
               {selected.file_format === "HWPX" && (
-                <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
-                  <span>HWPX 파일을 선택하면 누름틀과 매핑을 분석합니다.</span>
+                <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-700">
+                  <span>적용 연도·주기는 문서 생성 시 사용할 원본을 고르는 기준입니다. 누름틀 입력값은 해당 사업장의 측정연도·주기에서 가져옵니다.</span>
                   <Button type="button" size="sm" variant="secondary" className="h-7 whitespace-nowrap px-2.5 text-[11px]" disabled={saving} onClick={() => void openMappings(selected)}>수동 입력 설정</Button>
                 </div>
               )}
 
               <form id="template-upload-form" onSubmit={uploadTemplate} className="grid gap-3 border-b border-slate-200 bg-slate-50/40 p-4 md:grid-cols-[150px_170px_minmax(320px,1fr)_130px] md:items-end">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">적용 연도</label>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">원본 적용 측정연도</label>
                   <Input type="number" min="2000" max="2100" value={templateForm.measurement_year} onChange={(event) => setTemplateForm((previous) => ({ ...previous, measurement_year: Number(event.target.value) }))} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">적용 주기</label>
+                  <label className="mb-1 block text-xs font-medium text-slate-700">원본 적용 주기</label>
                   <Select value={templateForm.measurement_period} onChange={(event) => setTemplateForm((previous) => ({ ...previous, measurement_period: event.target.value as Period }))} options={[{ value: "상반기", label: "상반기" }, { value: "하반기", label: "하반기" }, { value: ANNUAL_TEMPLATE_PERIOD, label: "연간 공통" }]} />
                 </div>
                 <div>
@@ -763,7 +779,7 @@ export function DocumentTemplateManagement() {
                 ) : (
                   <div className="flex h-10 items-center rounded-md border border-slate-200 bg-white px-3 text-xs text-slate-500">셀 매핑 흐름 유지</div>
                 )}
-                {!selected.is_active && <p className="text-xs text-amber-700 md:col-span-4">사용 중지된 문서 종류에는 새 템플릿을 등록할 수 없습니다.</p>}
+                {!selected.is_active && <p className="text-xs text-rose-700 md:col-span-4">사용 중지된 문서 종류에는 새 템플릿을 등록할 수 없습니다.</p>}
               </form>
 
               {selected.file_format === "HWPX" && analysisSummary && (
@@ -791,9 +807,9 @@ export function DocumentTemplateManagement() {
                     <p className="text-[10px] text-slate-500">정보는 참고 · 주의는 원본 확인 · 오류는 등록 차단</p>
                   </div>
                   <div className="max-h-[330px] overflow-auto rounded-md border border-slate-200">
-                    <table className="w-full min-w-[860px] table-fixed text-xs">
-                      <colgroup><col className="w-[180px]" /><col className="w-[135px]" /><col className="w-[220px]" /><col /><col className="w-[250px]" /></colgroup>
-                      <thead className="sticky top-0 z-10 bg-slate-100 text-left text-[11px] font-semibold text-slate-600 shadow-[0_1px_0_#e2e8f0]"><tr><th className="px-3 py-2">누름틀명</th><th className="px-3 py-2">표시명</th><th className="px-3 py-2">매핑 결과</th><th className="px-3 py-2">기본값</th><th className="px-3 py-2">상태</th></tr></thead>
+                    <table className="w-full min-w-[1000px] table-fixed text-xs">
+                      <colgroup><col className="w-[150px]" /><col className="w-[110px]" /><col className="w-[190px]" /><col className="w-[90px]" /><col className="w-[270px]" /><col className="w-[190px]" /></colgroup>
+                      <thead className="sticky top-0 z-10 bg-slate-100 text-left text-[11px] font-semibold text-slate-600 shadow-[0_1px_0_#e2e8f0]"><tr><th className="px-3 py-2">누름틀명</th><th className="px-3 py-2">표시명</th><th className="px-3 py-2">자동 매칭된 DB 필드</th><th className="px-3 py-2">기본값</th><th className="px-3 py-2">값 원천</th><th className="px-3 py-2">상태</th></tr></thead>
                       <tbody className="divide-y divide-slate-100">
                         {mappings.map((mapping, index) => {
                           const update = (changes: Partial<Mapping>) => {
@@ -807,15 +823,17 @@ export function DocumentTemplateManagement() {
                             mapping.source_field,
                             mapping.default_value
                           );
+                          const origin = fieldOriginByValue.get(mapping.source_field) || "—";
                           return (
                             <tr key={`${mapping.target_address}-${index}`} className={statusUi.row}>
                               <td className="px-3 py-2 align-top font-mono text-[11px] text-slate-700" title={mapping.target_address}><span className="block truncate">{mapping.target_address || "—"}</span></td>
                               <td className="px-3 py-2 align-top text-slate-700" title={mapping.display_name}>{mapping.display_name || "—"}</td>
                               <td className="px-3 py-1.5 align-top"><Select value={mapping.source_field} onChange={(event) => update({ source_field: event.target.value, match_type: event.target.value ? "manual" : null })} options={[{ value: "", label: "필드 선택" }, ...fieldOptions]} /></td>
                               <td className="px-3 py-2 align-top text-slate-500" title={defaultValue || undefined}><span className="block truncate">{defaultValue || "—"}</span></td>
+                              <td className="px-3 py-2 align-top font-mono text-[11px] text-slate-600" title={origin}><span className="block truncate">{origin}</span></td>
                               <td className="px-3 py-2 align-top">
                                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusUi.badge}`}>{statusUi.label}</span>
-                                {!mapping.source_field && <p className="mt-1 text-[10px] leading-4 text-amber-700">DB 필드를 선택해 주세요.</p>}
+                                {!mapping.source_field && <p className="mt-1 text-[10px] leading-4 text-rose-700">DB 필드를 선택해 주세요.</p>}
                                 {(mapping.warnings || []).map((warning) => {
                                   const severity = classifyHwpxWarning(warning);
                                   const warningUi = warningPresentation[severity];
@@ -849,7 +867,7 @@ export function DocumentTemplateManagement() {
                         <div className="min-w-0">
                           <p className={`text-sm font-bold ${analysisReview.status === "ready" ? "text-emerald-900" : analysisReview.status === "review" ? "text-amber-900" : "text-rose-900"}`}>{analysisReview.status === "ready" ? "등록 가능" : analysisReview.status === "review" ? `확인 필요 ${analysisReview.confirmation_count}건` : "등록 불가"}</p>
                           <p className="mt-0.5 text-xs text-slate-700">{analysisReview.status === "ready" ? `누름틀 매핑 ${currentMappedCount}개가 모두 정상입니다. ${templateForm.measurement_year}년 ${templateMeasurementPeriodLabel(templateForm.measurement_period)} 템플릿으로 등록할 수 있습니다.` : analysisReview.status === "review" ? "경고 내용을 확인했습니다. 원본 확인 후 등록할 수 있습니다." : "미매핑 또는 누름틀 구조 오류가 있습니다. 원본 HWPX를 수정한 뒤 다시 분석하세요."}</p>
-                          {analysisReview.issue_mappings.length > 0 && <div className="mt-2 space-y-1 text-[11px] text-slate-700">{analysisReview.issue_mappings.map((issue) => <div key={issue.target_address}><p className="font-semibold">{issue.target_address}</p>{issue.warnings.length > 0 ? issue.warnings.map(({ message, severity }) => <p key={message} className={warningPresentation[severity].className}>- {warningPresentation[severity].label}: {message}</p>) : <p className="text-amber-700">- DB 필드를 선택해야 합니다.</p>}</div>)}</div>}
+                          {analysisReview.issue_mappings.length > 0 && <div className="mt-2 space-y-1 text-[11px] text-slate-700">{analysisReview.issue_mappings.map((issue) => <div key={issue.target_address}><p className="font-semibold">{issue.target_address}</p>{issue.warnings.length > 0 ? issue.warnings.map(({ message, severity }) => <p key={message} className={warningPresentation[severity].className}>- {warningPresentation[severity].label}: {message}</p>) : <p className="text-rose-700">- DB 필드를 선택해야 합니다.</p>}</div>)}</div>}
                           <p className="mt-2 text-[11px] font-semibold">최종 판정: {analysisReview.status === "ready" ? "등록 가능" : analysisReview.status === "review" ? "원본 확인 후 등록 필요" : "원본 수정 후 재분석 필요"}</p>
                         </div>
                       </div>
@@ -1015,7 +1033,7 @@ export function DocumentTemplateManagement() {
                 개 / 확인 필요 {analysisSummary.requires_confirmation}개
               </p>
               {analysisSummary.auto_matched === 0 && (
-                <p className="mt-1 text-amber-700">
+                <p className="mt-1 text-rose-700">
                   매칭 가능한 DB 필드가 없습니다. 각 누름틀의 DB 필드를 직접 선택해 주세요.
                 </p>
               )}
@@ -1161,7 +1179,7 @@ export function DocumentTemplateManagement() {
                             )}
                           </div>
                           {(mapping.warnings || []).map((warning) => (
-                            <p key={warning} className="mt-1 text-xs text-amber-700">
+                            <p key={warning} className="mt-1 text-xs text-rose-700">
                               {warning}
                             </p>
                           ))}

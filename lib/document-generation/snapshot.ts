@@ -27,6 +27,27 @@ export interface LaborOfficeSnapshot {
   labor_office_fax: string;
 }
 
+function preliminaryDateParts(value: unknown) {
+  const match = normalizeText(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return { preliminary_survey_year: "", preliminary_survey_month: "", preliminary_survey_day: "" };
+  return {
+    preliminary_survey_year: match[1],
+    preliminary_survey_month: String(Number(match[2])),
+    preliminary_survey_day: String(Number(match[3])),
+  };
+}
+
+function formatPreliminarySurveyName(value: unknown): string {
+  const normalized = normalizeText(value).replace(/\s+/g, " ");
+  const compact = normalized.replace(/\s/g, "");
+  return /^[가-힣]+$/u.test(compact) ? [...compact].join(" ") : normalized;
+}
+
+function formatPreliminarySurveyors(value: unknown): string {
+  const names = Array.isArray(value) ? value : normalizeText(value).split(",");
+  return names.map(formatPreliminarySurveyName).filter(Boolean).join(", ");
+}
+
 function officeComparisonKey(value: unknown): string {
   return toShortName(normalizeText(value)).replace(/\s+/g, "");
 }
@@ -166,6 +187,7 @@ export async function buildDocumentSnapshot(supabase: any, businessId: number) {
   const [
     { data: businessInfo, error: infoError },
     { data: survey, error: surveyError },
+    { data: v2Plan, error: v2PlanError },
     laborOfficeSnapshot,
   ] = await Promise.all([
     supabase
@@ -182,10 +204,20 @@ export async function buildDocumentSnapshot(supabase: any, businessId: number) {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from("preliminary_survey_v2_plans")
+      .select("recommended_date, participant_names")
+      .eq("measurement_target_business_id", businessId)
+      .maybeSingle(),
     loadLaborOfficeSnapshot(supabase, target.office_jurisdiction),
   ]);
   if (infoError) throw infoError;
   if (surveyError) throw surveyError;
+  if (v2PlanError) throw v2PlanError;
+
+  const v2Surveyors = Array.isArray(v2Plan?.participant_names)
+    ? v2Plan.participant_names.map(normalizeText).filter(Boolean)
+    : [];
 
   const snapshot = {
     measurement_year: String(target.year),
@@ -208,7 +240,10 @@ export async function buildDocumentSnapshot(supabase: any, businessId: number) {
     invoice_email: normalizeText(businessInfo?.invoice_email),
     business_number: formatBusinessNumber(target.business_number),
     industrial_accident_number: normalizeText(target.industrial_accident_number),
-    preliminary_surveyor: normalizeText(survey?.preliminary_surveyor),
+    ...preliminaryDateParts(v2Plan?.recommended_date),
+    preliminary_surveyor: formatPreliminarySurveyors(
+      v2Surveyors.length > 0 ? v2Surveyors : survey?.preliminary_surveyor
+    ),
     ...laborOfficeSnapshot,
     business_year_period_label: buildBusinessYearPeriodLabel(
       target.business_name,

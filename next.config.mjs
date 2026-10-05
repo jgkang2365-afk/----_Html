@@ -37,7 +37,8 @@ const nextConfig = {
     experimental: {
         optimizePackageImports: ['lucide-react', 'recharts'],
         instrumentationHook: true,
-        serverComponentsExternalPackages: ['node-cron', 'imapflow', 'selenium-webdriver']
+        // Turbopack 번들 JSZip은 실제 HWPX section XML 해제 시 크기 불일치를 일으킨다.
+        serverComponentsExternalPackages: ['node-cron', 'imapflow', 'selenium-webdriver', 'jszip']
     }
 };
 
