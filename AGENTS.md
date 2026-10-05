@@ -2,7 +2,7 @@
 
 이 문서는 `측정일지_html` 저장소에서만 필요한 **프로젝트 진입 Gate, 필독 문서, 업무 특수 제약**을 정의한다.
 
-공통 작업 방식, Git 안전, 승인, 검증, Worker/Fresh Verifier, 모델·추론 선택, 완료 판정 및 결과 보고는 상위 Codex/Orca 전역 규칙을 따른다.
+사용자와 GPT MASTER는 TASK의 목적·범위·정책 및 최종 인수를 결정하고, persistent Codex TASK는 승인된 범위의 조사·구현·검증과 완료 증거를 담당한다. 공통 실행·안전 규칙은 상위 Codex 전역 규칙을 따른다.
 
 ## 1. 프로젝트 문서와 우선순위
 
@@ -19,20 +19,23 @@
 5. 실제 코드·DB 스키마
    - 현재 구현 상태와 실제 데이터 구조 확인
 
+개별 TASK의 목적·범위·승인 사항은 사용자와 GPT MASTER가 확정한 작업지시서를 따른다. 업무 정책의 authority는 `BUSINESS_LOGIC.md`와 해당 기능의 canonical에 있고, `AGENTS.md`와 `project_rules.md`는 실행·운영 규칙을 정한다.
+
+Codex의 구현 OTO는 숲 → 나무 → 숲 순서로 수행한다. 수정 전에는 관련 코드·데이터 흐름과 공통 contract 및 이미 검증·인수된 기준선을 확인하고, 직접 원인을 최소 범위에서 수정·검증한 뒤 관련 사용처와 canonical 정합성·회귀 가능성을 다시 확인한다. 이 과정이 매 TASK의 전체 재조사를 뜻하지는 않는다.
+
 업무 정책의 기준과 현재 구현 상태를 구분한다.
 
 - 업무 정책의 정답은 해당 canonical 또는 업무 규칙 문서다.
 - 코드와 DB는 현재 구현 상태를 확인하는 근거다.
 - 문서와 코드·DB가 충돌하면 어느 한쪽을 임의로 정답으로 간주하지 말고 차이를 확인한 뒤 처리한다.
 
-## 2. 예비조사 작업 필수 Gate
+## 2. 예비조사 작업 Gate
 
-예비조사 관련 코드, DB, 추천·재추천, 역산, 자동배정, repair, UI, 테스트 또는 검수 작업을 시작하기 전에 반드시 다음을 수행한다.
+예비조사 관련 코드, DB, 추천·재추천, 역산, 자동배정, repair, UI, 테스트 또는 검수 작업에서는 이번 TASK와 관련된 canonical 규칙과 이미 검증·인수된 기준선을 먼저 확인한다. 매 TASK마다 프로젝트 전체나 canonical 전체를 기계적으로 재조사하지 않는다.
 
-- `docs/business-rules/preliminary-survey.md` 전체를 직접 읽는다.
 - 예비조사 업무 정책은 해당 문서를 단일 canonical 기준으로 사용한다.
-- 작업 시작 시 `origin/main`의 canonical 최신성을 1회 확인한다.
-- 현재 작업 사본이 `origin/main`보다 오래된 경우 최신 canonical을 반영한 뒤 정책 판단을 시작한다.
+- 정책·Source of Truth·구조를 변경하거나, 문서와 구현의 충돌 또는 적용 범위가 불명확하거나, GPT MASTER가 명시적으로 요구한 경우에는 작업 전에 canonical 전체를 직접 읽고 `origin/main`의 canonical 최신성을 1회 확인한다.
+- 위 확인에서 현재 작업 사본이 `origin/main`보다 오래된 경우 최신 canonical을 반영한 뒤 정책 판단을 시작한다.
 - Windows 기준 canonical 사본은 다음 경로를 사용한다.
 
   `C:\Users\USER\Desktop\안티그래비티\측정일지_html\docs\business-rules\preliminary-survey.md`
@@ -43,7 +46,7 @@
 
 - 예비조사 업무 규칙을 변경할 때는 canonical을 먼저 갱신하고 코드·DB·테스트를 그 결정에 맞춘다.
 - 테스트 기간의 과거 한시 특례, 과거 작업지시서, 코드 주석, 오래된 fixture를 현재 canonical보다 우선하지 않는다.
-- 하위 Worker에는 canonical 전체를 복사하지 말고 현재 작업에 필요한 섹션·경로·근거만 전달한다.
+- 별도 검토자나 작업자가 필요한 경우 canonical 전체를 복사하지 말고 현재 작업에 필요한 섹션·경로·근거만 전달한다.
 
 ## 3. 업무 데이터와 Source of Truth
 

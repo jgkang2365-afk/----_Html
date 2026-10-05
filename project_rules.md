@@ -9,10 +9,12 @@
 - `project_rules.md`: 프로젝트 전반에 지속 적용되는 기술·운영 정책
 - `BUSINESS_LOGIC.md`: 업무 데이터, 계산, 분류, 우선순위 등 비즈니스 규칙
 - `docs/business-rules/preliminary-survey.md`: 예비조사 관련 업무 규칙의 기준 문서 (예비조사 개발 시 이 문서를 기준으로 한다)
+- `docs/operations/local-first-development-verification-v1.md`: 로컬 개발·검증과 완료 증거 절차
 - `docs/history/SUCCESS_DNA.md`: 과거 장애·원인·해결·재발방지 기록
 
 새 규칙을 추가할 때는 성격에 맞는 문서에만 기록한다.
 동일 규칙을 여러 문서에 중복 작성하지 않는다.
+개별 TASK의 목적·범위·승인은 사용자와 GPT MASTER가 확정하며, Codex는 그 범위에서 실행하고 증거를 보고한다. 업무 정책의 authority는 `BUSINESS_LOGIC.md`와 해당 기능의 canonical이다.
 
 ---
 
@@ -42,8 +44,8 @@
 
 - localhost에서 확인 가능한 API·UI·회귀 검증은 로컬에서 수행한다.
 - Vercel Preview는 기본 개발 검증 경로로 사용하지 않는다.
-- 승인된 `main` 반영 후 Production 배포 상태 확인과 핵심 smoke test 1회를 기본 Vercel 검증으로 한다.
-- 같은 deployment의 상태·로그·runtime을 Orca/Verifier/GPT가 반복 조회하지 않고 기존 증거를 재사용한다.
+- `main` 반영과 Production 배포가 해당 TASK 범위 또는 사용자·GPT MASTER 승인에 포함된 경우에만 배포 상태와 필요한 핵심 smoke test를 확인한다.
+- 같은 deployment의 상태·로그·runtime에 관한 신뢰 가능한 기존 증거를 재사용하고 의미 없는 반복 조회를 피한다.
 - Production 환경변수, Cron, domain/alias, Vercel runtime 고유 문제처럼 로컬로 검증할 수 없는 항목만 예외적으로 최소 조회한다.
 
 ---
@@ -178,14 +180,11 @@
 
 ## 13. 작업 완료 보고 및 검증 원칙
 
-- GitHub에서 직접 확인 가능한 `commit`, `push`, PR, merge, 변경 파일, diff, branch, main HEAD 등은 별도 완료 보고서에 중복 기록하지 않는다.
-- 작업 결과는 가능한 한 작업 브랜치의 commit/push 및 PR 이력으로 남겨 GitHub에서 추적 가능하게 한다.
-- PR 제목과 commit 메시지는 작업 목적을 식별할 수 있도록 작성하고, 관련 없는 변경을 같은 PR에 섞지 않는다.
-- `C:\Users\USER\Desktop\orca\orca-report.md`는 GitHub에서 확인할 수 없는 로컬 검증 결과와 예외사항만 기록한다.
-- 로컬 보고 대상은 working tree 상태, untracked/missing 파일, `.env.local` 등 로컬 환경 상태, 로컬 테스트 결과, 브라우저 실화면 검증, 운영 DB 직접 조회 결과, 로컬 자동화/프로세스 오류 등으로 제한한다.
-- GitHub에서 확인 가능한 내용을 채팅·PR·보고서에 반복해서 작성하지 않는다.
-- 작업 지시문에는 해당 작업에서 GitHub로 확인할 수 없는 로컬 검증이 실제로 필요한 경우에만 별도 보고 항목을 명시한다.
-- 사용자가 별도 파일을 공유하지 않아도 GitHub에서 확인 가능한 작업 결과는 GitHub 이력을 기준으로 검증한다.
+- 기본 종료 흐름은 로컬 조사·구현·필요 검증 → Codex의 self-PASS와 완료 증거 보고 → GPT MASTER의 검수·인수다.
+- Codex는 기준 작업 사본·branch·HEAD, 변경 파일과 핵심 내용, 실제 실행한 검증과 결과, 미검증 범위·잔여 위험을 보고한다. 로컬 runtime·DB·자동화 증거가 있으면 해당 TASK에 필요한 범위에서 함께 기록한다.
+- 이미 확보한 신뢰 가능한 증거를 재사용하며, PASS만으로 GPT MASTER의 최종 인수나 프로젝트 기준선 판정을 대신하지 않는다.
+- `commit`, `push`, PR, `main` 반영, 배포는 해당 TASK 범위 또는 사용자·GPT MASTER 승인에 포함된 경우에만 수행한다. 원격 작업을 수행했다면 실제 remote HEAD와 배포 상태를 확인한다.
+- 별도 보고 파일은 TASK에서 요구할 때만 작성한다. `orca-report.md`를 필수 완료보고 경로로 사용하지 않는다.
 
 ---
 
