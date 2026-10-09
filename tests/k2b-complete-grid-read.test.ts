@@ -549,6 +549,17 @@ test("단일일은 TAB으로 두 Calendar를 확정하고 검색 전후 내부�
   assert.equal(fixture.scripts.filter(script => script === K2B_READ_SEARCH_RANGE_SCRIPT).length, 4);
 });
 
+test("post-upload 업로드 세션도 동일 fresh query core를 쓰고 public 범위조회 gate는 유지한다", async () => {
+  const fixture = rangeFixture(1, current => current.emitLoad());
+  fixture.rows[0][3] = '2026-09-29';
+  Object.assign(fixture.service, { readOnlyMode: false });
+  await assert.rejects(fixture.service.querySubmissionResultsForRange('2026-09-29', '2026-09-29'), /읽기 전용 세션/);
+  const result = await fixture.service.queryPostUploadSubmissionResultsForDate('2026-09-29');
+  assert.equal(result.completeness, 'COMPLETE');
+  assert.equal(fixture.getQueryCount(), 1);
+  assert.equal(result.searchRange?.afterSearch.fromDate.componentValue, '20260929');
+});
+
 test("DOM만 변경되고 내부 Calendar가 기본 월간기간이면 조회 버튼을 누르지 않는다", async () => {
   const fixture = rangeFixture(0, fixture => fixture.emitLoad(), false);
   await assert.rejects(fixture.service.querySubmissionResultsForRange('2026-09-29', '2026-09-29'), /RANGE_MISMATCH:fromDate_calendar_value/);

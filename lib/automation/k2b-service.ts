@@ -1301,6 +1301,18 @@ foreach ($window in $windows) {
     async querySubmissionResultsForRange(fromDate: string, toDate: string): Promise<K2BGridRead> {
         if (!this.driver) throw new Error('Driver not initialized');
         if (!this.readOnlyMode) throw new Error('K2B 날짜별 결과 조회는 읽기 전용 세션에서만 가능합니다.');
+        return this.querySubmissionResultsForRangeCore(fromDate, toDate);
+    }
+
+    /** 업로드 세션 안에서만 사용하는 조회 경로. 기존 조회의 freshness 증거를 그대로 요구한다. */
+    async queryPostUploadSubmissionResultsForDate(date: string): Promise<K2BGridRead> {
+        if (!this.driver) throw new Error('Driver not initialized');
+        if (this.readOnlyMode) throw new Error('K2B 업로드 후 확인은 업로드 세션에서만 가능합니다.');
+        return this.querySubmissionResultsForRangeCore(date, date);
+    }
+
+    private async querySubmissionResultsForRangeCore(fromDate: string, toDate: string): Promise<K2BGridRead> {
+        if (!this.driver) throw new Error('Driver not initialized');
         if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate) || fromDate > toDate) throw new Error('K2B 조회 날짜 범위가 올바르지 않습니다.');
         const startDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_start_date_calendaredit_input')), 10000);
         const endDateInput = await this.driver.wait(until.elementLocated(By.css('#mainframe_VFrameSet_MainFrame_form_div_Form_div_Work_103017203_div_Work_div_Search_end_date_calendaredit_input')), 10000);

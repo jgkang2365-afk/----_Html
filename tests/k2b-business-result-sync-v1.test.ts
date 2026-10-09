@@ -188,7 +188,8 @@ test("웹 upload route는 Selenium을 실행하지 않고 local worker queue로�
   assert.doesNotMatch(worker, /select\('name, k2b_id, k2b_pw'\)/); assert.match(worker, /k2b_sender: '\\uB300\\uD45C\\uACC4\\uC815'/);
   assert.match(service, /async login\(\)/); assert.match(service, /process\.env\.K2B_ID/); assert.match(service, /process\.env\.K2B_PW/);
   assert.doesNotMatch(service, /async login\(id\?: string, pw\?: string\)/);
-  assert.match(worker, /readCurrentSubmissionResults/);
+  assert.match(worker, /queryPostUploadSubmissionResultsForDate/);
+  assert.doesNotMatch(worker, /k2b\.readCurrentSubmissionResults\(/);
   assert.doesNotMatch(worker, /gr\.companyName\.includes/);
   assert.match(worker, /!hasK2BReceiptError\(gr\)/);
 
@@ -206,12 +207,12 @@ test("STALE1-3: scheduled sweep은 미관측 eligible 행도 포함하고, manua
 
 test("uploadReport 성공은 COMPLETE Grid 실제 판정 전 journal K2B 상태를 쓰지 않는다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
-  const upload = worker.slice(worker.indexOf("private async processK2BJob"), worker.indexOf("let grid: Awaited<ReturnType<typeof k2b.readCurrentSubmissionResults>> | null = null"));
+  const upload = worker.slice(worker.indexOf("private async processK2BJob"), worker.indexOf("const pending = new Set(results.flatMap"));
   assert.doesNotMatch(upload, /from\('measurement_journal'\)\s*\.update\(/);
   assert.doesNotMatch(upload, /k2b_status:\s*uploadRes\.status|k2b_send_date\s*=\s*now/);
-  const postGrid = worker.slice(worker.indexOf("let grid: Awaited<ReturnType<typeof k2b.readCurrentSubmissionResults>> | null = null"), worker.indexOf("// 브라우저 닫기"));
-  assert.match(postGrid, /if \(grid\.completeness !== 'COMPLETE'\)[\s\S]*?final journal reconciliation skipped/);
-  assert.match(postGrid, /if \(grid\.completeness === 'COMPLETE'\)[\s\S]*?selectChangedK2BPostUploadUpdate/);
+  const postGrid = worker.slice(worker.indexOf("const pending = new Set(results.flatMap"), worker.indexOf("// 브라우저 닫기"));
+  assert.match(postGrid, /if \(grid\.completeness !== 'COMPLETE'\)/);
+  assert.match(postGrid, /if \(confirmed\.size > 0\)[\s\S]*?selectChangedK2BPostUploadUpdate/);
 });
 
 test("실제결과 화면은 저장된 결과만 사용하고 활성·표시 중인 경우에만 30초 polling 및 그룹 승인한다", () => {

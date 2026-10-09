@@ -11,7 +11,7 @@ import {
   reconcileK2BSubmissionResults,
   selectChangedK2BPostUploadUpdate,
 } from "../lib/k2b-verification";
-import { WorkerDaemon } from "../lib/automation/worker-daemon";
+import { WorkerDaemon, managerNotificationRecipients } from "../lib/automation/worker-daemon";
 
 const uploaded = () => beginK2BPostUploadResult({
   code: "A-1",
@@ -107,21 +107,28 @@ test("v5 post-upload date policy: NORMAL은 저장, 반송/오류는 null, 판�
   assert.equal(Object.hasOwn(indeterminate || {}, "k2b_send_date"), false);
 });
 
-function workerLevelFixture(input: { upload: Record<string, unknown>; readGrid: () => Promise<any> }) {
+function workerLevelFixture(input: { upload: Record<string, unknown>; readGrid: () => Promise<any>; targets?: any[] }) {
   const daemon = WorkerDaemon.getInstance() as any;
   const jobStatuses: Array<{ status: string; message?: string }> = [];
   const notifications: Array<{ type: string; message: string }> = [];
-  const managerNotifications: Array<{ type: string; message: string }> = [];
+  const managerNotifications: Array<{ type: string; message: string; excludeUserId?: string | number }> = [];
   const calendarCalls: unknown[][] = [];
   const existingJournal = {
     code: "A-1", measurement_year: 2026, measurement_period: "하반기",
     k2b_status: "정상처리", k2b_send_date: "2026-09-10", k2b_sender: "대표계정",
   };
+  const targets = input.targets ?? [{
+    code: "A-1", business_name: "테스트 사업장", year: 2026, period: "하반기",
+    industrial_accident_number: "123-45", commencement_number: "00001",
+  }];
+  const existingJournals = targets.map((target) => ({ ...existingJournal, code: target.code }));
   const journalBusinessStateUpdates: unknown[] = [];
+  const queryDates: string[] = [];
+  let now = 0;
   const query: any = {
     in: () => query,
     then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
-      Promise.resolve({ data: [existingJournal], error: null }).then(resolve, reject),
+      Promise.resolve({ data: existingJournals, error: null }).then(resolve, reject),
   };
 
   daemon.createK2BJobSupabaseClient = async () => ({
@@ -147,10 +154,15 @@ function workerLevelFixture(input: { upload: Record<string, unknown>; readGrid: 
     quit: async () => undefined,
     logBusinessBoundaryState: async () => undefined,
     uploadReport: async () => input.upload,
-    readCurrentSubmissionResults: input.readGrid,
+    readCurrentSubmissionResults: async () => { throw new Error("direct current Grid read must not run"); },
+    queryPostUploadSubmissionResultsForDate: async (date: string) => {
+      queryDates.push(date);
+      return input.readGrid();
+    },
   });
   daemon.findK2BJobReportFiles = () => ({ dataFile: { path: "C:\\fixture\\report.xml" }, drawings: [], drawingFolderPath: "C:\\fixture" });
-  daemon.waitForK2BPostUploadGrid = async () => undefined;
+  daemon.getK2BPostUploadNow = () => now;
+  daemon.waitForK2BPostUploadGrid = async (delay: number) => { now += delay; };
   daemon.isCancelRequested = async () => false;
   daemon.updateJobStatus = async (_id: string, status: string, message?: string) => {
     jobStatuses.push({ status, message });
@@ -158,8 +170,8 @@ function workerLevelFixture(input: { upload: Record<string, unknown>; readGrid: 
   daemon.createInAppNotification = async (_userId: string, type: string, message: string) => {
     notifications.push({ type, message });
   };
-  daemon.notifyAllManagers = async (type: string, message: string) => {
-    managerNotifications.push({ type, message });
+  daemon.notifyAllManagers = async (type: string, message: string, excludeUserId?: string | number) => {
+    managerNotifications.push({ type, message, excludeUserId });
   };
   daemon.syncCalendarAfterK2B = async (...args: unknown[]) => {
     calendarCalls.push(args);
@@ -172,16 +184,14 @@ function workerLevelFixture(input: { upload: Record<string, unknown>; readGrid: 
     notifications,
     managerNotifications,
     calendarCalls,
+    queryDates,
     get journalBusinessStateUpdates() { return journalBusinessStateUpdates.length; },
     get journalBusinessStateUpdatePayloads() { return journalBusinessStateUpdates; },
     run: () => daemon.processK2BJob({
       id: "worker-level-k2b-job",
       payload: {
         requestUser: { id: "tester" },
-        targets: [{
-          code: "A-1", business_name: "테스트 사업장", year: 2026, period: "하반기",
-          industrial_accident_number: "123-45", commencement_number: "00001",
-        }],
+        targets,
       },
     }),
   };
@@ -250,7 +260,7 @@ test("v6 Worker: 재전송 후 기존과 같은 정상 접수일이어도 final-
   assert.deepEqual(fixture.calendarCalls[0]?.slice(1), ["A-1", 2026, "second"]);
 });
 
-test("v5 Worker: COMPLETE exact 보류는 결과 확인 필요이지만 기존 접수일을 patch하지 않는다", async () => {
+test("v5 Worker: COMPLETE exact 보류는 timeout까지 재조회하고 기존 정상 journal을 보존한다", async () => {
   const fixture = workerLevelFixture({
     upload: { success: true, status: "업로드 완료" },
     readGrid: async () => ({
@@ -269,7 +279,89 @@ test("v5 Worker: COMPLETE exact 보류는 결과 확인 필요이지만 기존 �
   assert.equal(result.status, "결과 확인 필요");
   assert.equal(fixture.notifications.filter(({ type }) => type === "info").length, 0);
   assert.equal(fixture.calendarCalls.length, 0);
-  assert.equal(fixture.journalBusinessStateUpdates, 1);
-  assert.equal(Object.hasOwn(fixture.journalBusinessStateUpdatePayloads[0] as object, "k2b_send_date"), false);
+  assert.equal(fixture.journalBusinessStateUpdates, 0);
+  assert.equal(fixture.queryDates.length, 24);
   assert.equal(fixture.existingJournal.k2b_send_date, "2026-09-10");
+});
+
+const receipt = (status = "정상처리", overrides: Record<string, unknown> = {}) => ({
+  managementNumber: "12345", commencementNumber: "00001", businessYear: "2026", half: "하반기",
+  status, actualSubmissionDate: "2026-10-08", submissionNumber: "202610085123", ...overrides,
+});
+const completeGrid = (...rows: Record<string, unknown>[]) => ({ completeness: "COMPLETE", rows });
+
+test("10/8 아산피앤피 회귀: 중간 invalid_required_row_0 다음 exact 정상 결과를 확정한다", async () => {
+  let attempt = 0;
+  const fixture = workerLevelFixture({ upload: { success: true, status: "업로드 완료" }, readGrid: async () => {
+    if (attempt++ === 0) throw new Error("K2B_GRID_SCHEMA_MISMATCH:invalid_required_row_0");
+    return completeGrid(receipt());
+  } });
+  const [result] = await fixture.run();
+  assert.equal(result.success, true);
+  assert.equal(fixture.queryDates.length, 2);
+  assert.ok(fixture.queryDates.every((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)));
+});
+
+test("이번 조회의 완료 신호 타임아웃은 post-upload에서 재조회한다", async () => {
+  let attempt = 0;
+  const fixture = workerLevelFixture({ upload: { success: true, status: "업로드 완료" }, readGrid: async () => {
+    if (attempt++ === 0) throw new Error("K2B 조회 완료 신호를 확인하지 못했습니다.");
+    return completeGrid(receipt());
+  } });
+  const [result] = await fixture.run();
+  assert.equal(result.success, true);
+  assert.equal(fixture.queryDates.length, 2);
+});
+
+test("exact 행 없음과 처리중 상태는 재조회하고 정상처리에서 즉시 종료한다", async () => {
+  for (const first of [completeGrid(), completeGrid(receipt("처리중"))]) {
+    let attempt = 0;
+    const fixture = workerLevelFixture({ upload: { success: true, status: "업로드 완료" }, readGrid: async () =>
+      attempt++ === 0 ? first : completeGrid(receipt()) });
+    const [result] = await fixture.run();
+    assert.equal(result.success, true);
+    assert.equal(fixture.queryDates.length, 2);
+  }
+});
+
+test("exact 실제 오류내용은 terminal error로 확정하고 재조회하지 않는다", async () => {
+  const fixture = workerLevelFixture({ upload: { success: true, status: "업로드 완료" },
+    readGrid: async () => completeGrid(receipt("체크오류", { errorDetail: "실제 오류" })) });
+  const [result] = await fixture.run();
+  assert.equal(result.success, false);
+  assert.equal(result.status, "오류/파일 재검토");
+  assert.equal(fixture.queryDates.length, 1);
+  assert.equal(fixture.journalBusinessStateUpdates, 1);
+});
+
+test("다중 target은 조회당 Grid를 한 번만 읽고 첫 terminal 결과를 뒤 조회에서 유지한다", async () => {
+  let attempt = 0;
+  const second = {
+    code: "B-2", business_name: "두번째 사업장", year: 2026, period: "하반기",
+    industrial_accident_number: "67890", commencement_number: "00000000000",
+  };
+  const secondReceipt = receipt("정상처리", { managementNumber: "67890", commencementNumber: "00000000000" });
+  const fixture = workerLevelFixture({ upload: { success: true, status: "업로드 완료" },
+    targets: [{ code: "A-1", business_name: "테스트 사업장", year: 2026, period: "하반기",
+      industrial_accident_number: "123-45", commencement_number: "00001" }, second],
+    readGrid: async () => attempt++ === 0
+      ? completeGrid(receipt(), { ...secondReceipt, status: "처리중" })
+      : completeGrid({ ...receipt(), status: "체크오류", errorDetail: "늦은 변경" }, secondReceipt),
+  });
+  const results = await fixture.run();
+  assert.equal(results.length, 2);
+  assert.ok(results.every((result: { success: boolean }) => result.success));
+  assert.equal(fixture.queryDates.length, 2);
+});
+
+test("요청자가 journal manager여도 최종 K2B 오류 메시지는 요청자에게 한 번만 전달한다", async () => {
+  const fixture = workerLevelFixture({ upload: { success: true, status: "업로드 완료" },
+    readGrid: async () => { throw new Error("fatal grid error"); } });
+  await fixture.run();
+  const requesterMessage = fixture.notifications.find(item => item.message.includes("K2B 업로드 결과 확인 필요"));
+  const managerMessage = fixture.managerNotifications.find(item => item.message === requesterMessage?.message);
+  assert.ok(requesterMessage && managerMessage);
+  assert.equal(managerMessage.excludeUserId, "tester");
+  const recipients = ["tester", ...managerNotificationRecipients([{ id: 2 }, { id: "tester" }], managerMessage.excludeUserId).map(row => String(row.id))];
+  assert.deepEqual(recipients, ["tester", "2"]);
 });

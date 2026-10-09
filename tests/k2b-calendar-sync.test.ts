@@ -130,14 +130,14 @@ test("수동 K2B 실제결과 재검증은 확정 관측값이면 같은 날짜�
 
 test("그리드 매칭 실패와 지원하지 않는 period를 운영 로그/오류로 식별할 수 있다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
-  assert.match(worker, /exact-key result unresolved: target=\$\{matchTarget\.code\} method=\$\{reconciled\?\.matchMethod \|\| 'NONE'\}/);
+  assert.match(worker, /terminal canonical 4-key 결과를 확인하지 못함/);
   assert.match(worker, /Unsupported measurement_period/);
 });
 
 test("전송 후 재조회도 사업년도와 반기를 포함한 canonical 4-key로만 확정한다", () => {
   const worker = readFileSync("lib/automation/worker-daemon.ts", "utf8");
   assert.match(worker, /businessYear: row\.businessYear,[\s\S]*?half: row\.half/);
-  assert.match(worker, /measurementYear: matchTarget\.year,[\s\S]*?measurementPeriod: matchTarget\.period/);
+  assert.match(worker, /measurementYear: target\.year,[\s\S]*?measurementPeriod: target\.period/);
 
   const [differentScope] = reconcileK2BSubmissionResults([{
     code: "H0507",
