@@ -805,7 +805,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
               <tr>
                 <th className="w-52 px-2 py-3 font-semibold">사업장</th><th className="w-28 px-2 py-3 font-semibold">측정예정일</th>
                 <th className="w-28 bg-primary-50 px-2 py-3 font-semibold text-primary-900">예비조사일</th><th className="w-40 bg-primary-50 px-2 py-3 font-semibold text-primary-900">예비조사자</th>
-                {["방식", "측정자(공시료)", "측정 참여자", "보고서담당", "상태", "구분", "관리", "확인사항"].map((label) => <th key={label} className="px-2 py-3 font-semibold">{label}</th>)}
+                {["방식", "측정자(공시료)", "측정 참여자", "보고서담당", "상태", "구분"].map((label) => <th key={label} className="px-2 py-3 font-semibold">{label}</th>)}
+                <th className="w-48 px-2 py-3 font-semibold">관리</th>
+                <th className="px-2 py-3 font-semibold">확인사항</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-200">
@@ -822,24 +824,27 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                   <td className="px-2 py-2"><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${STATUS_STYLES[row.status]}`}>{STATUS_LABELS[row.status]}</span></td>
                   <td className="px-2 py-2 whitespace-nowrap">{row.kind}</td>
                   <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
-                    {mode === "plan" && isAdmin && row.hasPersistedPlan && (row.locked || row.status === "provisional") && <Button
-                      size="sm"
-                      variant="secondary"
-                      className="mr-1"
-                      disabled={working}
-                      onClick={() => setEditingRow(row)}
-                    >{row.locked ? "관리자 수정" : "수정"}</Button>}
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      disabled={working || !row.hasPersistedPlan || Boolean(row.locked) || Boolean(row.deleteProtectionReason)}
-                      title={!row.hasPersistedPlan
-                        ? "저장된 예비조사 계획이 없습니다."
-                        : row.locked ? "확정 계획은 삭제할 수 없습니다."
-                          : row.deleteProtectionReason ? "역사 복원 보호 계획입니다."
-                            : "예비조사 계획 삭제"}
-                      onClick={() => deletePlan(row)}
-                    >삭제</Button>
+                    <div className="flex items-center gap-1 whitespace-nowrap">
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        className="shrink-0"
+                        disabled={working || !row.hasPersistedPlan || Boolean(row.locked) || Boolean(row.deleteProtectionReason)}
+                        title={!row.hasPersistedPlan
+                          ? "저장된 예비조사 계획이 없습니다."
+                          : row.locked ? "확정 계획은 삭제할 수 없습니다."
+                            : row.deleteProtectionReason ? "역사 복원 보호 계획입니다."
+                              : "예비조사 계획 삭제"}
+                        onClick={() => deletePlan(row)}
+                      >삭제</Button>
+                      {mode === "plan" && isAdmin && row.hasPersistedPlan && (row.locked || row.status === "provisional") && <Button
+                        size="sm"
+                        variant="secondary"
+                        className="shrink-0"
+                        disabled={working}
+                        onClick={() => setEditingRow(row)}
+                      >{row.locked ? "관리자 수정" : "수정"}</Button>}
+                    </div>
                   </td>
                   <td className="px-2 py-2 text-amber-700" title={(row.conflicts ?? []).join("\n") || row.conflict || ""}>{row.conflicts?.length
                     ? row.conflicts.map((warning) => <div key={warning}>{warning}</div>)
