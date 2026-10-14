@@ -25,6 +25,8 @@ export function buildPlanningSnapshot(input: {
   scheduleBlocks: any[];
   routeEvidence?: PlanningSnapshot["routeEvidence"];
   trueConfirmedTargetIds?: number[];
+  journalTargetIds?: number[];
+  historicalProtectedTargetIds?: number[];
   adminOverrideTargetIds?: number[];
   adminOverrideStaleTargetIds?: number[];
   planningTargetIds?: number[];
@@ -49,6 +51,8 @@ export function buildPlanningSnapshot(input: {
     fixedByTarget.set(id, [...(fixedByTarget.get(id) ?? []), fixed]);
   }
   const protectedIds = new Set(input.trueConfirmedTargetIds ?? []);
+  const journalIds = new Set(input.journalTargetIds ?? []);
+  const historicalProtectedIds = new Set(input.historicalProtectedTargetIds ?? []);
   const adminOverrideIds = new Set(input.adminOverrideTargetIds ?? []);
   const adminOverrideStaleIds = new Set(input.adminOverrideStaleTargetIds ?? []);
   const allTargets = input.targets.map((target) => {
@@ -98,6 +102,8 @@ export function buildPlanningSnapshot(input: {
         origin: "confirmed" as const,
       })).sort((left, right) => left.measurementDate.localeCompare(right.measurementDate)),
       protected: protectedIds.has(Number(target.id)),
+      trueConfirmed: journalIds.has(Number(target.id)),
+      historicalProtected: historicalProtectedIds.has(Number(target.id)),
       adminOverrideProtected: adminOverrideIds.has(Number(target.id)),
       adminOverrideSourceChanged: adminOverrideStaleIds.has(Number(target.id)),
       existingPlan: plan ? {
@@ -109,11 +115,13 @@ export function buildPlanningSnapshot(input: {
         reviewerUserId: plan.experienced_reviewer_id == null ? null : Number(plan.experienced_reviewer_id),
         protected: protectedIds.has(Number(target.id)),
         updatedAt: String(plan.updated_at),
+        warnings: Array.isArray(plan.warnings) ? plan.warnings.map(String) : [],
         assignments: (assignmentsByPlan.get(String(plan.id)) ?? []).map((assignment) => ({
           measurementDate: String(assignment.measurement_date),
           assigneeUserId: Number(assignment.assignee_user_id),
           surveyCode: String(assignment.survey_code),
           publicSampleCode: assignment.public_sample_code == null ? null : String(assignment.public_sample_code),
+          updatedAt: String(assignment.updated_at),
         })).sort((left, right) => left.measurementDate.localeCompare(right.measurementDate)),
       } : null,
     };

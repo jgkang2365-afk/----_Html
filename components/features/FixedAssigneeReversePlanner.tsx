@@ -59,6 +59,9 @@ const reasonLabel: Record<ReversePlannerReason, string> = {
   MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE: "측정자 3건째는 관리자 확인이 필요합니다.",
   MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED: "측정자 4건 이상은 배정할 수 없습니다.",
   MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED: "측정자(공시료 담당자)가 예비조사자에 포함되어야 합니다.",
+  MEASUREMENT_ASSIGNEE_NON_PARTICIPANT: "공시료 담당자가 실제 측정 참여자 명단에 없습니다.",
+  MEASUREMENT_ASSIGNEE_UNAVAILABLE: "공시료 담당자의 해당 날짜 불가 일정이 있습니다.",
+  MEASUREMENT_ASSIGNMENT_ROUTE_OVER_60_MINUTES: "동일 담당자 업체 간 이동 시간이 60분을 초과합니다.",
   SOLVER_TIMEOUT: "배정 계산 시간 초과",
   NO_FEASIBLE_BATCH_ASSIGNMENT: "일정·용량 충돌 확인 필요",
 };
@@ -95,7 +98,7 @@ const violationLabels: Record<string, string> = {
   ADMIN_OVERRIDE_REQUIRES_ADMIN: "관리자 지정 편성은 관리자 예외 수정으로만 변경할 수 있습니다.",
 };
 
-const violationText = (value: string) => violationLabels[value] ?? "운영지침 확인이 필요합니다.";
+const violationText = (value: string) => violationLabels[value] ?? `${value} · 운영지침 확인이 필요합니다.`;
 
 const businessTypeLabel: Record<PlannerTarget["businessType"], string> = {
   first_measurement: "최초실시",
@@ -146,8 +149,15 @@ export function FixedAssigneeReversePlanner({
   const [overrideResponsible, setOverrideResponsible] = useState<number | null>(null);
   const [overrideReviewer, setOverrideReviewer] = useState<number | null>(null);
   const [overrideParticipants, setOverrideParticipants] = useState<number[]>([]);
+  const [overrideMeasurementAssignments, setOverrideMeasurementAssignments] = useState<Array<{ measurementDate: string; assigneeUserId: number }>>([]);
   const [overrideReason, setOverrideReason] = useState("");
   const [overrideViolations, setOverrideViolations] = useState<string[]>([]);
+  const [adminValidation, setAdminValidation] = useState<{
+    category: "normal" | "policy_exception" | "evidence_required" | "structural";
+    violations: string[]; evidenceRequired: string[]; existingWarnings: string[]; error?: string;
+    publicCodeImpacts?: Array<{ targetId: number; businessCode: string; measurementDate: string; beforeAssigneeUserId: number; afterAssigneeUserId: number; beforeCode: string; afterCode: string }>;
+  } | null>(null);
+  const [adminConfirmed, setAdminConfirmed] = useState(false);
   const [reviewAdjustments, setReviewAdjustments] = useState<Map<number, ReviewAdjustment>>(new Map());
   const [reviewSuggestions, setReviewSuggestions] = useState<ReviewSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -238,8 +248,8 @@ export function FixedAssigneeReversePlanner({
       setCanOverride(result.canOverride === true);
       if (initialTargetId != null) {
         const target = result.snapshot.targets.find((item: PlannerTarget) => item.id === initialTargetId);
-        if (!result.canOverride || !target?.existingPlan || target.protected) {
-          throw new Error("관리자가 수정할 수 있는 가확정 계획을 찾지 못했습니다.");
+        if (!result.canOverride || !target?.existingPlan || (target.protected && !target.trueConfirmed)) {
+          throw new Error("관리자가 수정할 수 있는 예비조사 계획을 찾지 못했습니다.");
         }
         const calculated = await request("/api/preliminary-survey-v2/reverse-planner", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -439,14 +449,14 @@ export function FixedAssigneeReversePlanner({
     const target = snapshot?.targets.find((item) => item.id === targetId);
     const result = preview?.results.find((item) => item.targetId === targetId);
     const repair = repairDrafts.find((item) => Number(item.targetId) === targetId) as any;
-    const adjustment = reviewAdjustments.get(targetId);
+    const adjustment = target?.trueConfirmed ? null : reviewAdjustments.get(targetId);
     const candidate = result?.candidate;
     const plan = target?.existingPlan;
     const team = [...new Set(target?.days.flatMap((day) => [
       ...day.collaboratorUserIds,
       ...target.fixedAssignments.filter((fixed) => fixed.measurementDate === day.date).map((fixed) => fixed.assigneeUserId),
     ]) ?? [])];
-    const persistedFirst = initialTargetId === targetId;
+    const persistedFirst = initialTargetId === targetId || target?.trueConfirmed === true;
     const participants = adjustment?.participantUserIds
       ?? (persistedFirst ? plan?.participantUserIds ?? candidate?.participantUserIds
         : candidate?.participantUserIds ?? plan?.participantUserIds)
@@ -460,8 +470,11 @@ export function FixedAssigneeReversePlanner({
     setOverrideReviewer(persistedFirst && plan ? plan.reviewerUserId
       : candidate?.reviewerUserId ?? plan?.reviewerUserId ?? repair?.experiencedReviewerUserId ?? null);
     setOverrideParticipants(participants);
+    setOverrideMeasurementAssignments(plan?.assignments.map((item) => ({ measurementDate: item.measurementDate, assigneeUserId: item.assigneeUserId })) ?? []);
     setOverrideReason("");
     setOverrideViolations([]);
+    setAdminValidation(null);
+    setAdminConfirmed(false);
     setReviewSuggestions([]);
     setSuggestionError(null);
     setError(null);
@@ -515,6 +528,76 @@ export function FixedAssigneeReversePlanner({
       setNotice("수정안을 Preview에 반영했습니다. 배정 확정 전에는 저장되지 않습니다.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "수정안 검증에 실패했습니다.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const adminEditPayload = () => ({
+    measurementDate, sourceFingerprint: preview?.sourceFingerprint,
+    previewToken: preview?.previewToken, targetId: overrideTargetId,
+    preliminaryDate: overrideDate, surveyMethod: overrideMethod,
+    responsibleUserId: overrideResponsible, reviewerUserId: overrideReviewer,
+    participantUserIds: overrideParticipants,
+    measurementAssignments: overrideMeasurementAssignments,
+  });
+
+  const validateAdminEdit = async () => {
+    if (!preview || overrideTargetId == null) return;
+    setWorking(true);
+    setError(null);
+    setAdminValidation(null);
+    setAdminConfirmed(false);
+    try {
+      const response = await fetch("/api/preliminary-survey-v2/reverse-planner", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "validate_admin_edit", ...adminEditPayload() }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        if (result.category === "structural" || result.code === "STRUCTURAL_ERROR") {
+          setAdminValidation({ category: "structural", violations: [], evidenceRequired: [], existingWarnings: [], error: result.error });
+          return;
+        }
+        if (result.category === "evidence_required") {
+          setAdminValidation({ category: "evidence_required", violations: [], evidenceRequired: [result.error], existingWarnings: [] });
+          return;
+        }
+        throw new Error(result.error ?? "관리자 수정 검증에 실패했습니다.");
+      }
+      setAdminValidation(result);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "관리자 수정 검증에 실패했습니다.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const saveAdminEdit = async () => {
+    if (!preview || overrideTargetId == null || !adminValidation || !overrideReason.trim()) return;
+    if (adminValidation.category === "evidence_required" || adminValidation.category === "structural") return;
+    if ((adminValidation.violations.length || adminValidation.publicCodeImpacts?.length) && !adminConfirmed) return;
+    setWorking(true);
+    setError(null);
+    try {
+      const result = await request("/api/preliminary-survey-v2/reverse-planner", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save_admin_edit", ...adminEditPayload(),
+          overrideReason, adminConfirmed: true,
+          acknowledgedViolations: adminValidation.violations,
+          acknowledgedPublicCodeImpacts: adminValidation.publicCodeImpacts ?? [],
+          requestId: crypto.randomUUID() }),
+      });
+      if (!result.saved || !result.persisted) throw new Error("저장 후 확정값을 재조회하지 못했습니다.");
+      setPreview(null);
+      setAdminValidation(null);
+      setOverrideTargetId(null);
+      await onApplied();
+      if (initialTargetId != null) onClose();
+      else await load(measurementDate);
+      setNotice("관리자 수정값을 저장하고 DB에서 재조회했습니다.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "관리자 수정 저장에 실패했습니다.");
     } finally {
       setWorking(false);
     }
@@ -575,11 +658,14 @@ export function FixedAssigneeReversePlanner({
     : Boolean(preview?.results.some((result) => result.decision === "AUTO_ASSIGNED"
       && (result.mutation === "CREATE" || result.mutation === "REPLACE")) || repairableCount > 0 || reviewAdjustments.size > 0);
   const snapshotTargetCount = initialTargetId == null ? snapshot?.targets.length ?? 0 : 1;
+  const adminEditTarget = snapshot?.targets.find((target) => target.id === overrideTargetId && target.trueConfirmed) ?? null;
+  const invalidateAdminEdit = () => { setAdminValidation(null); setAdminConfirmed(false); };
 
   return <Modal
     isOpen={isOpen}
     onClose={onClose}
-    title={initialTargetId == null ? `${dateLabel(measurementDate)} 예비조사 자동 배정` : "가확정 예비조사 수정"}
+    title={initialTargetId == null ? `${dateLabel(measurementDate)} 예비조사 자동 배정`
+      : adminEditTarget ? "찐확정 예비조사 관리자 수정" : "예비조사 수정"}
     size="full"
     bodyScroll={false}
   >
@@ -623,7 +709,7 @@ export function FixedAssigneeReversePlanner({
             {(snapshot?.targets ?? []).filter((target) => initialTargetId == null || target.id === initialTargetId).map((target) => {
               const result = preview?.results.find((item) => item.targetId === target.id);
               const repair = repairDrafts.find((item) => Number(item.targetId) === target.id) as any;
-              const candidate = initialTargetId === target.id && !reviewAdjustments.has(target.id)
+              const candidate = target.trueConfirmed || (initialTargetId === target.id && !reviewAdjustments.has(target.id))
                 ? null : result?.candidate;
               const plan = target.existingPlan;
               const preliminaryDate = candidate?.preliminaryDate ?? plan?.preliminaryDate ?? repair?.recommendedDate ?? null;
@@ -667,6 +753,11 @@ export function FixedAssigneeReversePlanner({
                 <td className="space-y-1 px-2 py-2">{target.days.map((day) => {
                   const fixed = target.fixedAssignments.find((item) => item.measurementDate === day.date);
                   const automatic = result?.publicSampleAssignments.find((item) => item.measurementDate === day.date);
+                  const persistedAssignment = target.trueConfirmed
+                    ? target.existingPlan?.assignments.find((item) => item.measurementDate === day.date) : null;
+                  const calculatedDiffers = persistedAssignment && automatic
+                    && (persistedAssignment.assigneeUserId !== automatic.assigneeUserId
+                      || persistedAssignment.publicSampleCode !== automatic.publicSampleCode);
                   const priority = [...new Set([...day.collaboratorUserIds, ...snapshot!.users.map((user) => user.id)])]
                     .map((id) => userById.get(id)).filter(Boolean);
                   return <div key={day.date} className="flex items-center gap-1">
@@ -676,13 +767,15 @@ export function FixedAssigneeReversePlanner({
                         if (value) void confirmFixed(target.id, day.date, Number(value));
                         else if (fixed) void releaseFixed(target.id, day.date);
                       }}
-                      disabled={working}
+                      disabled={working || target.trueConfirmed}
                       className="h-8 min-w-0 flex-1 rounded-md border border-surface-300 bg-white px-2 text-sm">
                       <option value="">자동</option>
                       {priority.map((user) => user && <option key={user.id} value={user.id}>{user.name}({user.baseCode ?? "-"}){day.collaboratorUserIds.includes(user.id) ? " · 참여" : ""}</option>)}
                     </select>
                     {fixed && <span className="shrink-0 text-xs font-semibold text-emerald-700" title="고정 측정자">✓</span>}
-                    {!fixed && automatic && <span className="shrink-0 whitespace-nowrap text-[11px] font-medium text-primary-700" title={`자동 · ${userById.get(automatic.assigneeUserId)?.name ?? "-"}(${automatic.publicSampleCode})`}>자동 {userById.get(automatic.assigneeUserId)?.name ?? "-"}</span>}
+                    {persistedAssignment && <span className="shrink-0 whitespace-nowrap text-[11px] font-medium text-primary-700">기존 {userById.get(persistedAssignment.assigneeUserId)?.name ?? "-"}({persistedAssignment.publicSampleCode ?? "-"})</span>}
+                    {!persistedAssignment && !fixed && automatic && <span className="shrink-0 whitespace-nowrap text-[11px] font-medium text-primary-700" title={`자동 · ${userById.get(automatic.assigneeUserId)?.name ?? "-"}(${automatic.publicSampleCode})`}>자동 {userById.get(automatic.assigneeUserId)?.name ?? "-"}</span>}
+                    {calculatedDiffers && <span className="text-[11px] font-medium text-amber-700" title="자동계산안은 저장되지 않았습니다.">자동계산안 상이</span>}
                     {fixed?.nonParticipantConfirmed && <span className="shrink-0 text-xs font-semibold text-amber-700" title="측정 참여자가 아닌 직원을 선택했습니다.">⚠</span>}
                   </div>;
                 })}</td>
@@ -692,6 +785,7 @@ export function FixedAssigneeReversePlanner({
                 <td className="bg-primary-50/50 px-2 py-2 text-base font-bold text-primary-900">{participantText(surveyorIds)}</td>
                 <td className="px-2 py-2 font-medium">{method === "field" ? "방문" : method === "phone" ? "유선" : "-"}</td>
                 <td className="px-2 py-2"><div className="flex flex-wrap items-center gap-2"><span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${isReviewAdjusted ? "bg-blue-50 text-blue-800" : status.tone}`}>{isReviewAdjusted ? "수정안" : status.label}</span>
+                  {preview && canOverride && target.existingPlan && target.trueConfirmed && <button type="button" className="text-xs font-medium text-primary-700 underline" onClick={() => openOverride(target.id)}>관리자 수정</button>}
                   {preview && result?.decision !== "SOURCE_INVALID" && !target.protected && <button type="button" className="text-xs font-medium text-primary-700 underline" onClick={() => openOverride(target.id)}>수정</button>}</div>
                   {visibleRouteWarnings.length > 0 && <div className="mt-1 space-y-0.5 text-xs font-medium text-amber-700">{visibleRouteWarnings.map((warning) => <div key={warning.label} title={warning.detail}>{warning.label}</div>)}</div>}
                 </td>
@@ -703,7 +797,40 @@ export function FixedAssigneeReversePlanner({
         {working && <div className="p-10 text-center text-sm text-text-500">불러오는 중...</div>}
       </div>
 
-      {overrideTargetId != null && <div className="rounded-lg border border-primary-200 bg-primary-50/30 p-4">
+      {adminEditTarget?.existingPlan && <section className="rounded-lg border border-primary-200 bg-white p-4" aria-label="찐확정 관리자 수정">
+        <div className="mb-3 flex items-start justify-between gap-3"><div><h3 className="font-semibold text-text-900">관리자 수정 · {adminEditTarget.code} {adminEditTarget.name}</h3><p className="text-xs text-text-600">예비조사와 공시료 담당자를 수정할 수 있습니다. 담당자 변경 시 영향 업체의 공시료 코드도 함께 정규화됩니다.</p></div><button type="button" className="text-sm text-text-600" onClick={() => setOverrideTargetId(null)}>닫기</button></div>
+        <div className="grid gap-2 rounded-md bg-surface-50 p-3 text-sm md:grid-cols-2">
+          <div><strong>현재 확정값</strong> · {adminEditTarget.existingPlan.preliminaryDate ?? "날짜 없음"} · {adminEditTarget.existingPlan.surveyMethod === "field" ? "방문" : "유선"}</div>
+          <div><strong>예비조사자</strong> · {participantText(adminEditTarget.existingPlan.participantUserIds)}</div>
+          <div><strong>작성·유선 책임</strong> · {userById.get(adminEditTarget.existingPlan.responsibleUserId)?.name ?? "원천 확인 필요"}</div>
+          <div><strong>경력 검토자</strong> · {adminEditTarget.existingPlan.reviewerUserId == null ? "없음" : userById.get(adminEditTarget.existingPlan.reviewerUserId)?.name ?? "원천 확인 필요"}</div>
+          <div><strong>실제 측정일</strong> · {adminEditTarget.days.map((day) => day.date).join(" · ")}</div>
+          <div><strong>고정 측정자 확인</strong> · {adminEditTarget.fixedAssignments.filter((item) => item.origin !== "automatic").length}건 / <strong>기존 공시료 배정</strong> · {adminEditTarget.existingPlan.assignments.length}건</div>
+          <div className="md:col-span-2"><strong>기존 측정자·공시료</strong> · {adminEditTarget.existingPlan.assignments.map((item) => `${item.measurementDate} ${userById.get(item.assigneeUserId)?.name ?? "원천 확인 필요"}(${item.publicSampleCode ?? "-"})`).join(" · ") || "원천 확인 필요"}</div>
+        </div>
+        <fieldset className="mt-3 rounded-md border border-surface-200 p-3"><legend className="px-1 text-sm font-medium">실제 측정일별 공시료 담당자</legend><div className="grid gap-3 md:grid-cols-2">{adminEditTarget.days.map((day) => { const current = adminEditTarget.existingPlan!.assignments.find((item) => item.measurementDate === day.date); const selected = overrideMeasurementAssignments.find((item) => item.measurementDate === day.date); return <label key={day.date} className="text-sm">{day.date} · 현재 {userById.get(current?.assigneeUserId ?? -1)?.name ?? "원천 확인 필요"} ({current?.publicSampleCode ?? "코드 없음"})<select value={selected?.assigneeUserId ?? ""} onChange={(event) => { setOverrideMeasurementAssignments((items) => items.map((item) => item.measurementDate === day.date ? { ...item, assigneeUserId: Number(event.target.value) } : item)); invalidateAdminEdit(); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">담당자 선택</option>{snapshot?.users.filter((user) => user.active && user.baseCode).map((user) => <option key={user.id} value={user.id}>{user.name} ({user.baseCode}){day.collaboratorUserIds.includes(user.id) ? " · 측정 참여" : ""}</option>)}</select></label>; })}</div></fieldset>
+        {((adminEditTarget.existingPlan.warnings?.length ?? 0) > 0 || adminEditTarget.automaticAssignmentIssue) && <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><strong>기존 확인사항</strong><ul className="mt-1 list-disc pl-5">{[...(adminEditTarget.existingPlan.warnings ?? []), ...(adminEditTarget.automaticAssignmentIssue ? [adminEditTarget.automaticAssignmentIssue] : [])].map((item) => <li key={item}>{violationText(item)}</li>)}</ul></div>}
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <label className="text-sm">예비조사일<input type="date" value={overrideDate} onChange={(event) => { setOverrideDate(event.target.value); invalidateAdminEdit(); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2" /></label>
+          <label className="text-sm">방식<select value={overrideMethod} onChange={(event) => { setOverrideMethod(event.target.value as "field" | "phone"); invalidateAdminEdit(); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="field">방문</option><option value="phone">유선</option></select></label>
+          <label className="text-sm">작성자·유선 책임<select value={overrideResponsible ?? ""} onChange={(event) => { setOverrideResponsible(event.target.value ? Number(event.target.value) : null); invalidateAdminEdit(); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">선택</option>{snapshot?.users.filter((user) => user.active).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+          <label className="text-sm">경력 검토자<select value={overrideReviewer ?? ""} onChange={(event) => { setOverrideReviewer(event.target.value ? Number(event.target.value) : null); invalidateAdminEdit(); }} className="mt-1 block h-9 w-full rounded border border-surface-300 bg-white px-2"><option value="">없음</option>{snapshot?.users.filter((user) => user.active && user.experienced).map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></label>
+        </div>
+        <fieldset className="mt-3"><legend className="text-sm font-medium">예비조사자</legend><div className="mt-2 flex flex-wrap gap-3">{snapshot?.users.filter((user) => user.active).map((user) => <label key={user.id} className="text-sm"><input type="checkbox" checked={overrideParticipants.includes(user.id)} onChange={(event) => { setOverrideParticipants((current) => event.target.checked ? [...current, user.id] : current.filter((id) => id !== user.id)); invalidateAdminEdit(); }} /> {user.name}</label>)}</div></fieldset>
+        <label className="mt-3 block text-sm">변경 사유<textarea value={overrideReason} onChange={(event) => setOverrideReason(event.target.value)} className="mt-1 min-h-16 w-full rounded border border-surface-300 bg-white p-2" placeholder="변경 사유를 입력하세요" /></label>
+        <div className="mt-3 flex justify-end"><Button size="sm" variant="secondary" onClick={validateAdminEdit} disabled={working || !overrideDate || !overrideResponsible || !overrideParticipants.length}>변경안 검증</Button></div>
+        {adminValidation && <div className={`mt-3 rounded-md border p-3 text-sm ${adminValidation.category === "normal" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : adminValidation.category === "structural" ? "border-red-200 bg-red-50 text-red-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          <strong>{adminValidation.category === "normal" ? "정상 · 서버 검증 완료" : adminValidation.category === "evidence_required" ? "근거 부족 · 저장 불가" : adminValidation.category === "structural" ? "구조적 오류 · 저장 불가" : "운영지침 위반 · 관리자 예외 검토 가능"}</strong>
+          {adminValidation.error && <p className="mt-2">{adminValidation.error}</p>}
+          {adminValidation.violations.length > 0 && <ul className="mt-2 list-disc pl-5">{adminValidation.violations.map((item) => <li key={item}>{violationText(item)}</li>)}</ul>}
+          {adminValidation.evidenceRequired.length > 0 && <ul className="mt-2 list-disc pl-5">{adminValidation.evidenceRequired.map((item) => <li key={item}>{violationText(item)}</li>)}</ul>}
+          {adminValidation.existingWarnings.length > 0 && <div className="mt-2">기존 확인사항: {adminValidation.existingWarnings.map(violationText).join(" · ")}</div>}
+          {!!adminValidation.publicCodeImpacts?.length && <div className="mt-3"><strong>공시료 담당자·코드 변경 영향</strong><ul className="mt-1 list-disc pl-5">{adminValidation.publicCodeImpacts.map((item) => <li key={`${item.targetId}-${item.measurementDate}`}>{item.businessCode} · {item.measurementDate}: {userById.get(item.beforeAssigneeUserId)?.name ?? item.beforeAssigneeUserId} {item.beforeCode} → {userById.get(item.afterAssigneeUserId)?.name ?? item.afterAssigneeUserId} {item.afterCode}</li>)}</ul></div>}
+        </div>}
+        {(adminValidation?.violations.length || adminValidation?.publicCodeImpacts?.length) ? <label className="mt-3 flex items-start gap-2 text-sm"><input type="checkbox" checked={adminConfirmed} onChange={(event) => setAdminConfirmed(event.target.checked)} />위 운영지침 위반과 공시료 변경 영향을 확인하고 저장합니다.</label> : null}
+        <div className="mt-3 flex justify-end"><Button size="sm" onClick={saveAdminEdit} disabled={working || !adminValidation || adminValidation.category === "evidence_required" || adminValidation.category === "structural" || !overrideReason.trim() || (!!(adminValidation.violations.length || adminValidation.publicCodeImpacts?.length) && !adminConfirmed)}>관리자 수정 저장</Button></div>
+      </section>}
+      {overrideTargetId != null && !adminEditTarget && <div className="rounded-lg border border-primary-200 bg-primary-50/30 p-4">
         <div className="mb-3 flex items-center justify-between"><div><h3 className="font-semibold text-text-900">배정안 수정</h3><p className="mt-1 text-xs text-text-600">정상 수정안은 Preview에만 반영되며 배정 확정 전에는 저장되지 않습니다.</p></div><button type="button" className="text-sm text-text-600" onClick={() => setOverrideTargetId(null)}>닫기</button></div>
         {initialTargetId === overrideTargetId && snapshot?.targets.find((target) => target.id === overrideTargetId)?.existingPlan && <div className="mb-3 rounded-md border border-surface-200 bg-white p-3 text-sm text-text-700">
           <strong>현재 저장값</strong> · responsible {userById.get(snapshot.targets.find((target) => target.id === overrideTargetId)!.existingPlan!.responsibleUserId)?.name ?? "-"}

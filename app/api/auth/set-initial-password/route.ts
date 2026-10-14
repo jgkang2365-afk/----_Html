@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { hashPassword, verifyPassword } from "@/lib/utils/password";
 import { setSessionCookie } from "@/lib/auth/session";
+import { setAdminEditProof } from "@/lib/auth/admin-edit-proof";
 
 export async function POST(request: NextRequest) {
   try {
@@ -83,6 +84,7 @@ export async function POST(request: NextRequest) {
       name: user.name,
       role: user.role as "관리자" | "사용자",
     });
+    setAdminEditProof(response, user.id, user.role);
 
     return response;
   } catch (error) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
+import { hasAdminEditProof } from "@/lib/auth/admin-edit-proof";
 import { createClient } from "@/lib/supabase/server";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
@@ -14,24 +15,61 @@ import { resolveLazyRouteEvidence } from "@/lib/preliminary-survey-v2/reverse-pl
 import { createPreviewToken, verifyPreviewToken } from "@/lib/preliminary-survey-v2/reverse-planner/preview-token";
 import { buildPlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/snapshot";
 import { adminOverrideSourceChanged, isAdminExplicitOverridePlan } from "@/lib/preliminary-survey-v2/reverse-planner/admin-override-protection";
+import { prepareAdminMeasurementEdit } from "@/lib/preliminary-survey-v2/reverse-planner/admin-measurement-edit";
 import { planPreliminarySurveyGivenFixedAssignments, rankedCandidatesForTarget, validateCandidateForSave, validateCandidateHardRules } from "@/lib/preliminary-survey-v2/reverse-planner/solver";
 import type { PlannerCandidate, PlanningSnapshot } from "@/lib/preliminary-survey-v2/reverse-planner/types";
 
 export const dynamic = "force-dynamic";
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const ADMIN_EVIDENCE_REQUIRED = new Set(["ROUTE_EVIDENCE_REQUIRED", "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"]);
+
+function validDate(value: string) {
+  if (!DATE_ONLY.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+function targetAssignmentBaseline(target: PlanningSnapshot["targets"][number]) {
+  return (target.existingPlan?.assignments ?? []).map((assignment) => ({
+    measurementDate: assignment.measurementDate,
+    assigneeUserId: assignment.assigneeUserId,
+    surveyCode: assignment.surveyCode,
+    publicSampleCode: assignment.publicSampleCode,
+    updatedAtMs: new Date(assignment.updatedAt ?? "").getTime(),
+  }));
+}
 
 function schemaMissing(error: any) {
   return ["42P01", "42703", "PGRST202", "PGRST205"].includes(String(error?.code ?? ""))
     || /preliminary_survey_v2_fixed_assignments|public_sample_code|reverse_planner/i.test(String(error?.message ?? ""));
 }
 
+async function loadJournalRows(supabase: any, codes: string[]) {
+  const rows: any[] = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from("measurement_journal")
+      .select("id, code, measurement_year, measurement_period").in("code", codes)
+      .order("id").range(offset, offset + pageSize - 1);
+    if (error) return { data: [], error };
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < pageSize) return { data: rows, error: null };
+  }
+}
+
 async function loadSnapshot(supabase: any, measurementDate: string, mode: "display" | "calculation" = "calculation") {
   const year = Number(measurementDate.slice(0, 4));
-  const { data: candidates, error: targetError } = await supabase
-    .from("measurement_target_business")
-    .select("id, code, year, period, business_name, address, measurement_date, measurement_end_date, daily_staff, collaborators, measurer_id, business_type, preliminary_survey_rule_type, updated_at")
-    .in("year", [year - 1, year, year + 1]);
-  if (targetError) throw targetError;
+  const candidates: any[] = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from("measurement_target_business")
+      .select("id, code, year, period, business_name, address, measurement_date, measurement_end_date, daily_staff, collaborators, measurer_id, business_type, preliminary_survey_rule_type, updated_at")
+      .in("year", [year - 1, year, year + 1]).order("id")
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    candidates.push(...(data ?? []));
+    if ((data ?? []).length < pageSize) break;
+  }
   const measurementDays = (target: any) => measurementDayFormsFrom({
       dailyStaff: target.daily_staff,
       measurementDate: target.measurement_date,
@@ -74,9 +112,7 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
       ? supabase.from("user_schedule_blocks").select("user_id, start_date, end_date")
         .lte("start_date", latestMeasurementDate).gte("end_date", candidateRangeStart)
       : Promise.resolve({ data: [], error: null }),
-    codes.length
-      ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes)
-      : Promise.resolve({ data: [], error: null }),
+    codes.length ? loadJournalRows(supabase, codes) : Promise.resolve({ data: [], error: null }),
     mode === "calculation" && planningDates.length
       ? supabase.from("preliminary_survey_v2_measurement_assignments")
         .select("plan_id, measurement_date, assignee_user_id, survey_code, public_sample_code, updated_at").in("measurement_date", planningDates)
@@ -165,6 +201,11 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
   const journalKeys = new Set((journalResult.data ?? []).map((row: any) =>
     `${row.code}|${row.measurement_year}|${normalizedPeriod(row.measurement_period)}`
   ));
+  const journalTargetIds = snapshotTargets.filter((target: any) =>
+    journalKeys.has(`${target.code}|${target.year}|${normalizedPeriod(target.period)}`)
+  ).map((target: any) => Number(target.id));
+  const historicalProtectedTargetIds = plans.filter((plan: any) => protectedPlanIds.has(String(plan.id)))
+    .map((plan: any) => Number(plan.measurement_target_business_id));
   const protectedTargetIds = snapshotTargets.filter((target: any) =>
     journalKeys.has(`${target.code}|${target.year}|${normalizedPeriod(target.period)}`)
     || protectedPlanIds.has(String(plans.find((plan: any) => Number(plan.measurement_target_business_id) === Number(target.id))?.id ?? ""))
@@ -181,6 +222,8 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
       scheduleBlocks: scheduleResult.data ?? [],
       routeEvidence: [],
       trueConfirmedTargetIds: protectedTargetIds,
+      journalTargetIds,
+      historicalProtectedTargetIds,
       adminOverrideTargetIds: [...adminOverrideTargetIds],
       adminOverrideStaleTargetIds: [...adminOverrideStaleTargetIds],
       planningTargetIds,
@@ -372,8 +415,14 @@ async function authorize() {
   const session = await getSession();
   if (!session) throw new Error("UNAUTHORIZED");
   const supabase = await createClient();
-  if (!await canManagePreliminarySurvey(supabase, session)) throw new Error("FORBIDDEN");
-  return { session, supabase };
+  const { data: actor, error } = await supabase.from("users")
+    .select("id, role, is_active, is_preliminary_survey_manager")
+    .eq("id", session.userId).maybeSingle();
+  if (error || !actor || actor.is_active === false) throw new Error("FORBIDDEN");
+  const verifiedSession = { ...session, role: actor.role === "관리자" ? "관리자" as const : "사용자" as const };
+  if (!await canManagePreliminarySurvey(supabase, verifiedSession)) throw new Error("FORBIDDEN");
+  const adminProofValid = verifiedSession.role === "관리자" && await hasAdminEditProof(verifiedSession.userId);
+  return { session: verifiedSession, supabase, adminProofValid };
 }
 
 function responseError(error: unknown) {
@@ -390,6 +439,9 @@ function responseError(error: unknown) {
   }, { status: 409 });
   if (/PUBLIC_SAMPLE_PREVIEW_MISMATCH/.test(message)) return NextResponse.json({ error: "공시료 Preview와 저장 결과가 달라 저장하지 않았습니다.",
     code: "PUBLIC_SAMPLE_PREVIEW_MISMATCH", appliedCount: 0 }, { status: 409 });
+  if (/INVALID_PRELIMINARY_ONLY_OVERRIDE|INVALID_PRELIMINARY_USER/.test(message)) return NextResponse.json({
+    error: "관리자 수정 원천 또는 직원 정보가 유효하지 않아 저장하지 않았습니다.", code: "STRUCTURAL_ERROR", appliedCount: 0,
+  }, { status: 409 });
   return NextResponse.json({ error: message || "REVERSE_PLANNER_FAILED" }, { status: 500 });
 }
 
@@ -397,9 +449,9 @@ export async function GET(request: NextRequest) {
   try {
     const measurementDate = new URL(request.url).searchParams.get("measurementDate") ?? "";
     if (!DATE_ONLY.test(measurementDate)) return NextResponse.json({ error: "실제 측정일이 필요합니다." }, { status: 400 });
-    const { session, supabase } = await authorize();
+    const { session, supabase, adminProofValid } = await authorize();
     const { snapshot } = await loadSnapshot(supabase, measurementDate, "display");
-    return NextResponse.json({ snapshot, sourceFingerprint: sourceFingerprint(snapshot), canOverride: session.role === "관리자" });
+    return NextResponse.json({ snapshot, sourceFingerprint: sourceFingerprint(snapshot), canOverride: adminProofValid });
   } catch (error) {
     return responseError(error);
   }
@@ -407,7 +459,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { session, supabase } = await authorize();
+    const { session, supabase, adminProofValid } = await authorize();
     const body = await request.json();
     const measurementDate = String(body.measurementDate ?? "");
     if (!DATE_ONLY.test(measurementDate)) return NextResponse.json({ error: "실제 측정일이 필요합니다." }, { status: 400 });
@@ -540,6 +592,7 @@ export async function POST(request: NextRequest) {
         routeProviderConfigured: Boolean(process.env.KAKAO_REST_API_KEY) });
     }
     if (body.action !== "apply" && body.action !== "override" && body.action !== "validate_adjustment"
+        && body.action !== "validate_admin_edit" && body.action !== "save_admin_edit"
         && body.action !== "suggest_adjustments") {
       return NextResponse.json({ error: "지원하지 않는 작업입니다." }, { status: 400 });
     }
@@ -548,6 +601,142 @@ export async function POST(request: NextRequest) {
     const frozenSnapshot = { ...snapshot, routeEvidence: preview.routeEvidence };
     let output = planPreliminarySurveyGivenFixedAssignments(frozenSnapshot);
     if (preview.sourceFingerprint !== output.sourceFingerprint) throw new Error("SOURCE_CHANGED");
+
+    if (body.action === "validate_admin_edit" || body.action === "save_admin_edit") {
+      if (session.role !== "관리자" || !adminProofValid) return NextResponse.json({ error: "관리자 재로그인 후 수정할 수 있습니다." }, { status: 403 });
+      if (String(body.sourceFingerprint ?? "") !== output.sourceFingerprint) throw new Error("SOURCE_CHANGED");
+      const targetId = Number(body.targetId);
+      const target = frozenSnapshot.targets.find((item) => item.id === targetId);
+      if (!Number.isInteger(targetId) || !target?.trueConfirmed || !target.existingPlan) {
+        return NextResponse.json({ error: "찐확정 예비조사 계획을 찾지 못했습니다.", category: "structural" }, { status: 409 });
+      }
+      if (target.historicalProtected || target.days.some((day) => day.date < "2026-09-01")) {
+        return NextResponse.json({ error: "역사 보호 또는 전환기간 자료는 이번 관리자 수정 대상이 아닙니다.", category: "structural" }, { status: 409 });
+      }
+      if (target.days.some((day) => day.invalidCollaboratorNames?.length || day.invalidReportWriterUserId != null)) {
+        return NextResponse.json({ error: "실제 측정 원천정보를 확인해야 합니다.", category: "structural" }, { status: 409 });
+      }
+      const preliminaryDate = String(body.preliminaryDate ?? "");
+      const surveyMethod = body.surveyMethod;
+      const participantUserIds = body.participantUserIds;
+      const responsibleUserId = Number(body.responsibleUserId);
+      const reviewerUserId = body.reviewerUserId == null || body.reviewerUserId === "" ? null : Number(body.reviewerUserId);
+      const active = new Set(frozenSnapshot.users.filter((user) => user.active).map((user) => user.id));
+      if (!validDate(preliminaryDate) || !["field", "phone"].includes(surveyMethod)
+        || !Array.isArray(participantUserIds) || participantUserIds.length < 1
+        || !participantUserIds.every((id: unknown) => Number.isInteger(id) && active.has(Number(id)))
+        || new Set(participantUserIds).size !== participantUserIds.length
+        || !active.has(responsibleUserId) || !participantUserIds.includes(responsibleUserId)
+        || (reviewerUserId != null && (!active.has(reviewerUserId) || !participantUserIds.includes(reviewerUserId)))) {
+        return NextResponse.json({ error: "날짜·방식·직원 입력값이 유효하지 않습니다.", category: "structural" }, { status: 400 });
+      }
+      const assignmentDates = new Set(target.existingPlan.assignments.map((item) => item.measurementDate));
+      if (target.days.some((day) => !assignmentDates.has(day.date))) {
+        return NextResponse.json({ error: "기존 측정자 배정 원천이 부족해 예비조사자 관계를 확인할 수 없습니다.",
+          category: "evidence_required" }, { status: 409 });
+      }
+      const requestedAssignments = body.measurementAssignments ?? target.existingPlan.assignments.map((item) => ({
+        measurementDate: item.measurementDate, assigneeUserId: item.assigneeUserId,
+      }));
+      const measurementEdit = prepareAdminMeasurementEdit(snapshot, target, requestedAssignments);
+      if ("error" in measurementEdit) return NextResponse.json({ error: measurementEdit.error,
+        category: "structural" }, { status: 409 });
+      const chosenByDate = new Map(measurementEdit.selected.map((item) => [item.measurementDate, item.assigneeUserId]));
+      const effectiveTarget = { ...target, fixedAssignments: target.days.map((day) => ({
+        targetId, measurementDate: day.date, assigneeUserId: chosenByDate.get(day.date)!,
+        confirmedAt: "admin-validation", updatedAt: "admin-validation", origin: "automatic" as const,
+      })) };
+      const validationSnapshot = { ...frozenSnapshot, actualMeasurementOccupancy: frozenSnapshot.actualMeasurementOccupancy
+        .map((item) => item.targetId !== targetId ? item : {
+          ...item, participantUserIds: [...new Set([
+            ...(target.days.find((day) => day.date === item.date)?.collaboratorUserIds ?? []),
+            chosenByDate.get(item.date)!,
+          ])].sort((a, b) => a - b),
+        }) };
+      const candidate: PlannerCandidate = {
+        preliminaryDate, surveyMethod, participantUserIds, responsibleUserId, reviewerUserId,
+        writerUserId: responsibleUserId, objective: [0, 0, 0, 0, 0, 0, 0, 0] as const,
+        reasons: ["ADMIN_EXPLICIT_OVERRIDE"],
+      };
+      const violations = [...new Set([
+        ...validateCandidateForSave(validationSnapshot, effectiveTarget, candidate),
+        ...measurementEdit.violations,
+      ])].sort();
+      const evidenceRequired = [...new Set([...violations.filter((item) => ADMIN_EVIDENCE_REQUIRED.has(item)),
+        ...measurementEdit.evidenceRequired])].sort();
+      const policyViolations = violations.filter((item) => !ADMIN_EVIDENCE_REQUIRED.has(item));
+      const existingWarnings = [...new Set([
+        ...(target.existingPlan.warnings ?? []),
+        ...(output.results.find((item) => item.targetId === targetId)?.warnings ?? []),
+        ...(target.automaticAssignmentIssue ? [target.automaticAssignmentIssue] : []),
+      ])];
+      const validation = { success: true, category: evidenceRequired.length ? "evidence_required"
+        : policyViolations.length ? "policy_exception" : "normal",
+        violations: policyViolations, evidenceRequired, existingWarnings,
+        before: target.existingPlan, sourceFingerprint: output.sourceFingerprint,
+        publicCodeImpacts: measurementEdit.impacts,
+        measurementAssignments: measurementEdit.selected,
+        measurementChangedDates: measurementEdit.changedDates };
+      if (body.action === "validate_admin_edit") return NextResponse.json(validation);
+      if (evidenceRequired.length) return NextResponse.json({ ...validation,
+        error: "동선 등 검증 근거가 부족해 저장하지 않았습니다." }, { status: 409 });
+      const reason = String(body.overrideReason ?? "").trim();
+      const acknowledged = Array.isArray(body.acknowledgedViolations)
+        ? [...new Set(body.acknowledgedViolations.map(String))].sort() : [];
+      const acknowledgedImpacts = Array.isArray(body.acknowledgedPublicCodeImpacts)
+        ? body.acknowledgedPublicCodeImpacts : [];
+      if (!reason || body.adminConfirmed !== true
+        || JSON.stringify(acknowledged) !== JSON.stringify(policyViolations)
+        || JSON.stringify(acknowledgedImpacts) !== JSON.stringify(measurementEdit.impacts)) {
+        return NextResponse.json({ ...validation, error: "변경 사유와 위반사항 확인이 필요합니다.",
+          code: "MANUAL_OVERRIDE_CONFIRMATION_REQUIRED" }, { status: 409 });
+      }
+      const before = target.existingPlan;
+      const plan = {
+        target_id: target.id, decision: "MANUAL_OVERRIDE", mutation: "REPLACE", preliminary_only: true,
+        measurement_edit: measurementEdit.changedDates.length > 0,
+        measurement_changed_dates: measurementEdit.changedDates,
+        measurement_assignments: measurementEdit.selected,
+        public_code_impacts: measurementEdit.impacts,
+        source_public_assignment_versions: measurementEdit.sourceAssignments,
+        source_public_fixed_versions: measurementEdit.sourceFixed,
+        preliminary_date: preliminaryDate, survey_method: surveyMethod,
+        responsible_user_id: responsibleUserId, reviewer_user_id: reviewerUserId,
+        participant_user_ids: participantUserIds,
+        participant_names: participantUserIds.map((id: number) => frozenSnapshot.users.find((user) => user.id === id)!.name),
+        source_measurement_date: target.sourceMeasurementDate,
+        source_report_writer_id: target.sourceReportWriterUserId,
+        source_collaborators: target.sourceCollaborators ?? null,
+        source_daily_staff: target.sourceDailyStaff ?? null,
+        source_rule_type: target.businessType === "existing" ? "existing" : "new",
+        reasons: ["ADMIN_EXPLICIT_OVERRIDE"], warnings: [...new Set([...existingWarnings, ...policyViolations])],
+        route_evidence: frozenSnapshot.routeEvidence.filter((item) => item.leftTargetId === target.id || item.rightTargetId === target.id),
+        before_snapshot: before, source_target_assignments: targetAssignmentBaseline(target),
+        source_occupancy_versions: occupancyBaseline(snapshot, new Set([target.id]), candidate),
+        source_schedule_blocks: scheduleBaseline(snapshot, candidate),
+        source_actual_measurement_versions: actualMeasurementBaseline(snapshot, new Set([target.id]), candidate),
+        source_users: userBaseline(snapshot), source_fixed_versions: fixedBaseline(target),
+        source_assignment_scope_keys: measurementAssignmentScope(snapshot),
+        source_assignment_occupancy_versions: measurementAssignmentBaseline(snapshot),
+        source_protected: target.protected === true,
+        actual_measurement_team: target.days, fixed_assignments: target.fixedAssignments,
+        acknowledged_violations: policyViolations,
+      };
+      const plannerRunId = String(body.requestId ?? "");
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(plannerRunId)) {
+        return NextResponse.json({ error: "저장 요청 식별자가 올바르지 않습니다." }, { status: 400 });
+      }
+      const { data, error } = await supabase.rpc("apply_preliminary_survey_v2_reverse_planner", {
+        p_planner_run_id: plannerRunId, p_source_fingerprint: output.sourceFingerprint,
+        p_canonical_sha: output.canonicalSha, p_planner_version: output.plannerVersion,
+        p_plans: [plan], p_assignments: measurementEdit.assignments,
+        p_actor_user_id: session.userId, p_override_reason: reason,
+      });
+      if (error) throw error;
+      const persisted = await loadSnapshot(supabase, measurementDate, "display");
+      return NextResponse.json({ ...validation, saved: true, ...data,
+        persisted: persisted.snapshot.targets.find((item) => item.id === targetId)?.existingPlan ?? null });
+    }
 
     if (body.action === "validate_adjustment") {
       const parsed = parseReviewAdjustments(frozenSnapshot, body.reviewAdjustments);
@@ -640,7 +829,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "override") {
-      if (session.role !== "관리자") {
+      if (session.role !== "관리자" || !adminProofValid) {
         return NextResponse.json({ error: "관리자만 예외 저장할 수 있습니다." }, { status: 403 });
       }
       if (String(body.sourceFingerprint ?? "") !== output.sourceFingerprint) {

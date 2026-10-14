@@ -822,13 +822,13 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                   <td className="px-2 py-2"><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${STATUS_STYLES[row.status]}`}>{STATUS_LABELS[row.status]}</span></td>
                   <td className="px-2 py-2 whitespace-nowrap">{row.kind}</td>
                   <td className="px-2 py-2" onClick={(event) => event.stopPropagation()}>
-                    {mode === "plan" && isAdmin && row.status === "provisional" && row.hasPersistedPlan && !row.locked && <Button
+                    {mode === "plan" && isAdmin && row.hasPersistedPlan && (row.locked || row.status === "provisional") && <Button
                       size="sm"
                       variant="secondary"
                       className="mr-1"
                       disabled={working}
                       onClick={() => setEditingRow(row)}
-                    >수정</Button>}
+                    >{row.locked ? "관리자 수정" : "수정"}</Button>}
                     <Button
                       size="sm"
                       variant="danger"

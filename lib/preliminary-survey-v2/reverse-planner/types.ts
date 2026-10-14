@@ -14,6 +14,9 @@ export type ReversePlannerReason =
   | "MEASUREMENT_ASSIGNMENT_THIRD_REQUIRES_OVERRIDE"
   | "MEASUREMENT_ASSIGNMENT_CAPACITY_EXCEEDED"
   | "MEASUREMENT_ASSIGNEE_INTERSECTION_REQUIRED"
+  | "MEASUREMENT_ASSIGNEE_NON_PARTICIPANT"
+  | "MEASUREMENT_ASSIGNEE_UNAVAILABLE"
+  | "MEASUREMENT_ASSIGNMENT_ROUTE_OVER_60_MINUTES"
   | "SOLVER_TIMEOUT"
   | "NO_FEASIBLE_BATCH_ASSIGNMENT";
 
@@ -31,7 +34,8 @@ export interface FixedMeasurementAssignment {
 export interface ExistingPlannerPlan {
   id: string; preliminaryDate: string | null; surveyMethod: "field" | "phone"; participantUserIds: number[];
   responsibleUserId: number; reviewerUserId: number | null; protected: boolean; updatedAt: string;
-  assignments: Array<{ measurementDate: string; assigneeUserId: number; surveyCode: string; publicSampleCode: string | null }>;
+  assignments: Array<{ measurementDate: string; assigneeUserId: number; surveyCode: string; publicSampleCode: string | null; updatedAt?: string }>;
+  warnings?: string[];
 }
 export interface PlannerTarget {
   id: number; code: string; name: string; address: string | null;
@@ -39,6 +43,8 @@ export interface PlannerTarget {
   businessType: "existing" | "first_measurement" | "external_new"; days: PlannerDay[];
   fixedAssignments: FixedMeasurementAssignment[]; existingPlan: ExistingPlannerPlan | null;
   protected?: boolean;
+  trueConfirmed?: boolean;
+  historicalProtected?: boolean;
   /** 관리자 ADMIN_EXPLICIT_OVERRIDE 자동변경 금지. */
   adminOverrideProtected?: boolean;
   /** 관리자 지정 당시 핵심 원천이 이후 변경됨. */

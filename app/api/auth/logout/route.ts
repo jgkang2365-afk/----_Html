@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { clearSessionCookie } from "@/lib/auth/session";
+import { clearAdminEditProof } from "@/lib/auth/admin-edit-proof";
 
 /**
  * 로그아웃 API 엔드포인트
@@ -9,6 +10,7 @@ export async function POST() {
   try {
     const response = NextResponse.json({ success: true });
     clearSessionCookie(response);
+    clearAdminEditProof(response);
     return response;
   } catch (error) {
     return NextResponse.json(

@@ -9,6 +9,7 @@ import {
   withAutomaticMeasurementAssignments,
 } from "../lib/preliminary-survey-v2/reverse-planner/automatic-measurement-assignment";
 import { normalizePublicSampleCodes } from "../lib/preliminary-survey-v2/reverse-planner/public-sample-code";
+import { prepareAdminMeasurementEdit } from "../lib/preliminary-survey-v2/reverse-planner/admin-measurement-edit";
 import { planPreliminarySurveyGivenFixedAssignments, rankedCandidatesForTarget, validateCandidateHardRules } from "../lib/preliminary-survey-v2/reverse-planner/solver";
 import {
   PRELIMINARY_SURVEY_CANONICAL_SHA,
@@ -58,6 +59,37 @@ function fixture(overrides: Partial<PlanningSnapshot> = {}): PlanningSnapshot {
 
 const resultFor = (snapshot: PlanningSnapshot, targetId = 10) =>
   planPreliminarySurveyGivenFixedAssignments(snapshot).results.find((result) => result.targetId === targetId)!;
+
+test("찐확정 공시료 관리자 수정은 이전·신규 그룹 영향을 계산하고 자동 후보를 fixed 원천으로 취급하지 않는다", () => {
+  const date = "2026-09-21";
+  const plan = (id: number, assigneeUserId: number, code: string) => ({
+    id: `00000000-0000-0000-0000-${String(id).padStart(12, "0")}`,
+    preliminaryDate: "2026-09-11", surveyMethod: "phone" as const,
+    participantUserIds: [assigneeUserId], responsibleUserId: assigneeUserId,
+    reviewerUserId: null, protected: true, updatedAt: "2026-09-10T00:00:00Z",
+    assignments: [{ measurementDate: date, assigneeUserId,
+      surveyCode: users.find((user) => user.id === assigneeUserId)!.baseCode!, publicSampleCode: code,
+      updatedAt: "2026-09-10T00:00:00Z" }],
+  });
+  const original = target({ id: 176, code: "H0176", days: [{ date, collaboratorUserIds: [3, 5], reportWriterUserId: 3 }],
+    fixedAssignments: [{ targetId: 176, measurementDate: date, assigneeUserId: 3,
+      confirmedAt: "automatic", updatedAt: "automatic", origin: "automatic" }], existingPlan: plan(176, 3, "F") });
+  const next = target({ id: 215, code: "H0215", days: [{ date, collaboratorUserIds: [3], reportWriterUserId: 3 }],
+    fixedAssignments: [], existingPlan: plan(215, 3, "FF") });
+  const fixtureTarget = target({ id: 9901, code: "ZT9901", days: [{ date, collaboratorUserIds: [5], reportWriterUserId: 5 }],
+    fixedAssignments: [], existingPlan: plan(9901, 5, "D") });
+  const snapshot = fixture({ targets: [original, next, fixtureTarget] });
+  const result = prepareAdminMeasurementEdit(snapshot, original, [{ measurementDate: date, assigneeUserId: 5 }]);
+  assert.ok(!("error" in result));
+  if ("error" in result) return;
+  assert.deepEqual(result.sourceFixed, []);
+  assert.deepEqual(result.impacts.map((item) => [item.businessCode, item.beforeCode, item.afterCode]),
+    [["H0176", "F", "D"], ["H0215", "FF", "F"], ["ZT9901", "D", "DD"]]);
+  assert.deepEqual(result.assignments.map((item) => item.public_sample_code), ["D"]);
+  const protectedResult = prepareAdminMeasurementEdit(fixture({ targets: [original, { ...next, historicalProtected: true }, fixtureTarget] }),
+    original, [{ measurementDate: date, assigneeUserId: 5 }]);
+  assert.ok("error" in protectedResult);
+});
 
 test("Golden 6인은 Production/Canonical의 경력 여부와 base code를 사용한다", () => {
   assert.deepEqual(users.map(({ name, experienced, baseCode }) => [name, experienced, baseCode]), [
@@ -214,7 +246,8 @@ test("가확정 목록 수정은 관리자만 노출하고 서버는 단일 대�
   const list = readFileSync("components/features/PreliminarySurveyV2Plans.tsx", "utf8");
   const editor = readFileSync("components/features/FixedAssigneeReversePlanner.tsx", "utf8");
   const api = readFileSync("app/api/preliminary-survey-v2/reverse-planner/route.ts", "utf8");
-  assert.match(list, /isAdmin && row\.status === "provisional" && row\.hasPersistedPlan && !row\.locked/);
+  assert.match(list, /isAdmin && row\.hasPersistedPlan && \(row\.locked \|\| row\.status === "provisional"\)/);
+  assert.match(list, /row\.locked \? "관리자 수정" : "수정"/);
   assert.match(list, /initialTargetId=\{editingRow\?\.targetId/);
   assert.match(editor, /persistedFirst \? plan\?\.participantUserIds/);
   assert.match(editor, /persistedFirst \? plan\?\.preliminaryDate/);
@@ -222,6 +255,8 @@ test("가확정 목록 수정은 관리자만 노출하고 서버는 단일 대�
   assert.match(api, /session\.role !== "관리자"/);
   assert.match(api, /!scopedTarget\?\.existingPlan \|\| scopedTarget\.protected/);
   assert.match(api, /applicable\.length !== 1/);
+  assert.match(api, /body\.action === "validate_admin_edit" \|\| body\.action === "save_admin_edit"/);
+  assert.match(api, /!target\?\.trueConfirmed \|\| !target\.existingPlan/);
 });
 
 test("유선 reviewer 불가 일정은 차단하지 않고, 비활성 reviewer면 다른 경력자를 탐색한다", () => {
