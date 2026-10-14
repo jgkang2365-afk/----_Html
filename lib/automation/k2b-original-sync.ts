@@ -259,7 +259,13 @@ export function parseK2BSubmissionGrid(headers: readonly string[], rows: readonl
         unmatchableError: true,
       };
     }
-    if (!date || !receipt.fileName || !receipt.companyName || !receipt.businessYear || !receipt.half || !receipt.supportType || !receipt.managementNumber || !receipt.commencementNumber || !receipt.sequenceNumber || !receipt.status) throw new Error(`K2B_GRID_SCHEMA_MISMATCH:invalid_required_row_${rowIndex}`);
+    const missingFields = ([
+      ["actualSubmissionDate", date], ["fileName", receipt.fileName], ["companyName", receipt.companyName],
+      ["businessYear", receipt.businessYear], ["half", receipt.half], ["supportType", receipt.supportType],
+      ["managementNumber", receipt.managementNumber], ["commencementNumber", receipt.commencementNumber],
+      ["sequenceNumber", receipt.sequenceNumber], ["status", receipt.status],
+    ] as const).filter(([, value]) => !value).map(([field]) => field);
+    if (missingFields.length > 0) throw new Error(`K2B_GRID_SCHEMA_MISMATCH:invalid_required_row_${rowIndex}:missing_${missingFields.join(',')}`);
     const identity = buildK2BSourceKey(receipt);
     return { ...receipt, ...identity };
   });

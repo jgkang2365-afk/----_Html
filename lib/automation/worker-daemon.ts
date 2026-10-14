@@ -5,7 +5,7 @@ import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-ve
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
 import { hasK2BReceiptError, journalStatusForK2BReconciliation, k2BSendDatePatchForReconciliation, reconcileK2BSubmissionResults, selectChangedK2BPostUploadUpdate, selectChangedK2BReconciliationUpdate, selectK2BStaleUpdates, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
 import { resolveK2BCalendarPeriod, shouldForceManualK2BCalendarRepair, shouldForceScheduledK2BCalendarRepair, shouldSyncK2BCalendarForJournalChange } from './k2b-calendar-sync-policy';
-import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, filterK2BObservedJournalCandidates, inclusiveK2BDates, resolveK2BJournalScope, shouldSweepK2BStale, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
+import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, filterK2BObservedJournalCandidates, inclusiveK2BDates, resolveK2BJournalScope, shouldSweepK2BStale, type K2BGridRead, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
 import os from 'node:os';
 import {
@@ -28,8 +28,8 @@ import {
 } from "./worker-polling-policy";
 
 export type K2BVerifyTrigger = 'manual' | 'scheduled' | 'unknown';
-const K2B_POST_UPLOAD_POLL_INTERVAL_MS = 5_000;
-const K2B_POST_UPLOAD_CONFIRMATION_WINDOW_MS = 120_000;
+const K2B_POST_UPLOAD_QUERY_DELAY_MS = 5_000;
+const K2B_POST_UPLOAD_MAX_QUERIES = 2;
 
 export function managerNotificationRecipients<T extends { id: number | string }>(
     managers: T[], excludeUserId?: number | string,
@@ -486,32 +486,33 @@ export class WorkerDaemon {
     }
 
     /** K2B 원본 동기화: 한 range의 모든 receipt 저장과 일지 연계가 성공한 scheduled 작업만 cursor를 전진한다. */
-    private async processK2BOriginalSyncJob(job: any) {
+    private async processK2BOriginalSyncJob(job: any, postUpload?: { grid: K2BGridRead; date: string }) {
         const admin = createAdminClient();
         const payload = job.payload && typeof job.payload === 'object' ? job.payload : {};
-        const trigger = payload.trigger as K2BSyncTrigger;
+        const trigger: K2BSyncTrigger = postUpload ? 'manual' : payload.trigger as K2BSyncTrigger;
         const executionResult: Record<string, any> = {
-            mode: 'original_sync_v0_2', trigger, host: os.hostname(), sourceHost: os.hostname(), fromDate: null, toDate: null, requestedRange: null, queriedRange: null,
+            mode: postUpload ? 'post_upload_original_sync' : 'original_sync_v0_2', trigger, host: os.hostname(), sourceHost: os.hostname(), fromDate: null, toDate: null, requestedRange: null, queriedRange: null,
             cursorBefore: null, cursorAfter: null, cursorAdvanced: false, remoteReadState: 'not_started',
-            cursorEligible: trigger === 'scheduled', queriedDates: [], remoteRowCount: 0, dateResults: [],
+            cursorEligible: !postUpload && trigger === 'scheduled', queriedDates: [], remoteRowCount: 0, dateResults: [],
             rawReceiptPersistence: { attempted: 0, saved: 0, failed: 0, insertedCount: 0, updatedCount: 0, unchangedCount: 0, fallbackKeyCount: 0 }, journalVerification: { matched: 0, saved: 0, stale: 0 },
             calendarSync: { attempted: 0, succeeded: 0, failed: 0, errors: [] as string[] },
-            remoteK2BReadAttempted: false, remoteK2BReadExecuted: false, databaseSaveCompleted: false, uploadExecuted: false, failureStage: null,
+            remoteK2BReadAttempted: false, remoteK2BReadExecuted: false, databaseSaveCompleted: false, uploadExecuted: Boolean(postUpload), failureStage: null,
         };
         const fail = async (message: string, stage: string) => {
             executionResult.failureStage = stage;
             await this.updateK2BExecutionResult(job.id, executionResult);
+            if (postUpload) throw new Error(message);
             await this.updateJobStatus(job.id, 'failed', message);
         };
-        if (trigger !== 'manual' && trigger !== 'scheduled') return fail('K2B 원본 동기화 trigger가 manual/scheduled로 명시되지 않았습니다.', 'validate_trigger');
-        if (trigger === 'manual' && (payload.requestedBy == null || !payload.fromDate || !payload.toDate)) return fail('수동 K2B 원본 동기화에는 requestedBy와 from/to가 필요합니다.', 'validate_manual');
+        if (!postUpload && trigger !== 'manual' && trigger !== 'scheduled') return fail('K2B 원본 동기화 trigger가 manual/scheduled로 명시되지 않았습니다.', 'validate_trigger');
+        if (!postUpload && trigger === 'manual' && (payload.requestedBy == null || !payload.fromDate || !payload.toDate)) return fail('수동 K2B 원본 동기화에는 requestedBy와 from/to가 필요합니다.', 'validate_manual');
         if (trigger === 'scheduled' && payload.requestedBy != null) return fail('scheduled K2B 원본 동기화에는 requestedBy를 넣을 수 없습니다.', 'validate_scheduled');
-        const stateResult = await admin.from('k2b_sync_state').select('last_successful_through_date').eq('state_key', 'default').maybeSingle();
+        const stateResult = postUpload ? { data: null, error: null } : await admin.from('k2b_sync_state').select('last_successful_through_date').eq('state_key', 'default').maybeSingle();
         if (stateResult.error) return fail(stateResult.error.message, 'load_cursor');
         executionResult.cursorBefore = stateResult.data?.last_successful_through_date ?? null;
         let range: { fromDate: string; toDate: string };
         try {
-            range = buildK2BSyncRange({ trigger, today: getKSTDateString(), fromDate: payload.fromDate, toDate: payload.toDate, lastSuccessfulThroughDate: stateResult.data?.last_successful_through_date ?? null });
+            range = postUpload ? { fromDate: postUpload.date, toDate: postUpload.date } : buildK2BSyncRange({ trigger, today: getKSTDateString(), fromDate: payload.fromDate, toDate: payload.toDate, lastSuccessfulThroughDate: stateResult.data?.last_successful_through_date ?? null });
         } catch (error: any) { return fail(error?.message || 'K2B 원본 동기화 범위가 올바르지 않습니다.', 'build_range'); }
         executionResult.requestedRange = range;
         executionResult.fromDate = range.fromDate;
@@ -519,10 +520,10 @@ export class WorkerDaemon {
         await this.updateK2BExecutionResult(job.id, executionResult);
         try {
             executionResult.remoteReadState = 'processing';
-            executionResult.remoteK2BReadAttempted = true;
+            executionResult.remoteK2BReadAttempted = !postUpload;
             await this.updateK2BExecutionResult(job.id, executionResult);
             // 하나의 로그인/읽기전용 세션에서 range query를 정확히 한 번 실행한다.
-            const receipts = await withK2BReadOnlySession(async (k2b) => {
+            const receipts = postUpload ? postUpload.grid.rows : await withK2BReadOnlySession(async (k2b) => {
                 try {
                   const grid = await k2b.querySubmissionResultsForRange(range.fromDate, range.toDate);
                   executionResult.remoteK2BReadExecuted = true;
@@ -540,6 +541,15 @@ export class WorkerDaemon {
                   throw new Error(`${executionResult.failureStage}:${message}`);
                 }
             });
+            if (postUpload) {
+                if (postUpload.grid.completeness !== 'COMPLETE') throw new Error('K2B_GRID_READ_INCOMPLETE');
+                executionResult.remoteK2BReadExecuted = true;
+                executionResult.remoteRowCount = receipts.length;
+                executionResult.remoteExpectedRowCount = postUpload.grid.expectedRowCount;
+                executionResult.gridReadMethod = postUpload.grid.readMethod;
+                executionResult.gridReadComplete = postUpload.grid.completeness;
+                executionResult.queriedDates = [postUpload.date];
+            }
             const unmatchableRemoteRows = receipts.filter((receipt) => receipt.unmatchableError);
             executionResult.unmatchableRemoteRowCount = unmatchableRemoteRows.length;
             // Original-sync promises raw receipt preservation. A file-error row without business
@@ -652,7 +662,7 @@ export class WorkerDaemon {
             }
             executionResult.databaseSaveCompleted = executionResult.rawReceiptPersistence.saved === executionResult.rawReceiptPersistence.attempted;
             // 수동은 cursor를 절대 전진하지 않는다. scheduled는 range 전체가 성공한 후에만 전진한다.
-            if (trigger === 'scheduled' && executionResult.databaseSaveCompleted) {
+            if (!postUpload && trigger === 'scheduled' && executionResult.databaseSaveCompleted) {
                 const { error: cursorError } = await admin.rpc('advance_k2b_sync_cursor', { p_through_date: range.toDate, p_job_id: job.id });
                 if (cursorError) throw cursorError;
                 executionResult.cursorAdvanced = true;
@@ -662,13 +672,14 @@ export class WorkerDaemon {
             const calendarWarning = executionResult.calendarSync.failed > 0
                 ? 'K2B 결과는 반영됐으나 캘린더 동기화 ' + executionResult.calendarSync.failed + '건 실패'
                 : null;
-            await this.updateJobStatus(job.id, 'success', calendarWarning);
+            if (!postUpload) await this.updateJobStatus(job.id, 'success', calendarWarning);
         } catch (error: any) {
             executionResult.rawReceiptPersistence.failed = Math.max(1, executionResult.rawReceiptPersistence.attempted - executionResult.rawReceiptPersistence.saved);
             executionResult.databaseSaveCompleted = false;
             executionResult.remoteReadState = executionResult.remoteReadState === 'not_started' ? 'failed' : 'partial';
             executionResult.failureStage = executionResult.failureStage || (error?.message?.includes('K2B_GRID_SCHEMA_MISMATCH') ? 'K2B_GRID_SCHEMA_MISMATCH' : error?.message?.includes('LOGIN_FAILED') ? 'LOGIN_FAILED' : error?.message?.includes('QUERY_FAILED') ? 'QUERY_FAILED' : 'persist_or_verify');
             await this.updateK2BExecutionResult(job.id, executionResult);
+            if (postUpload) throw error;
             await this.updateJobStatus(job.id, 'failed', error?.message || 'K2B 원본 동기화 실패');
         }
     }
@@ -913,12 +924,51 @@ export class WorkerDaemon {
         return findReportFiles(input);
     }
 
-    private getK2BPostUploadNow() {
-        return Date.now();
-    }
-
     private async waitForK2BPostUploadGrid(delayMs: number) {
         await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+
+    /** 기존 당일 접수의 source key를 전송 전에 보존해 과거 정상행을 이번 전송으로 오인하지 않는다. */
+    private async loadK2BSourceKeysForDate(date: string): Promise<Set<string>> {
+        const admin = createAdminClient();
+        const keys = new Set<string>();
+        const pageSize = 1000;
+        for (let offset = 0; ; offset += pageSize) {
+            const { data, error } = await admin.from('k2b_file_receipts')
+                .select('source_key').eq('actual_submission_date', date)
+                .order('source_key').range(offset, offset + pageSize - 1);
+            if (error) throw error;
+            for (const row of data || []) keys.add(row.source_key);
+            if (!data || data.length < pageSize) break;
+        }
+        return keys;
+    }
+
+    /** 이전 작업의 같은 대상이 있으면 Grid만으로 이번 접수번호를 귀속할 수 없으므로 자동 확정하지 않는다. */
+    private async loadPriorK2BTargetKeysForDate(date: string, currentJobId: string): Promise<Set<string>> {
+        const admin = createAdminClient();
+        const from = new Date(`${date}T00:00:00+09:00`);
+        const to = new Date(from.getTime() + 86_400_000);
+        const keys = new Set<string>();
+        const pageSize = 1000;
+        for (let offset = 0; ; offset += pageSize) {
+            const { data, error } = await admin.from('background_jobs')
+                .select('id,payload').eq('job_type', 'k2b')
+                .gte('started_at', from.toISOString()).lt('started_at', to.toISOString())
+                .order('started_at').order('id').range(offset, offset + pageSize - 1);
+            if (error) throw error;
+            for (const previousJob of data || []) {
+                if (previousJob.id === currentJobId) continue;
+                const previousTargets = previousJob.payload?.targets;
+                if (!Array.isArray(previousTargets)) continue;
+                for (const previousTarget of previousTargets) {
+                    keys.add([previousTarget.code, previousTarget.year, previousTarget.period]
+                        .map((value) => String(value ?? '').trim()).join('\u0000'));
+                }
+            }
+            if (!data || data.length < pageSize) break;
+        }
+        return keys;
     }
 
     private async processK2BJob(job: any) {
@@ -946,6 +996,9 @@ export class WorkerDaemon {
         try {
             await k2b.init();
             await k2b.login();
+            const uploadStartDate = getKSTDateString();
+            const existingSourceKeys = await this.loadK2BSourceKeysForDate(uploadStartDate);
+            const priorTargetKeys = await this.loadPriorK2BTargetKeysForDate(uploadStartDate, job.id);
 
             for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
                 const target = targets[targetIndex];
@@ -1043,20 +1096,31 @@ export class WorkerDaemon {
             const pending = new Set(results.flatMap((result, index) => result.uploadSucceeded ? [index] : []));
             const confirmed = new Map<number, ReturnType<typeof reconcileK2BSubmissionResults>[number]>();
             const confirmationDate = getKSTDateString();
-            const deadline = this.getK2BPostUploadNow() + K2B_POST_UPLOAD_CONFIRMATION_WINDOW_MS;
+            let completeGrid: K2BGridRead | null = null;
             let lastConfirmationError = 'K2B 접수현황에서 terminal 결과를 확인하지 못함';
-            while (pending.size > 0 && this.getK2BPostUploadNow() < deadline) {
+            if (confirmationDate !== uploadStartDate) {
+                lastConfirmationError = 'K2B 업로드가 KST 날짜 경계를 넘어 단일 날짜 조회로 접수를 확정할 수 없음';
+            }
+            for (let attempt = 1; confirmationDate === uploadStartDate && attempt <= K2B_POST_UPLOAD_MAX_QUERIES && pending.size > 0; attempt += 1) {
                 if (await this.isCancelRequested(job.id)) {
                     await k2b.quit();
                     await this.cancelJob(job.id, requestUser, 'K2B 업로드');
                     return;
                 }
+                // 전체 첨부 전송 뒤 첫 클릭 전 5초, 재클릭 전에도 5초를 기다린다.
+                await this.waitForK2BPostUploadGrid(K2B_POST_UPLOAD_QUERY_DELAY_MS);
                 try {
-                    // 업로드 세션의 현재 Grid는 사용하지 않는다. 매 attempt마다 오늘 범위를 다시 검색한다.
+                    // 기존 Nexacro 완료 신호와 Grid freshness 검증을 거친 동일 날짜 누적자료다.
                     const grid = await k2b.queryPostUploadSubmissionResultsForDate(confirmationDate);
-                    if (grid.completeness !== 'COMPLETE') {
-                        lastConfirmationError = `K2B 접수현황 전체 조회 미완료: ${grid.completeness}`;
+                    if (grid.completeness !== 'COMPLETE' || grid.rows.some((row) => row.unmatchableError)) {
+                        lastConfirmationError = grid.completeness !== 'COMPLETE'
+                            ? `K2B 접수현황 전체 조회 미완료: ${grid.completeness}`
+                            : 'K2B 접수현황에 원본 저장 불가 행이 있음';
                     } else {
+                        completeGrid = grid;
+                        confirmed.clear();
+                        pending.clear();
+                        results.forEach((result, index) => { if (result.uploadSucceeded) pending.add(index); });
                         const gridResults = grid.rows.map((row) => ({
                             managementNumber: row.managementNumber,
                             commencementNumber: row.commencementNumber,
@@ -1070,8 +1134,13 @@ export class WorkerDaemon {
                             businessYear: row.businessYear,
                             half: row.half,
                         }));
+                        const newSubmissionNumbers = new Set(grid.rows
+                            .filter((row) => !existingSourceKeys.has(row.sourceKey) && row.submissionNumber)
+                            .map((row) => row.submissionNumber));
                         for (const index of pending) {
                             const target = targets[index];
+                            const targetKey = [target.code, target.year, target.period]
+                                .map((value: unknown) => String(value ?? '').trim()).join('\u0000');
                             const [item] = reconcileK2BSubmissionResults([{
                                 code: String(target.code || ''),
                                 industrialAccidentNumber: target.industrial_accident_number,
@@ -1084,6 +1153,8 @@ export class WorkerDaemon {
                                 internalK2BSendDate: confirmationDate,
                             }], gridResults, grid);
                             if (item?.matchMethod === 'exact_keys' && item.match
+                                && !priorTargetKeys.has(targetKey)
+                                && newSubmissionNumbers.has(String(item.match.submissionNumber ?? ''))
                                 && ['정상', '사용자반송', '오류'].includes(item.verdict)) {
                                 confirmed.set(index, item);
                                 pending.delete(index);
@@ -1097,10 +1168,13 @@ export class WorkerDaemon {
                     console.warn('[WorkerDaemon K2B] post-upload 조회 재시도 판단:', lastConfirmationError);
                     if (!/K2B_GRID_SCHEMA_MISMATCH:invalid_required_row_\d+|K2B_GRID_REFRESH_UNVERIFIABLE|K2B 조회 완료 신호를 확인하지 못했습니다/.test(String(gridReadErr?.message || ''))) break;
                 }
-                if (pending.size > 0) {
-                    const remaining = deadline - this.getK2BPostUploadNow();
-                    if (remaining > 0) await this.waitForK2BPostUploadGrid(Math.min(K2B_POST_UPLOAD_POLL_INTERVAL_MS, remaining));
-                }
+            }
+            // 검증된 COMPLETE Grid 하나만 원본/일지 동기화와 요청별 판정에 함께 사용한다.
+            if (completeGrid) {
+                await this.processK2BOriginalSyncJob({
+                    id: job.id,
+                    payload: { calendarSyncApiUrl },
+                }, { grid: completeGrid, date: confirmationDate });
             }
             for (const index of pending) {
                 results[index] = markK2BGridConfirmationFailure(results[index], lastConfirmationError);
