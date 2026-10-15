@@ -1,4 +1,4 @@
-import { recommendationDatesForBusinessType } from "./calendar";
+import { workingDaysBefore } from "./calendar";
 import { normalizeLegacyReconciliationPeriod } from "./legacy-reconciliation";
 
 export const HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES = new Set([
@@ -204,7 +204,13 @@ export function buildHistoricalPlanRecoveryManifest(input: {
         };
       }
 
-      const candidates = recommendationDatesForBusinessType(target.measurement_date, "existing");
+      // 역사 복원 manifest는 당시 후보 순서를 고정한다. 현행 자동추천 구간 변경으로 과거 복원값을 재산출하지 않는다.
+      const historicalRows = workingDaysBefore(target.measurement_date, 25);
+      const historicalByDistance = new Map(historicalRows.map((row) => [row.workingDaysBefore, row]));
+      const candidates = [
+        ...Array.from({ length: 18 }, (_, index) => 20 - index),
+        ...Array.from({ length: 5 }, (_, index) => 25 - index),
+      ].flatMap((distance) => historicalByDistance.get(distance) ?? []);
       const candidate = candidates.find((item) => {
         if (participants.some((user) => input.scheduleBlockedKeys.has(`${user.id}:${item.date}`)
           || input.measurementBlockedKeys.has(`${user.id}:${item.date}`))) return false;

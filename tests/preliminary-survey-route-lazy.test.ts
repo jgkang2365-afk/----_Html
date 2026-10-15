@@ -408,10 +408,11 @@ test("입력 순서를 바꿔도 required pair 집합이 같다", () => {
   }))));
 });
 
-test("45 calendar-day magic range를 제거하고 실제 working-day -20/-25를 사용한다", () => {
+test("45 calendar-day magic range를 제거하고 실제 working-day -15/-20을 사용한다", () => {
   const source = readFileSync("app/api/preliminary-survey-v2/reverse-planner/route.ts", "utf8");
   assert.doesNotMatch(source, /subtractDays\([^\n]*45|45 calendar/i);
   assert.equal(candidateDates("2026-09-16", "first_measurement").primary.length, 18);
+  assert.equal(candidateDates("2026-09-16", "existing").primary.length, 13);
   assert.equal(candidateDates("2026-09-16", "existing").fallback.length, 5);
 });
 
@@ -420,10 +421,10 @@ test("daily_staff 저장순서와 무관하게 가장 이른 실제 측정일을
   assert.equal(earliestMeasurementDate(["2026-09-15", "2026-09-16", "2026-09-14"], "x"), "2026-09-14");
 });
 
-test("synthetic 장기휴일로 -25 working day가 calendar -45보다 과거여도 후보에서 유지한다", () => {
-  const rows = Array.from({ length: 25 }, (_, index) => ({
+test("synthetic 장기휴일의 -20 working day는 calendar -45보다 과거여도 후보에서 유지한다", () => {
+  const rows = Array.from({ length: 20 }, (_, index) => ({
     workingDaysBefore: index + 1,
-    date: `2026-08-${String(30 - index).padStart(2, "0")}`,
+    date: `2026-08-${String(25 - index).padStart(2, "0")}`,
   }));
   const range = candidateDates("2026-09-30", "existing", rows);
   assert.equal([...range.primary, ...range.fallback].sort()[0], "2026-08-06");

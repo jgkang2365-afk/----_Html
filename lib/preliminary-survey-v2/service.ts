@@ -4,7 +4,7 @@ import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { buildScheduleBlockKeys } from "./availability";
 import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
-import { parseDateOnly, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
+import { STANDARD_PRIMARY_WORKING_DAY_DISTANCES, parseDateOnly, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { recommendBatch } from "./engine";
 import { validateManualPlanHardRules } from "./manual-validation";
 import { loadActualMeasurementBlockedKeys } from "./measurement-conflicts";
@@ -327,7 +327,7 @@ function preservedTentativeResult(
   const range = candidate == null
     ? null
     : target.businessType === "external_new" || target.businessType === "existing"
-      ? candidate.workingDaysBefore <= 20 ? "primary" as const : "fallback" as const
+      ? candidate.workingDaysBefore <= STANDARD_PRIMARY_WORKING_DAY_DISTANCES[0] ? "primary" as const : "fallback" as const
       : target.businessType === "first_measurement"
         ? "primary" as const
         : candidate.workingDaysBefore >= 20 ? "primary" as const : "fallback" as const;

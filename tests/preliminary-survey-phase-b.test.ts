@@ -25,11 +25,11 @@ test("Phase B 유형별 날짜 후보는 측정예정일에서 역산한다", ()
   );
   assert.deepEqual(
     recommendationDatesForBusinessType("2026-07-14", "external_new").map((item) => item.workingDaysBefore),
-    [...Array.from({ length: 18 }, (_, index) => 20 - index), ...Array.from({ length: 5 }, (_, index) => 25 - index)],
+    [...Array.from({ length: 13 }, (_, index) => 15 - index), ...Array.from({ length: 5 }, (_, index) => 20 - index)],
   );
   assert.deepEqual(
     recommendationDatesForBusinessType("2026-07-14", "existing").map((item) => item.workingDaysBefore),
-    [...Array.from({ length: 18 }, (_, index) => 20 - index), ...Array.from({ length: 5 }, (_, index) => 25 - index)],
+    [...Array.from({ length: 13 }, (_, index) => 15 - index), ...Array.from({ length: 5 }, (_, index) => 20 - index)],
   );
   assert.ok(recommendationDatesForBusinessType("2026-07-14", "first_measurement").every((item) => ![0, 6].includes(new Date(`${item.date}T00:00:00Z`).getUTCDay())));
   const existingCandidates = recommendationDatesForBusinessType("2026-07-14", "existing");
@@ -47,7 +47,7 @@ test("Phase B 유형별 날짜 후보는 측정예정일에서 역산한다", ()
 
 test("서류 기준일 후보는 오늘 cutoff 없이 측정예정일에서만 역산한다", () => {
   const all = recommendationDatesForBusinessType("2026-09-10", "external_new");
-  assert.equal(all.length, 23);
+  assert.equal(all.length, 18);
   assert.ok(all.every((item) => item.date < "2026-09-10"));
 });
 

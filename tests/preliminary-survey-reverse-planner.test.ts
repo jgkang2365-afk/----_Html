@@ -4,6 +4,7 @@ import test from "node:test";
 import { buildPlanningSnapshot } from "../lib/preliminary-survey-v2/reverse-planner/snapshot";
 import { adminOverrideSourceChanged, isAdminExplicitOverridePlan } from "../lib/preliminary-survey-v2/reverse-planner/admin-override-protection";
 import { candidateDates } from "../lib/preliminary-survey-v2/reverse-planner/candidate-dates";
+import { workingDaysBefore } from "../lib/preliminary-survey-v2/calendar";
 import {
   resolveAutomaticMeasurementAssignments,
   withAutomaticMeasurementAssignments,
@@ -440,15 +441,15 @@ test("9개 clean 기존업체 batch는 2초 안에 exact optimum의 예비조사
   assert.equal(output.results.every((result) => result.decision === "AUTO_ASSIGNED"), true);
   assert.deepEqual(output.results.map((result) => [result.code, result.candidate?.preliminaryDate,
     result.candidate?.responsibleUserId, result.candidate?.reviewerUserId, result.candidate?.writerUserId]), [
-    ["H0011", "2026-09-11", 2, null, 2],
-    ["H0012", "2026-09-14", 3, 5, 3],
-    ["H0047", "2026-09-15", 6, 4, 6],
-    ["H0081", "2026-09-16", 5, null, 5],
-    ["H0082", "2026-09-17", 4, null, 4],
-    ["H0084", "2026-09-18", 3, 5, 3],
-    ["H0085", "2026-09-21", 5, null, 5],
-    ["H0094", "2026-09-22", 4, null, 4],
-    ["H0131", "2026-09-23", 1, 2, 1],
+    ["H0011", "2026-09-18", 2, null, 2],
+    ["H0012", "2026-09-21", 3, 5, 3],
+    ["H0047", "2026-09-22", 6, 4, 6],
+    ["H0081", "2026-09-23", 5, null, 5],
+    ["H0082", "2026-09-28", 4, null, 4],
+    ["H0084", "2026-09-29", 3, 5, 3],
+    ["H0085", "2026-09-30", 5, null, 5],
+    ["H0094", "2026-10-01", 4, null, 4],
+    ["H0131", "2026-10-02", 1, 2, 1],
   ]);
 });
 
@@ -820,6 +821,66 @@ test("primary가 Hard rule로 모두 막힌 뒤에만 fallback을 사용한다",
   const input = fixture({ scheduleBlocks: [{ userId: 1, startDate: dates.primary[0], endDate: dates.primary.at(-1)! }] });
   assert.ok(dates.fallback.includes(resultFor(input).candidate?.preliminaryDate ?? ""));
   assert.ok(dates.primary.includes(resultFor(fixture()).candidate?.preliminaryDate ?? ""));
+});
+
+test("타기관 신규·기존업체는 -15부터 -3을 우선하고 -20부터 -16만 fallback으로 둔다", () => {
+  for (const businessType of ["external_new", "existing"] as const) {
+    const dates = candidateDates("2026-09-16", businessType);
+    const rows = workingDaysBefore("2026-09-16", 25);
+    const distanceByDate = new Map(rows.map((row) => [row.date, row.workingDaysBefore]));
+    assert.deepEqual(dates.primary.map((date) => distanceByDate.get(date)),
+      Array.from({ length: 13 }, (_, index) => 15 - index));
+    assert.deepEqual(dates.fallback.map((date) => distanceByDate.get(date)), [20, 19, 18, 17, 16]);
+    assert.ok([...dates.primary, ...dates.fallback].every((date) => (distanceByDate.get(date) ?? 0) <= 20));
+  }
+  assert.deepEqual(candidateDates("2026-09-16", "first_measurement").primary.map((date) =>
+    workingDaysBefore("2026-09-16", 20).find((row) => row.date === date)?.workingDaysBefore),
+  Array.from({ length: 18 }, (_, index) => index + 3));
+});
+
+test("기존업체 유선은 유효한 빈 날짜에 먼저 분산하고 같은 건수면 -15부터 고른다", () => {
+  const dates = candidateDates("2026-09-16", "existing");
+  const sixTargets = Array.from({ length: 6 }, (_, index) => target({
+    id: 100 + index,
+    code: `H${String(100 + index).padStart(4, "0")}`,
+    fixedAssignments: [{ targetId: 100 + index, measurementDate: "2026-09-16",
+      assigneeUserId: 1, confirmedAt: "x", updatedAt: "x" }],
+  }));
+  const output = planPreliminarySurveyGivenFixedAssignments(fixture({ targets: sixTargets }));
+  assert.deepEqual(output.results.map((result) => result.candidate?.preliminaryDate), dates.primary.slice(0, 6));
+
+  const occupancy = dates.primary.map((date, index) => ({
+    targetId: 200 + index, businessCode: `E${index}`, address: "대전 외부", preliminaryDate: date,
+    surveyMethod: "phone" as const, participantUserIds: [2, 1], responsibleUserId: 1,
+    reviewerUserId: 2, writerUserId: 1, protected: index === 0,
+  }));
+  assert.equal(resultFor(fixture({ existingSurveyOccupancy: occupancy.slice(0, 1) }))
+    .candidate?.preliminaryDate, dates.primary[1]);
+  assert.equal(resultFor(fixture({ existingSurveyOccupancy: occupancy }))
+    .candidate?.preliminaryDate, dates.primary[0]);
+});
+
+test("새 범위 밖의 보호 plan은 재검토로 남고 관리자 지정 plan은 그대로 보존한다", () => {
+  const outside = workingDaysBefore("2026-09-16", 21).at(-1)!.date;
+  const base = rankedCandidatesForTarget(fixture(), target())[0];
+  assert.ok(validateCandidateHardRules(fixture(), target(), { ...base, preliminaryDate: outside })
+    .includes("PRELIMINARY_DATE_OUT_OF_RANGE"));
+  const existingPlan = {
+    id: "protected-old-date", preliminaryDate: outside, surveyMethod: "phone" as const,
+    participantUserIds: [2, 1], responsibleUserId: 1, reviewerUserId: 2,
+    protected: true, updatedAt: "x",
+    assignments: [{ measurementDate: "2026-09-16", assigneeUserId: 1,
+      surveyCode: "C", publicSampleCode: null }],
+  };
+  const protectedTarget = target({ protected: true, existingPlan });
+  const review = resultFor(fixture({ targets: [protectedTarget] }));
+  assert.equal(review.decision, "MANUAL_REQUIRED");
+  assert.equal(review.mutation, "NONE");
+  assert.equal(review.reason, "PROTECTED_PLAN_REQUIRES_REVIEW");
+  const adminTarget = target({ protected: true, adminOverrideProtected: true, existingPlan });
+  const kept = resultFor(fixture({ targets: [adminTarget] }));
+  assert.equal(kept.decision, "ADMIN_OVERRIDE_KEPT");
+  assert.equal(kept.candidate?.preliminaryDate, outside);
 });
 
 test("KEEP_EXISTING은 full validator를 통과하고 global objective에서 보존된다", () => {

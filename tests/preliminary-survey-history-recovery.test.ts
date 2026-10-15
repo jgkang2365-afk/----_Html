@@ -5,7 +5,7 @@ import {
   HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES,
   type HistoricalPlanRecoveryTarget,
 } from "../lib/preliminary-survey-v2/historical-plan-recovery";
-import { recommendationDatesForBusinessType } from "../lib/preliminary-survey-v2/calendar";
+import { workingDaysBefore } from "../lib/preliminary-survey-v2/calendar";
 
 const target = (overrides: Partial<HistoricalPlanRecoveryTarget> = {}): HistoricalPlanRecoveryTarget => ({
   id: 1,
@@ -60,7 +60,7 @@ describe("historical plan recovery", () => {
     assert.notEqual(row.derivedPreliminaryDate, baseline.derivedPreliminaryDate);
     assert.deepEqual(row.participantUserIds, [20, 10]);
 
-    const allDates = recommendationDatesForBusinessType("2026-08-26", "existing");
+    const allDates = workingDaysBefore("2026-08-26", 25);
     const allBlocked = new Set(allDates.flatMap((candidate) => users.map((user) => `${user.id}:${candidate.date}`)));
     const [unresolved] = build({ measurementBlockedKeys: allBlocked });
     assert.equal(unresolved.classification, "NO_VALID_HISTORICAL_DATE");
