@@ -86,7 +86,9 @@ test('보고서 처리 화면은 날짜 범위를 조회 순서와 결과 표에
   assert.match(page, /changeReportProcessingDateRangeStart/);
   assert.match(page, /changeReportProcessingDateRangeEnd/);
   assert.match(page, /type="date"/);
-  assert.match(page, /<TableHead className="w-32 text-center">측정일<\/TableHead>/);
+  assert.match(page, /aria-sort=\{reportSortKey === 'measurementDate'/);
+  assert.match(page, /onClick=\{\(\) => changeReportSort\('measurementDate'\)\}/);
+  assert.match(page, /<span>측정일<\/span>/);
   assert.match(page, /reportProcessingMeasurementDateLabel\(record\.measurement_dates\)/);
   assert.match(page, /const visibleRecordKeys = visibleRecords\.map/);
   assert.match(page, /setSelectedKeys\(\(current\) => Array\.from\(new Set\(\[\.\.\.current, \.\.\.visibleRecordKeys\]\)\)\)/);

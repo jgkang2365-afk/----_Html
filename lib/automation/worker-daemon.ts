@@ -5,7 +5,7 @@ import { querySubmissionResultsForRange, withK2BReadOnlySession } from './k2b-ve
 import { K2BJournalPersistenceError, requireK2BJournalPersistence } from './k2b-upload-persistence';
 import { hasK2BReceiptError, journalStatusForK2BReconciliation, k2BSendDatePatchForReconciliation, reconcileK2BSubmissionResults, selectChangedK2BPostUploadUpdate, selectChangedK2BReconciliationUpdate, selectK2BStaleUpdates, shouldReflectActualK2BStatus, verificationFailureState } from '../k2b-verification';
 import { resolveK2BCalendarPeriod, shouldForceManualK2BCalendarRepair, shouldForceScheduledK2BCalendarRepair, shouldSyncK2BCalendarForJournalChange } from './k2b-calendar-sync-policy';
-import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, filterK2BObservedJournalCandidates, inclusiveK2BDates, resolveK2BJournalScope, shouldSweepK2BStale, type K2BGridRead, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
+import { buildGeneralK2BVerificationRange, buildK2BStaleCutoff, buildK2BSyncRange, filterK2BObservedJournalCandidates, inclusiveK2BDates, provenK2BPostUploadErrorKeys, resolveK2BJournalScope, shouldSweepK2BStale, type K2BGridRead, type K2BOriginalReceipt, type K2BSyncTrigger } from './k2b-original-sync';
 import { createAdminClient } from '../supabase/admin';
 import os from 'node:os';
 import {
@@ -66,6 +66,8 @@ export class WorkerDaemon {
     private idlePollCount: number = 0;
     private currentK2BService: K2BService | null = null;
     private currentJobId: string | null = null;
+    private k2bOriginalSyncAdmin = createAdminClient;
+    private k2bOriginalSyncReadOnlySession = withK2BReadOnlySession;
 
     private constructor() {
         // 프로세스 종료 시 Graceful Shutdown을 위한 이벤트 등록
@@ -486,8 +488,8 @@ export class WorkerDaemon {
     }
 
     /** K2B 원본 동기화: 한 range의 모든 receipt 저장과 일지 연계가 성공한 scheduled 작업만 cursor를 전진한다. */
-    private async processK2BOriginalSyncJob(job: any, postUpload?: { grid: K2BGridRead; date: string }) {
-        const admin = createAdminClient();
+    private async processK2BOriginalSyncJob(job: any, postUpload?: { grid: K2BGridRead; date: string; provenErrorSourceKeys?: Set<string> }) {
+        const admin = this.k2bOriginalSyncAdmin();
         const payload = job.payload && typeof job.payload === 'object' ? job.payload : {};
         const trigger: K2BSyncTrigger = postUpload ? 'manual' : payload.trigger as K2BSyncTrigger;
         const executionResult: Record<string, any> = {
@@ -523,7 +525,7 @@ export class WorkerDaemon {
             executionResult.remoteK2BReadAttempted = !postUpload;
             await this.updateK2BExecutionResult(job.id, executionResult);
             // 하나의 로그인/읽기전용 세션에서 range query를 정확히 한 번 실행한다.
-            const receipts = postUpload ? postUpload.grid.rows : await withK2BReadOnlySession(async (k2b) => {
+            const receipts = postUpload ? postUpload.grid.rows : await this.k2bOriginalSyncReadOnlySession(async (k2b) => {
                 try {
                   const grid = await k2b.querySubmissionResultsForRange(range.fromDate, range.toDate);
                   executionResult.remoteK2BReadExecuted = true;
@@ -551,14 +553,25 @@ export class WorkerDaemon {
                 executionResult.queriedDates = [postUpload.date];
             }
             const unmatchableRemoteRows = receipts.filter((receipt) => receipt.unmatchableError);
+            const normalReceipts = receipts.filter((receipt) => !receipt.unmatchableError);
             executionResult.unmatchableRemoteRowCount = unmatchableRemoteRows.length;
-            // Original-sync promises raw receipt preservation. A file-error row without business
-            // identity cannot satisfy the current receipt schema, so fail closed instead of dropping it.
-            if (unmatchableRemoteRows.length > 0) throw new Error(`K2B_UNMATCHABLE_REMOTE_ROWS:${unmatchableRemoteRows.length}`);
+            executionResult.unmatchableErrorPersistence = { saved: 0, passed: 0, awaitingApproval: 0 };
+            for (const receipt of unmatchableRemoteRows) {
+                // These rows never enter the normal receipt or journal path. Without a proven
+                // per-row upload correlation, the requesting user is deliberately unknown.
+                const { data: saved, error } = await admin.rpc('upsert_k2b_unmatchable_error', {
+                    p_row: receipt, p_job_id: job.id,
+                    p_submission_job_id: postUpload?.provenErrorSourceKeys?.has(receipt.sourceKey) ? job.id : null,
+                });
+                if (error) throw error;
+                executionResult.unmatchableErrorPersistence.saved += 1;
+                if ((saved as any)?.reviewState === 'PASSED') executionResult.unmatchableErrorPersistence.passed += 1;
+                else executionResult.unmatchableErrorPersistence.awaitingApproval += 1;
+            }
             executionResult.remoteReadState = receipts.length === 0 ? 'success_empty' : 'completed';
             executionResult.queriedRange = range;
             // 1) 원본 receipt를 전부 보존한다. journal 상태는 이 루프에서 건드리지 않는다.
-            for (const receipt of receipts) {
+            for (const receipt of normalReceipts) {
                 executionResult.rawReceiptPersistence.attempted += 1;
                 if (receipt.identityFallback) executionResult.rawReceiptPersistence.fallbackKeyCount += 1;
                 const { data: persistence, error } = await admin.rpc('upsert_k2b_file_receipt', { p_receipt: receipt, p_job_id: job.id });
@@ -572,7 +585,7 @@ export class WorkerDaemon {
             // 2) receipt의 사업년도/반기 scope로 일지를 한 번에 가져온 뒤 canonical 4-key로
             // 결합한다. 과거 정상 접수일이 range 밖이어도 최신 반송/재접수를 놓치지 않는다.
             const journalFields = 'id, code, business_name, industrial_accident_number, commencement_number, measurement_year, measurement_period, k2b_status, k2b_send_date, k2b_verified_status, k2b_verified_at, k2b_verified_send_date, k2b_verified_result_date, k2b_verified_remote_status, k2b_consistency_status, k2b_consistency_note, k2b_verification_error, k2b_verification_attempted_at';
-            const scopes = receipts.map(resolveK2BJournalScope);
+            const scopes = normalReceipts.map(resolveK2BJournalScope);
             const years = Array.from(new Set(scopes.map((scope) => scope.measurementYear)));
             const periods = Array.from(new Set(scopes.map((scope) => scope.measurementPeriod)));
             const journalResult = years.length > 0
@@ -588,7 +601,7 @@ export class WorkerDaemon {
                 commencementNumber: journal.commencement_number,
                 measurementYear: journal.measurement_year,
                 measurementPeriod: journal.measurement_period,
-            })), receipts);
+            })), normalReceipts);
             const reconciled = reconcileK2BSubmissionResults(observedJournals.map((journal: any) => ({
                 journalId: journal.id, code: String(journal.code ?? ''), businessName: String(journal.business_name ?? ''),
                 industrialAccidentNumber: journal.industrial_accident_number, commencementNumber: journal.commencement_number,
@@ -596,7 +609,7 @@ export class WorkerDaemon {
                 resultDate: journal.k2b_send_date, previousVerifiedStatus: journal.k2b_verified_status,
                 previousVerifiedAt: journal.k2b_verified_at, internalK2BStatus: journal.k2b_status,
                 internalK2BSendDate: journal.k2b_send_date,
-            })), receipts.map((receipt) => ({
+            })), normalReceipts.map((receipt) => ({
                 managementNumber: receipt.managementNumber, commencementNumber: receipt.commencementNumber,
                 submissionDate: receipt.actualSubmissionDate, status: receipt.status,
                 errorViewAvailable: receipt.errorViewAvailable, errorDetail: receipt.errorDetail,
@@ -643,6 +656,12 @@ export class WorkerDaemon {
                     }
                 }
             }
+            // The upload's canonical target results are independent of unrelated file errors.
+            // Scheduled/manual original sync still fails closed before STALE or cursor advancement.
+            executionResult.errorApprovalPending = executionResult.unmatchableErrorPersistence.awaitingApproval > 0;
+            if (executionResult.errorApprovalPending && !postUpload) {
+                throw new Error(`K2B_UNMATCHABLE_REMOTE_ROWS:${executionResult.unmatchableErrorPersistence.awaitingApproval}`);
+            }
             // STALE sweep은 scheduled에만 실행한다. cursor/manual range가 아닌 KST 7일
             // canonical cutoff를 사용하고, 기존 실제 관측 필드는 update에 포함하지 않는다.
             if (shouldSweepK2BStale(trigger)) {
@@ -674,10 +693,10 @@ export class WorkerDaemon {
                 : null;
             if (!postUpload) await this.updateJobStatus(job.id, 'success', calendarWarning);
         } catch (error: any) {
-            executionResult.rawReceiptPersistence.failed = Math.max(1, executionResult.rawReceiptPersistence.attempted - executionResult.rawReceiptPersistence.saved);
+            executionResult.rawReceiptPersistence.failed = Math.max(0, executionResult.rawReceiptPersistence.attempted - executionResult.rawReceiptPersistence.saved);
             executionResult.databaseSaveCompleted = false;
             executionResult.remoteReadState = executionResult.remoteReadState === 'not_started' ? 'failed' : 'partial';
-            executionResult.failureStage = executionResult.failureStage || (error?.message?.includes('K2B_GRID_SCHEMA_MISMATCH') ? 'K2B_GRID_SCHEMA_MISMATCH' : error?.message?.includes('LOGIN_FAILED') ? 'LOGIN_FAILED' : error?.message?.includes('QUERY_FAILED') ? 'QUERY_FAILED' : 'persist_or_verify');
+            executionResult.failureStage = executionResult.failureStage || (error?.message?.includes('K2B_UNMATCHABLE_REMOTE_ROWS') ? 'awaiting_error_pass' : error?.message?.includes('K2B_GRID_SCHEMA_MISMATCH') ? 'K2B_GRID_SCHEMA_MISMATCH' : error?.message?.includes('LOGIN_FAILED') ? 'LOGIN_FAILED' : error?.message?.includes('QUERY_FAILED') ? 'QUERY_FAILED' : 'persist_or_verify');
             await this.updateK2BExecutionResult(job.id, executionResult);
             if (postUpload) throw error;
             await this.updateJobStatus(job.id, 'failed', error?.message || 'K2B 원본 동기화 실패');
@@ -971,6 +990,17 @@ export class WorkerDaemon {
         return keys;
     }
 
+    private async loadK2BPreUploadGrid(date: string): Promise<K2BGridRead | null> {
+        try {
+            const grid = await withK2BReadOnlySession((k2b) => k2b.querySubmissionResultsForRange(date, date));
+            return grid.completeness === 'COMPLETE' ? grid : null;
+        } catch (error) {
+            // Upload may continue; missing baseline only removes submitter provenance.
+            console.warn('[WorkerDaemon K2B] 업로드 전 Grid 근거 미확보:', error instanceof Error ? error.message : String(error));
+            return null;
+        }
+    }
+
     private async processK2BJob(job: any) {
         const supabase = await this.createK2BJobSupabaseClient();
         const payload = job.payload || {};
@@ -994,11 +1024,13 @@ export class WorkerDaemon {
         const results: K2BPostUploadResult[] = [];
 
         try {
+            const uploadStartDate = getKSTDateString();
+            const preUploadGrid = await this.loadK2BPreUploadGrid(uploadStartDate);
             await k2b.init();
             await k2b.login();
-            const uploadStartDate = getKSTDateString();
             const existingSourceKeys = await this.loadK2BSourceKeysForDate(uploadStartDate);
             const priorTargetKeys = await this.loadPriorK2BTargetKeysForDate(uploadStartDate, job.id);
+            const successfulUploadFilenames: string[] = [];
 
             for (let targetIndex = 0; targetIndex < targets.length; targetIndex++) {
                 const target = targets[targetIndex];
@@ -1060,6 +1092,8 @@ export class WorkerDaemon {
                         failureStage: uploadRes.failureStage
                     }));
 
+                    if (uploadRes.success && files.dataFile?.filename) successfulUploadFilenames.push(files.dataFile.filename);
+
                     if (!uploadRes.success) {
                         // 개별 업체 실패 알림
                         await this.notifyAllManagers('error', `[K2B 업로드 실패] ${target.business_name} 실패: ${uploadRes.error}`);
@@ -1112,10 +1146,8 @@ export class WorkerDaemon {
                 try {
                     // 기존 Nexacro 완료 신호와 Grid freshness 검증을 거친 동일 날짜 누적자료다.
                     const grid = await k2b.queryPostUploadSubmissionResultsForDate(confirmationDate);
-                    if (grid.completeness !== 'COMPLETE' || grid.rows.some((row) => row.unmatchableError)) {
-                        lastConfirmationError = grid.completeness !== 'COMPLETE'
-                            ? `K2B 접수현황 전체 조회 미완료: ${grid.completeness}`
-                            : 'K2B 접수현황에 원본 저장 불가 행이 있음';
+                    if (grid.completeness !== 'COMPLETE') {
+                        lastConfirmationError = `K2B 접수현황 전체 조회 미완료: ${grid.completeness}`;
                     } else {
                         completeGrid = grid;
                         confirmed.clear();
@@ -1174,7 +1206,8 @@ export class WorkerDaemon {
                 await this.processK2BOriginalSyncJob({
                     id: job.id,
                     payload: { calendarSyncApiUrl },
-                }, { grid: completeGrid, date: confirmationDate });
+                }, { grid: completeGrid, date: confirmationDate,
+                    provenErrorSourceKeys: provenK2BPostUploadErrorKeys(preUploadGrid, completeGrid, successfulUploadFilenames) });
             }
             for (const index of pending) {
                 results[index] = markK2BGridConfirmationFailure(results[index], lastConfirmationError);

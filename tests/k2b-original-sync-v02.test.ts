@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { buildK2BSyncRange, buildK2BSourceKey, filterK2BObservedJournalCandidates, inclusiveK2BDates, parseK2BSubmissionGrid, resolveK2BJournalScope } from "../lib/automation/k2b-original-sync";
+import { buildK2BSyncRange, buildK2BSourceKey, filterK2BObservedJournalCandidates, inclusiveK2BDates, parseK2BSubmissionGrid, provenK2BPostUploadErrorKeys, resolveK2BJournalScope } from "../lib/automation/k2b-original-sync";
 
 const requiredHeaders = ["청구 파일명", "사업장명", "처리상태", "접수일", "사업년도", "반기", "지원구분", "접수번호", "관리번호", "개시번호", "순번"];
 const completeRow = ["alpha.xml", "알파", "정상처리", "2026-09-04", "2026", "하반기", "국고", "R-1", "M-1", "C-1", "1"];
@@ -107,6 +107,66 @@ test("business-identity-free K2B file-error row is preserved as unmatchable with
   assert.match(parsed.rows[0].sourceKey, /^k2b:unmatchable:/);
   const malformed = ["bad.xml", "partial company", "\uD30C\uC77C\uC624\uB958", "2026-08-20", "2026", "\uD558\uBC18\uAE30", "x", "", "", "", ""];
   assert.throws(() => parseK2BSubmissionGrid(requiredHeaders, [malformed]), /K2B_GRID_SCHEMA_MISMATCH:invalid_required_row_0/);
+});
+
+test("71 normal receipts and two identity-free errors remain 73 distinct complete rows", () => {
+  const normal = Array.from({ length: 71 }, (_, index) => {
+    const row = [...completeRow];
+    row[0] = `normal-${index}.xml`;
+    row[7] = `R-${index}`;
+    return row;
+  });
+  const orphan = ["bad.xml", "", "파일오류", "2026-09-23", "", "", "", "", "", "", ""];
+  const parsed = parseK2BSubmissionGrid(requiredHeaders, [...normal, orphan, orphan], {
+    expectedRowCount: 73, collectedUniqueRowCount: 73,
+    readMethod: "nexacro_dataset", completeness: "COMPLETE",
+  });
+  assert.equal(parsed.completeness, "COMPLETE");
+  assert.equal(parsed.rows.filter((row) => row.unmatchableError).length, 2);
+  assert.equal(parsed.rows.filter((row) => !row.unmatchableError).length, 71);
+  assert.equal(new Set(parsed.rows.map((row) => row.sourceKey)).size, 73);
+});
+
+test("identical physical file-error rows keep separate keys and a changed count cannot inherit a pass", () => {
+  const orphan = ["bad.xml", "", "파일오류", "2026-08-20", "", "", "", "", "", "", ""];
+  const two = parseK2BSubmissionGrid(requiredHeaders, [orphan, orphan], {
+    expectedRowCount: 2, collectedUniqueRowCount: 2, readMethod: "nexacro_dataset", completeness: "COMPLETE",
+  });
+  assert.equal(two.completeness, "COMPLETE");
+  assert.equal(two.rows.length, 2);
+  assert.notEqual(two.rows[0].sourceKey, two.rows[1].sourceKey);
+  assert.deepEqual(two.rows.map((row) => [row.identicalRowCount, row.occurrenceOrdinal]), [[2, 1], [2, 2]]);
+  const reread = parseK2BSubmissionGrid(requiredHeaders, [orphan, orphan]);
+  assert.deepEqual(reread.rows.map((row) => row.sourceKey), two.rows.map((row) => row.sourceKey));
+  const one = parseK2BSubmissionGrid(requiredHeaders, [orphan]);
+  assert.notEqual(one.rows[0].sourceKey, two.rows[0].sourceKey);
+  assert.notEqual(one.rows[0].sourceKey, two.rows[1].sourceKey);
+});
+
+test("changed error text creates a new isolated identity", () => {
+  const headers = [...requiredHeaders, "오류내용"];
+  const base = ["bad.xml", "", "파일오류", "2026-08-20", "", "", "", "", "", "", ""];
+  const first = parseK2BSubmissionGrid(headers, [[...base, "원본 오류"]]);
+  const changed = parseK2BSubmissionGrid(headers, [[...base, "수정된 오류"]]);
+  assert.notEqual(first.rows[0].sourceKey, changed.rows[0].sourceKey);
+  assert.notEqual(first.rows[0].contentFingerprint, changed.rows[0].contentFingerprint);
+});
+
+test("submitter provenance needs a complete pre/post delta and one exact successful uploaded filename", () => {
+  const orphan = ["bad.xml", "", "파일오류", "2026-08-20", "", "", "", "", "", "", ""];
+  const complete = (rows: string[][]) => parseK2BSubmissionGrid(requiredHeaders, rows, {
+    expectedRowCount: rows.length, collectedUniqueRowCount: rows.length,
+    readMethod: "nexacro_dataset", completeness: "COMPLETE",
+  });
+  const before = complete([]);
+  const after = complete([orphan]);
+  const key = after.rows[0].sourceKey;
+  assert.deepEqual([...provenK2BPostUploadErrorKeys(before, after, ["bad.xml"])], [key]);
+  assert.equal(provenK2BPostUploadErrorKeys(null, after, ["bad.xml"]).size, 0);
+  assert.equal(provenK2BPostUploadErrorKeys(before, after, ["bad (1).xml"]).size, 0);
+  assert.equal(provenK2BPostUploadErrorKeys(before, after, ["bad.xml", "bad.xml"]).size, 0);
+  assert.equal(provenK2BPostUploadErrorKeys(complete([orphan]), after, ["bad.xml"]).size, 0);
+  assert.equal(provenK2BPostUploadErrorKeys(before, complete([orphan, orphan]), ["bad.xml"]).size, 0);
 });
 
 test("worker/migration은 날짜별 결과, cursor guard, idempotency disposition과 legacy 계약을 함께 보존한다", () => {

@@ -51,6 +51,7 @@ function fixture(targets: ReturnType<typeof target>[], uploads: boolean[], grids
   });
   daemon.findK2BJobReportFiles = () => ({ dataFile: { path: 'fixture.xml' }, drawings: [] });
   daemon.loadK2BSourceKeysForDate = async () => new Set(existingKeys);
+  daemon.loadK2BPreUploadGrid = async () => null;
   daemon.loadPriorK2BTargetKeysForDate = async () => new Set(priorKeys);
   daemon.waitForK2BPostUploadGrid = async (ms: number) => { actions.push(`wait:${ms}`); };
   daemon.isCancelRequested = async () => false;

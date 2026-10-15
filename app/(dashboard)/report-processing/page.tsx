@@ -15,6 +15,7 @@ import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Card } from '@/components/ui/Card';
 import { K2BBusinessResultPanel } from '@/components/features/K2BBusinessResultPanel';
+import { K2BUnmatchableErrorsPanel } from '@/components/features/K2BUnmatchableErrorsPanel';
 import RemoteJobProgressDialog, { type RemoteJobProgressView } from '@/components/features/RemoteJobProgressDialog';
 import {
     collectReportExplorerBusinessNames,
@@ -913,6 +914,8 @@ export default function ReportProcessingPage() {
                     void fetchRecords(true);
                 }}
             />
+
+            <K2BUnmatchableErrorsPanel refreshKey={k2bExecutionRefreshKey} />
 
             <Card className="grid gap-2 p-3 sm:grid-cols-2 min-[1320px]:grid-cols-[6rem_6.25rem_17rem_17rem_10rem_minmax(14rem,1fr)_auto_auto] min-[1320px]:items-end">
                 <div>

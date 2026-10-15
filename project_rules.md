@@ -194,9 +194,10 @@
 - Vercel Preview를 예외적으로 사용하는 경우 운영과 분리된 Cloud Staging Supabase만 사용한다. Preview에서 Production Supabase에 연결하는 것은 금지한다.
 - Vercel Production은 Production Supabase만 사용한다.
 - 브라우저·서버·관리자 DB client는 실행 환경과 Supabase project identity를 생성 전에 검증하고, 환경이 다르면 fail-fast한다.
-- Staging에는 schema/migration과 결정적인 합성 fixture만 적재한다. 운영 고객 데이터, 인증정보, PII, 운영 service role을 복제하지 않는다.
-- migration은 `Docker Local reset/replay 및 RPC E2E → Cloud Staging 적용 및 staging E2E → (Vercel 배포환경에서만 확인 가능한 문제가 있을 때만 Preview 실제 CRUD) → 사용자 승인 → Production 적용 및 사후 확인` 순서로 승격한다.
-- Local 또는 Staging 검증만으로 Production migration을 적용하지 않으며, Production 변경은 별도 승인 전 0건을 유지한다.
+- 기본 개발·기능검증·쓰기·삭제·migration rehearsal은 Docker Local Supabase에서 수행한다. Cloud Staging은 필수 통과 단계가 아니며, Docker Local로 재현할 수 없는 Supabase Cloud 고유 동작이나 클라우드 최종 통합검증이 실제로 필요한 경우에만 예외적으로 사용한다. Cloud Staging의 일시중지·접근 불가만으로 모든 Production 배포를 차단하지 않는다.
+- Cloud Staging을 예외적으로 사용할 때는 schema/migration과 결정적인 합성 fixture만 적재한다. 운영 고객 데이터, 인증정보, PII, 운영 service role은 복제하지 않는다.
+- migration은 `Docker Local reset/replay 및 RPC E2E → (필요한 경우 Cloud Staging 적용 및 E2E) → 사용자·GPT MASTER 승인 → Production 적용 및 사후 확인` 순서로 승격한다. Preview 실제 CRUD는 클라우드 배포환경에서만 재현되는 문제가 있고 Preview가 Production DB와 분리된 경우에만 예외적으로 시행한다.
+- Docker Local 또는 Staging 검증만으로 Production migration을 자동 적용하지 않는다. Production 변경은 승인된 범위에서만 수행하며 별도 승인이 없으면 변경 0건을 유지한다.
 - 환경별 service role은 서버 전용 환경변수로 분리하고 `NEXT_PUBLIC_` 변수, Git, PR, 로그에 노출하지 않는다.
 
 
