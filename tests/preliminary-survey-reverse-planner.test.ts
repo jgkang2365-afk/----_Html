@@ -358,7 +358,7 @@ test("6개 자동 대상은 6명에게 첫 순환으로 하나씩 배정한다",
   assert.equal(new Set(automatic.map((item) => item.assigneeUserId)).size, 6);
 });
 
-test("동일주소 2건 예외는 0건 직원이 남아도 허용하고 route API를 호출하지 않는다", async () => {
+test("동일주소 2건도 가능한 서로 다른 담당자에게 배정하며 route API를 호출하지 않는다", async () => {
   const targets = [
     target({ id: 10, code: "H0081",
     address: "대전광역시 유성구 복용동로 35",
@@ -378,16 +378,16 @@ test("동일주소 2건 예외는 0건 직원이 남아도 허용하고 route AP
     .filter((item) => item.origin === "automatic");
   assert.equal(calls, 0);
   assert.equal(resolved.requiredPairs, 0);
-  assert.deepEqual(automatic.map((item) => item.assigneeUserId), [3, 3]);
-  assert.equal(Math.max(...users.map((user) => automatic.filter((item) => item.assigneeUserId === user.id).length)), 2);
-  assert.deepEqual(normalizePublicSampleCodes({ targets: resolved.snapshot.targets, users })
-    .filter((item) => item.assigneeUserId === 3).map((item) => item.publicSampleCode), ["F", "FF"]);
+  assert.equal(new Set(automatic.map((item) => item.assigneeUserId)).size, 2);
+  assert.equal(Math.max(...users.map((user) => automatic.filter((item) => item.assigneeUserId === user.id).length)), 1);
+  assert.equal(normalizePublicSampleCodes({ targets: resolved.snapshot.targets, users })
+    .every((item) => item.publicSampleCode.length === 1), true);
   const reversed = await resolveAutomaticMeasurementAssignments(fixture({ targets: [...targets].reverse() }), {
     routes: { async between() { throw new Error("동일주소 route 호출 금지"); } },
   });
   assert.deepEqual(reversed.snapshot.targets.flatMap((item) => item.fixedAssignments)
     .filter((item) => item.origin === "automatic").map((item) => [item.targetId, item.assigneeUserId]).sort(),
-  [[10, 3], [11, 3]]);
+   automatic.map((item) => [item.targetId, item.assigneeUserId]).sort());
 });
 
 test("13개 batch도 정상 12건을 보존하고 자동 3건째 대상만 확인 필요로 남긴다", () => {
@@ -597,7 +597,7 @@ test("9개 global batch는 계산된 candidate universe를 pair별 단방향 1�
     `${item.date}|${item.leftTargetId}|${item.rightTargetId}`)).size, calls);
 });
 
-test("H0248/H0249 동일 좌표는 주소 문자열이 달라도 김민영에게 묶고 차량 Route를 호출하지 않는다", async () => {
+test("H0248/H0249 동일 좌표라도 여유 담당자가 있으면 분리하고 차량 Route를 호출하지 않는다", async () => {
   const coordinate = { latitude: 36.876543210123, longitude: 127.123456789012 };
   const shared = { coordinate, businessType: "existing" as const,
     days: [{ date: "2026-10-07", collaboratorUserIds: [6], reportWriterUserId: 6 }], fixedAssignments: [] };
@@ -611,12 +611,12 @@ test("H0248/H0249 동일 좌표는 주소 문자열이 달라도 김민영에게
   }), { routes: { async between() { calls += 1; throw new Error("route 호출 불필요"); } } });
   const assignments = resolved.snapshot.targets.flatMap((item) => item.fixedAssignments);
   assert.equal(calls, 0);
-  assert.deepEqual(assignments.map((item) => [item.targetId, item.assigneeUserId]), [[248, 6], [249, 6]]);
+  assert.deepEqual(assignments.map((item) => [item.targetId, item.assigneeUserId]), [[248, 4], [249, 6]]);
   assert.ok(resolved.routeEvidence.every((item) => item.sameAddress));
   assert.ok(resolved.snapshot.targets.every((item) => item.automaticAssignmentIssue !== "MEASUREMENT_ASSIGNMENT_ROUTE_REQUIRED"));
 });
 
-test("9개 clean sample route universe는 targetId prefix와 무관하게 H0011/H0012 pair를 포함한다", async () => {
+test("9개 clean sample은 1차 순환 후 초과 배정에 필요한 route만 조회한다", async () => {
   const raw = JSON.parse(readFileSync("tests/fixtures/preliminary-survey-2026-08-21-clean-upstream.json", "utf8"));
   const experienced = new Set(["이태환", "한기문", "이주형"]);
   const fieldAddress = "대전광역시 유성구 복용동로 35";
@@ -638,16 +638,13 @@ test("9개 clean sample route universe는 targetId prefix와 무관하게 H0011/
     calls += 1;
     return { source: "vehicle", durationMinutes: 20, distanceKm: 1, sameRegion: true };
   } } });
-  assert.equal(resolved.requiredPairs, 2);
-  assert.equal(calls, 2);
-  assert.deepEqual(resolved.routeEvidence.filter((item) => !item.sameAddress)
-    .map((item) => [item.leftTargetId, item.rightTargetId]),
-    [[494, 552], [525, 548]]);
-  assert.equal(resolved.routeEvidence.some((item) => item.leftTargetId === 470
-    && item.rightTargetId === 559 && item.sameAddress && item.durationMinutes === 0), true);
-  assert.deepEqual(resolved.snapshot.targets.flatMap((item) => item.fixedAssignments)
-    .filter((item) => item.origin === "automatic").map((item) => [item.targetId, item.assigneeUserId]),
-  [[548, 15], [525, 15], [556, 20], [572, 2], [470, 16], [552, 17], [559, 16], [516, 13], [494, 17]]);
+  assert.equal(calls, resolved.requiredPairs);
+  const automatic = resolved.snapshot.targets.flatMap((item) => item.fixedAssignments)
+    .filter((item) => item.origin === "automatic");
+  assert.equal(automatic.length, 9);
+  assert.equal(new Set(automatic.map((item) => item.assigneeUserId)).size, 6);
+  assert.equal(new Set(automatic.filter((item) => item.targetId === 470 || item.targetId === 559)
+    .map((item) => item.assigneeUserId)).size, 2);
 });
 
 test("자동 측정자 Route provider가 AbortSignal을 무시해도 deadline 안에 확인 필요로 반환한다", async () => {
@@ -673,7 +670,7 @@ test("자동 측정자 Route provider가 AbortSignal을 무시해도 deadline �
 });
 
 test("route pair 예산을 넘으면 route-free 정상안으로 조용히 확정하지 않는다", async () => {
-  const targets = Array.from({ length: 10 }, (_, index) => target({
+  const targets = Array.from({ length: 8 }, (_, index) => target({
     id: 300 + index,
     code: `Q${300 + index}`,
     address: `pair budget 주소 ${index}`,
@@ -682,13 +679,13 @@ test("route pair 예산을 넘으면 route-free 정상안으로 조용히 확정
   }));
   let calls = 0;
   const resolved = await resolveAutomaticMeasurementAssignments(fixture({ targets }), {
-    maxPairs: 20,
+    maxPairs: 1,
     routes: { async between() {
       calls += 1;
       return { source: "vehicle", durationMinutes: 10, distanceKm: 1, sameRegion: true };
     } },
   });
-  assert.ok(resolved.requiredPairs > 20);
+  assert.ok(resolved.requiredPairs > 1);
   assert.equal(calls, 0);
   assert.equal(resolved.snapshot.targets.flatMap((item) => item.fixedAssignments).length, 0);
   assert.ok(resolved.snapshot.targets.every((item) =>

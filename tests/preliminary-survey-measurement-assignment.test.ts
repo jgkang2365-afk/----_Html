@@ -5,8 +5,6 @@ import {
   assignMeasurementAssignees,
   buildMeasurementAssignmentTargets,
   collectMeasurementVehicleRouteEvidence,
-  MEASUREMENT_ASSIGNMENT_CAPACITY_CODE,
-  MeasurementAssignmentDailyLimitError,
   type MeasurementAssigneeUser,
   type MeasurementVehicleRouteEvidence,
 } from "../lib/preliminary-survey-v2/measurement-assignment";
@@ -45,6 +43,43 @@ test("6개 업체는 측정자 6명에게 1개씩 균등 배정한다", () => {
   const result = assignMeasurementAssignees({ targets: users.map((_, index) => target(index + 1)), users });
   assert.deepEqual(result.map((item) => item.dailyCount), [1, 1, 1, 1, 1, 1]);
   assert.equal(new Set(result.map((item) => item.userId)).size, 6);
+});
+
+test("7명으로 인원이 변하면 7건은 1차 순환, 8건만 초과 배정한다", () => {
+  const sevenUsers = [...users, { id: 7, name: "추가 담당자", surveyCode: "A" as const, active: true }];
+  const targets = Array.from({ length: 8 }, (_, index) => target(1000 + index));
+  const first = assignMeasurementAssignees({ targets: targets.slice(0, 7), users: sevenUsers });
+  assert.equal(first.length, 7);
+  assert.equal(new Set(first.map((item) => item.userId)).size, 7);
+  assert.equal(first.every((item) => item.dailyCount === 1), true);
+  const routeEvidence = targets.flatMap((left) => targets.filter((right) => right.targetId > left.targetId)
+    .map((right) => ({ fromTargetId: left.targetId, fromMeasurementDate: left.measurementDate,
+      toTargetId: right.targetId, toMeasurementDate: right.measurementDate,
+      source: "vehicle" as const, durationMinutes: 20, allowed: true })));
+  const second = assignMeasurementAssignees({ targets, users: sevenUsers, routeEvidence });
+  assert.equal(second.length, 8);
+  assert.equal(new Set(second.map((item) => item.userId)).size, 7);
+  assert.equal(second.filter((item) => item.dailyCount === 2).length, 1);
+});
+
+test("6명 중 1명이 실제 측정일에 불가하면 6건째만 2차 배정한다", () => {
+  const address = "대전광역시 동일 현장";
+  const result = assignMeasurementAssignees({
+    targets: Array.from({ length: 6 }, (_, index) => target(1100 + index, address)), users,
+    availability: { isBlocked: (userId) => userId === 6 }, requireRouteForSecond: true,
+  });
+  assert.equal(result.length, 6);
+  assert.equal(new Set(result.map((item) => item.userId)).size, 5);
+  assert.equal(result.filter((item) => item.dailyCount === 2).length, 1);
+});
+
+test("업체 수가 담당자 수의 2배를 넘으면 3건째 없이 남은 업체만 미배정한다", () => {
+  const result = assignMeasurementAssignees({
+    targets: Array.from({ length: 13 }, (_, index) => target(1200 + index, "대전광역시 같은 현장")),
+    users, requireRouteForSecond: true,
+  });
+  assert.equal(result.length, 12);
+  assert.equal(Math.max(...users.map((user) => result.filter((item) => item.userId === user.id).length)), 2);
 });
 
 test("역할 연계가 일치하면 균형 범위 안에서 해당 측정자·공시료 담당자를 선택한다", () => {
@@ -162,7 +197,7 @@ test("예비조사 책임자 변경은 공시료 자동배정 결과에 영향�
   assert.deepEqual(changed.map((item) => [item.targetId, item.userId]), result.map((item) => [item.targetId, item.userId]));
 });
 
-test("동일 실제 측정일·동일 현장주소는 0건 직원이 남아도 같은 담당자 2건을 허용한다", () => {
+test("동일 실제 측정일·동일 현장주소도 0건 직원에게 먼저 한 건씩 배정한다", () => {
   const address = "대전광역시 유성구 복용동로 35";
   const result = assignMeasurementAssignees({
     targets: [1, 2].map((id) => ({ ...target(id, address), measurementParticipantUserIds: [1], reportWriterUserId: 1 })),
@@ -170,13 +205,12 @@ test("동일 실제 측정일·동일 현장주소는 0건 직원이 남아도 �
     requireRouteForSecond: true,
     allowThirdWithApproval: false,
   });
-  assert.deepEqual(result.map((item) => item.userId), [1, 1]);
-  assert.deepEqual(result.map((item) => item.dailyCount), [1, 2]);
-  assert.equal(result[1].reason, "동일주소 묶음");
-  assert.equal(users.some((user) => user.id !== 1 && !result.some((item) => item.userId === user.id)), true);
+  assert.equal(new Set(result.map((item) => item.userId)).size, 2);
+  assert.deepEqual(result.map((item) => item.dailyCount), [1, 1]);
+  assert.equal(result.every((item) => item.reason === "측정자 균등배정"), true);
 });
 
-test("동일주소 그룹은 그룹 전체 역할점수로 담당자를 고르고 입력 순서에 영향받지 않는다", () => {
+test("동일주소 그룹도 역할 정합성과 1차 순환을 적용하고 입력 순서에 영향받지 않는다", () => {
   const address = "대전광역시 유성구 복용동로 35";
   const targets = [
     { ...target(81, address), measurementParticipantUserIds: [4], reportWriterUserId: 5 },
@@ -185,12 +219,12 @@ test("동일주소 그룹은 그룹 전체 역할점수로 담당자를 고르�
   const forward = assignMeasurementAssignees({ targets, users, requireRouteForSecond: true, allowThirdWithApproval: false });
   const reverse = assignMeasurementAssignees({ targets: [...targets].reverse(), users: [...users].reverse(),
     requireRouteForSecond: true, allowThirdWithApproval: false });
-  assert.deepEqual(forward.map((item) => [item.targetId, item.userId]), [[81, 5], [84, 5]]);
-  assert.deepEqual(reverse.map((item) => [item.targetId, item.userId]), [[81, 5], [84, 5]]);
-  assert.deepEqual(forward.map((item) => item.dailyCount), [1, 2]);
+  assert.deepEqual(forward.map((item) => [item.targetId, item.userId]), [[81, 4], [84, 5]]);
+  assert.deepEqual(reverse.map((item) => [item.targetId, item.userId]), [[81, 4], [84, 5]]);
+  assert.deepEqual(forward.map((item) => item.dailyCount), [1, 1]);
 });
 
-test("동일주소가 3개여도 한 직원의 자동배정은 2건을 넘지 않는다", () => {
+test("동일주소 3개와 담당자 6명은 서로 다른 세 명에게 배정한다", () => {
   const address = "대전광역시 유성구 동일 현장";
   const result = assignMeasurementAssignees({
     targets: [1, 2, 3].map((id) => ({ ...target(id, address), measurementParticipantUserIds: [1], reportWriterUserId: 1 })),
@@ -199,8 +233,8 @@ test("동일주소가 3개여도 한 직원의 자동배정은 2건을 넘지 �
     allowThirdWithApproval: false,
   });
   assert.equal(result.length, 3);
-  assert.equal(Math.max(...users.map((user) => result.filter((item) => item.userId === user.id).length)), 2);
-  assert.equal(new Set(result.map((item) => item.userId)).size, 2);
+  assert.equal(Math.max(...users.map((user) => result.filter((item) => item.userId === user.id).length)), 1);
+  assert.equal(new Set(result.map((item) => item.userId)).size, 3);
 });
 
 test("공통 builder는 다일 측정의 날짜별 보고서 담당자와 참여자를 섞지 않는다", () => {
@@ -275,29 +309,42 @@ test("Apply canonical E2E: 원천이 같으면 검토 draft를 그대로 적용�
     "실제 역할 원천이 바뀌면 기존 stale draft 재검토 안전장치가 유지되어야 한다");
 });
 
-test("8개 업체는 2/2/1/1/1/1로 자동 배정하고 별도 3건째는 승인을 요구한다", () => {
-  const result = assignMeasurementAssignees({ targets: Array.from({ length: 8 }, (_, index) => target(index + 1)), users });
+test("8개 업체는 검증된 차량 경로로 초과 2건만 자동 배정하며 3건째는 남긴다", () => {
+  const targets = Array.from({ length: 8 }, (_, index) => target(index + 1));
+  const routeEvidence = targets.flatMap((left) => targets.filter((right) => right.targetId > left.targetId)
+    .map((right) => ({ fromTargetId: left.targetId, fromMeasurementDate: left.measurementDate,
+      toTargetId: right.targetId, toMeasurementDate: right.measurementDate,
+      source: "vehicle" as const, durationMinutes: 20, allowed: true })));
+  const result = assignMeasurementAssignees({ targets, users, routeEvidence });
   const counts = users.map((user) => result.filter((item) => item.userId === user.id).length).sort((a, b) => b - a);
   assert.deepEqual(counts, [2, 2, 1, 1, 1, 1]);
   assert.equal(result.some((item) => item.approvalRequired), false);
   const overflow = assignMeasurementAssignees({ targets: [target(20)], users, existing: users.flatMap((user, index) => [
     { ...target(100 + index), userId: user.id }, { ...target(200 + index), userId: user.id },
   ]) });
-  assert.equal(overflow[0].dailyCount, 3);
-  assert.equal(overflow[0].approvalRequired, true);
-  assert.equal(overflow[0].reason, "3건 승인 필요");
+  assert.equal(overflow.length, 0);
 });
 
-test("같은 측정일 측정자 4건째는 승인 여부와 무관하게 planner에서 차단한다", () => {
-  assert.throws(
-    () => assignMeasurementAssignees({
+test("기존 3건 보호값이 있어도 추가 자동배정은 만들지 않는다", () => {
+  assert.deepEqual(
+    assignMeasurementAssignees({
       targets: [target(400)],
       users: [users[0]],
       existing: [1, 2, 3].map((id) => ({ ...target(id), userId: users[0].id })),
     }),
-    (error: unknown) => error instanceof MeasurementAssignmentDailyLimitError &&
-      error.code === MEASUREMENT_ASSIGNMENT_CAPACITY_CODE,
+    [],
   );
+});
+
+test("이미 2건 고정된 담당자는 보호하고 신규 업체는 다른 0건 담당자에게 배정한다", () => {
+  const existing = [target(1301), target(1302)].map((item) => ({ ...item, userId: users[0].id }));
+  const result = assignMeasurementAssignees({
+    targets: [target(1303), target(1304), target(1305)], users, existing,
+  });
+  assert.equal(result.length, 3);
+  assert.equal(result.some((item) => item.userId === users[0].id), false);
+  assert.equal(new Set(result.map((item) => item.userId)).size, 3);
+  assert.deepEqual(existing.map((item) => item.userId), [users[0].id, users[0].id]);
 });
 
 test("같은 날짜 전체 기존 배정 중 동일주소를 우선한다", () => {
@@ -401,12 +448,11 @@ test("완전 배정이 불가능해도 중간 target을 건너뛰고 뒤의 최�
   assert.deepEqual(result.map((item) => [item.dailyCount, item.reason]), [[2, "근거리 묶음"], [2, "근거리 묶음"]]);
 });
 
-test("route 근거가 필요 없는 legacy 두 번째 배정은 일반 2건 배정으로 표시한다", () => {
-  const [result] = assignMeasurementAssignees({
+test("route 근거가 없는 두 번째 배정은 legacy 경로에서도 생성하지 않는다", () => {
+  const result = assignMeasurementAssignees({
     targets: [target(1)], users: users.slice(0, 1), existing: [{ ...target(100), userId: 1 }],
   });
-  assert.equal(result.dailyCount, 2);
-  assert.equal(result.reason, "2건 배정");
+  assert.deepEqual(result, []);
 });
 
 const allowedBatchRoutes = (targetIds: number[], date = "2026-08-25"): MeasurementVehicleRouteEvidence[] =>
@@ -527,9 +573,9 @@ test("9개 clean sample은 upstream 업무관계와 H0081/H0084 현장주소 ove
   assert.equal(result.length, 9);
   assert.equal(result.every((item) => item.dailyCount <= 2), true);
   assert.equal(new Set(result.map((item) => item.userId)).size, 6);
-  assert.deepEqual(result.filter((item) => item.targetId === 470 || item.targetId === 559)
-    .map((item) => [item.targetId, item.userId]), [[470, 16], [559, 16]],
-  "H0081/H0084 동일 현장그룹은 그룹 전체 역할점수 우위인 고유빈에게 묶는다");
+  assert.equal(new Set(result.filter((item) => item.targetId === 470 || item.targetId === 559)
+    .map((item) => item.userId)).size, 2,
+  "동일 현장그룹도 전체 1차 순환 후 필요할 때만 묶는다");
   const reference = exactMeasurementAssignmentReference({ targets, users: upstream.users, evidence: routeEvidence });
   assert.ok(reference);
   assert.deepEqual(result.map((item) => item.userId), reference.ids);

@@ -75,6 +75,11 @@ export function exactMeasurementAssignmentReference(input: {
     return a[7].localeCompare(b[7]);
   };
   const sameAddressUpperBound = (startIndex: number, sameAddress: number) => {
+    const zeroCount = users.filter((user) => !(input.existing ?? []).some((item) =>
+      item.userId === user.id && item.measurementDate === targets[0]?.measurementDate)
+      && !ids.includes(user.id)).length;
+    const newSecondSlots = Math.max(0, targets.length - startIndex - zeroCount);
+    if (newSecondSlots === 0) return sameAddress;
     const remainingByAddress = new Map<string, number>();
     for (const target of targets.slice(startIndex)) {
       const key = address(target.address);
@@ -92,52 +97,44 @@ export function exactMeasurementAssignmentReference(input: {
       const matchedSingles = Math.min(remainingCount, eligibleSingles);
       additional += matchedSingles + Math.floor((remainingCount - matchedSingles) / 2);
     }
-    return sameAddress + additional;
+    return sameAddress + Math.min(newSecondSlots, additional);
   };
   const visit = (index: number, sameAddress: number, participant: number, report: number, route: number) => {
     const prefixCounts = users.map((user) => (input.existing ?? []).filter((item) => item.userId === user.id
       && item.measurementDate === targets[0]?.measurementDate).length + ids.filter((id) => id === user.id).length);
     const zeroCount = prefixCounts.filter((count) => count === 0).length;
-    const hasOrdinaryDuplicate = zeroCount > 0 && users.some((user, userIndex) => {
+    const hasPrematureDuplicate = zeroCount > 0 && users.some((user, userIndex) => {
       const existing = (input.existing ?? []).filter((item) => item.userId === user.id
         && item.measurementDate === targets[0]?.measurementDate);
-      if (prefixCounts[userIndex] <= Math.max(existing.length, 1)) return false;
-      const assignedTargets = targets.slice(0, ids.length).filter((_, targetIndex) => ids[targetIndex] === user.id);
-      const combined = [...existing, ...assignedTargets];
-      return combined.length !== 2 || !address(combined[0].address)
-        || address(combined[0].address) !== address(combined[1].address);
+      return prefixCounts[userIndex] > Math.max(existing.length, 1);
     });
-    if (hasOrdinaryDuplicate && zeroCount > targets.length - index) return;
+    if (hasPrematureDuplicate && zeroCount > targets.length - index) return;
     if (index === targets.length) {
       const counts = users.map((user) => (input.existing ?? []).filter((item) => item.userId === user.id
         && item.measurementDate === targets[0]?.measurementDate).length + ids.filter((id) => id === user.id).length);
       if (counts.some((count) => count === 0) && users.some((user, userIndex) => {
         const existing = (input.existing ?? []).filter((item) => item.userId === user.id
           && item.measurementDate === targets[0]?.measurementDate);
-        const assignedTargets = targets.filter((_, targetIndex) => ids[targetIndex] === user.id);
-        if (counts[userIndex] <= Math.max(existing.length, 1)) return false;
-        const combined = [...existing, ...assignedTargets];
-        return combined.length !== 2 || !address(combined[0].address)
-          || address(combined[0].address) !== address(combined[1].address);
+        return counts[userIndex] > Math.max(existing.length, 1);
       })) return;
       const total = counts.reduce((sum, count) => sum + count, 0);
       const variance = counts.reduce((sum, count) => sum + Math.abs(count * counts.length - total), 0);
-      const objective: ReferenceObjective = [-sameAddress, -participant, -report, route, Math.max(...counts, 0), variance,
+      const objective: ReferenceObjective = [-participant, -report, -sameAddress, route, Math.max(...counts, 0), variance,
         counts.filter((count) => count > 1).length, ids.map((id) => id.toString().padStart(8, "0")).join("")];
       if (!best || compare(objective, best.objective) < 0) best = { ids: [...ids], objective };
       return;
     }
     if (best) {
       const sameAddressUpper = sameAddressUpperBound(index, sameAddress);
-      const bestSameAddress = -best.objective[0];
-      const bestParticipant = -best.objective[1];
-      const bestReport = -best.objective[2];
-      if (sameAddressUpper < bestSameAddress) return;
-      if (sameAddressUpper === bestSameAddress && participant + participantUpper[index] < bestParticipant) return;
-      if (sameAddressUpper === bestSameAddress && participant + participantUpper[index] === bestParticipant
-        && report + reportUpper[index] < bestReport) return;
-      if (sameAddressUpper === bestSameAddress && participant + participantUpper[index] === bestParticipant
-        && report + reportUpper[index] === bestReport && route > best.objective[3]) return;
+      const bestParticipant = -best.objective[0];
+      const bestReport = -best.objective[1];
+      const bestSameAddress = -best.objective[2];
+      if (participant + participantUpper[index] < bestParticipant) return;
+      if (participant + participantUpper[index] === bestParticipant && report + reportUpper[index] < bestReport) return;
+      if (participant + participantUpper[index] === bestParticipant && report + reportUpper[index] === bestReport
+        && sameAddressUpper < bestSameAddress) return;
+      if (participant + participantUpper[index] === bestParticipant && report + reportUpper[index] === bestReport
+        && sameAddressUpper === bestSameAddress && route > best.objective[3]) return;
     }
     const target = targets[index];
     for (const user of users) {

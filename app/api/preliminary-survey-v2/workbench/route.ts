@@ -41,7 +41,7 @@ import {
 } from "@/lib/preliminary-survey-v2/impact-scope";
 import {
   buildLegacyMeasurementPublicSampleLookup,
-  resolveMeasurementPublicSampleDisplay,
+  resolveMeasurementPublicSampleDisplayParts,
 } from "@/lib/preliminary-survey-v2/public-sample-display";
 import {
   combineWorkbenchWarnings,
@@ -149,6 +149,16 @@ function parseRecommendationScope(value: any): RecommendationScopeSnapshot | nul
 
 function isSurveyCode(value: unknown): value is SurveyCode {
   return value === "A" || value === "B" || value === "C" || value === "D" || value === "F" || value === "G";
+}
+
+function availableMeasurementAssigneeCount(
+  users: Array<{ id: number; is_active: boolean; survey_code: string | null }>,
+  date: string,
+  blockedKeys: ReadonlySet<string>,
+) {
+  return users.filter((user) => user.is_active
+    && isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())
+    && !blockedKeys.has(`${user.id}:${date}`)).length;
 }
 
 function measurementAssigneeLabel(name: unknown, surveyCode: unknown) {
@@ -298,7 +308,7 @@ async function recomputeCanonicalMeasurementAssignments(
   submitted: SubmittedDraft[],
 ) {
   const [{ data: assigneeUsers, error: assigneeUserError }, { data: persisted, error: persistedError }] = await Promise.all([
-    supabase.from("users").select("id, name, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
+    supabase.from("users").select("id, name, is_active, survey_code").eq("job", "측정").eq("is_active", true).not("survey_code", "is", null),
     supabase.from("preliminary_survey_v2_measurement_assignments").select(
       "plan_id, measurement_date, assignee_user_id, approval_required, approval_group_fingerprint",
     ),
@@ -356,11 +366,11 @@ async function recomputeCanonicalMeasurementAssignments(
     assignmentTargets.map((target) => target.measurementDate),
     (assigneeUsers ?? []).map((user: any) => Number(user.id)),
   );
-  const assigneeCapacity = (assigneeUsers ?? []).filter((user: any) => isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
-  const routeNeededDates = new Set(assigneeCapacity > 0 ? [...new Set(assignmentTargets.map((target) => target.measurementDate))].filter((date) =>
-    assignmentTargets.filter((target) => target.measurementDate === date).length +
-      existing.filter((target) => target.measurementDate === date).length > assigneeCapacity,
-  ) : []);
+  const routeNeededDates = new Set([...new Set(assignmentTargets.map((target) => target.measurementDate))].filter((date) => {
+    const availableCount = availableMeasurementAssigneeCount(assigneeUsers ?? [], date, assigneeBlockKeys);
+    return availableCount > 0 && assignmentTargets.filter((target) => target.measurementDate === date).length +
+      existing.filter((target) => target.measurementDate === date).length > availableCount;
+  }));
   const routeEvidence = await collectMeasurementVehicleRouteEvidence({
     targets: assignmentTargets.filter((target) => routeNeededDates.has(target.measurementDate)),
     existing: existing.filter((target) => routeNeededDates.has(target.measurementDate)),
@@ -369,7 +379,9 @@ async function recomputeCanonicalMeasurementAssignments(
   const assignments = assignMeasurementAssignees({
     targets: assignmentTargets,
     users: (assigneeUsers ?? []).map((user: any) => ({
-      id: Number(user.id), name: user.name, active: user.is_active, surveyCode: user.survey_code,
+      id: Number(user.id), name: user.name, active: user.is_active,
+      surveyCode: isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())
+        ? String(user.survey_code).trim().toUpperCase() as SurveyCode : null,
     })),
     existing,
     routeEvidence,
@@ -876,7 +888,7 @@ export async function GET(request: NextRequest) {
         code: String(target.code ?? ""), year: Number(target.year), period: String(target.period ?? ""),
         measurementDate: String(target.measurement_date ?? ""),
       });
-      const measurementAssigneeDisplay = resolveMeasurementPublicSampleDisplay({
+      const measurementAssigneeDisplay = resolveMeasurementPublicSampleDisplayParts({
         v2Assignment: persistedAssignment ? {
           assigneeUserId: Number(persistedAssignment.assignee_user_id),
           publicSampleCode: persistedAssignment.public_sample_code == null ? null : String(persistedAssignment.public_sample_code),
@@ -905,7 +917,7 @@ export async function GET(request: NextRequest) {
           period: String(target.period ?? ""),
           measurementDate,
         });
-        const dayMeasurementAssigneeDisplay = resolveMeasurementPublicSampleDisplay({
+        const dayMeasurementAssigneeDisplay = resolveMeasurementPublicSampleDisplayParts({
           v2Assignment: dayAssignment ? {
             assigneeUserId: Number(dayAssignment.assignee_user_id),
             publicSampleCode: dayAssignment.public_sample_code == null ? null : String(dayAssignment.public_sample_code),
@@ -920,7 +932,10 @@ export async function GET(request: NextRequest) {
         });
         return {
           date: measurementDate,
-          mainMeasurer: dayMeasurementAssigneeDisplay.label,
+          mainMeasurer: measurementAssigneeLabel(dayMeasurementAssigneeDisplay.assignee,
+            dayMeasurementAssigneeDisplay.publicSampleCode),
+          measurementAssigneeName: dayMeasurementAssigneeDisplay.assignee,
+          publicSampleCode: dayMeasurementAssigneeDisplay.publicSampleCode,
           mainMeasurerSource: dayMeasurementAssigneeDisplay.source,
           measurementParticipants: dayStaff.measurementParticipants,
           reportWriter: reportWriterForDate(measurementDate),
@@ -940,7 +955,10 @@ export async function GET(request: NextRequest) {
         preliminaryDate: plan?.recommended_date ?? null,
         surveyors: Array.isArray(plan?.participant_names) ? plan.participant_names : [],
         surveyMethod: plan?.survey_method ?? (kind === "기존업체" ? "phone" : "field"),
-        mainMeasurer: measurementAssigneeDisplay.label,
+        mainMeasurer: measurementAssigneeLabel(measurementAssigneeDisplay.assignee,
+          measurementAssigneeDisplay.publicSampleCode),
+        measurementAssigneeName: measurementAssigneeDisplay.assignee,
+        publicSampleCode: measurementAssigneeDisplay.publicSampleCode,
         mainMeasurerSource: measurementAssigneeDisplay.source,
         measurementParticipants: staff.measurementParticipants,
         reportWriter: reportWriterForDate(String(target.measurement_date ?? "")),
@@ -1207,7 +1225,7 @@ export async function POST(request: NextRequest) {
       { data: persistedAssignments, error: persistedAssignmentError },
       { data: persistedPlans, error: persistedPlanError },
     ] = await Promise.all([
-      supabase.from("users").select("id, name, is_active, survey_code").eq("is_active", true).not("survey_code", "is", null),
+      supabase.from("users").select("id, name, is_active, survey_code").eq("job", "측정").eq("is_active", true).not("survey_code", "is", null),
       supabase.from("users").select("id, name").eq("job", "측정"),
       supabase.from("preliminary_survey_v2_measurement_assignments").select("plan_id, measurement_date, assignee_user_id"),
       supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id"),
@@ -1277,11 +1295,11 @@ export async function POST(request: NextRequest) {
       measurementAssignmentTargets.map((target) => target.measurementDate),
       (assigneeUsers ?? []).map((user: any) => Number(user.id)),
     );
-    const assigneeCapacity = (assigneeUsers ?? []).filter((user: any) => isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())).length;
-    const routeNeededDates = new Set(assigneeCapacity > 0 ? [...new Set(measurementAssignmentTargets.map((target) => target.measurementDate))].filter((date) =>
-      measurementAssignmentTargets.filter((target) => target.measurementDate === date).length +
-        existingMeasurementAssignments.filter((target) => target.measurementDate === date).length > assigneeCapacity,
-    ) : []);
+    const routeNeededDates = new Set([...new Set(measurementAssignmentTargets.map((target) => target.measurementDate))].filter((date) => {
+      const availableCount = availableMeasurementAssigneeCount(assigneeUsers ?? [], date, assigneeBlockKeys);
+      return availableCount > 0 && measurementAssignmentTargets.filter((target) => target.measurementDate === date).length +
+        existingMeasurementAssignments.filter((target) => target.measurementDate === date).length > availableCount;
+    }));
     const measurementRouteEvidence = await collectMeasurementVehicleRouteEvidence({
       targets: measurementAssignmentTargets.filter((target) => routeNeededDates.has(target.measurementDate)),
       existing: existingMeasurementAssignments.filter((target) => routeNeededDates.has(target.measurementDate)),
@@ -1290,7 +1308,9 @@ export async function POST(request: NextRequest) {
     const measurementAssignments = assignMeasurementAssignees({
       targets: measurementAssignmentTargets,
       users: (assigneeUsers ?? []).map((user: any) => ({
-        id: Number(user.id), name: user.name, active: user.is_active, surveyCode: user.survey_code,
+        id: Number(user.id), name: user.name, active: user.is_active,
+        surveyCode: isSurveyCode(String(user.survey_code ?? "").trim().toUpperCase())
+          ? String(user.survey_code).trim().toUpperCase() as SurveyCode : null,
       })),
       existing: existingMeasurementAssignments,
       routeEvidence: measurementRouteEvidence,

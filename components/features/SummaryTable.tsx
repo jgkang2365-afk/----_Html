@@ -23,7 +23,8 @@ import { formatDateYYYYMMDD, getKSTDateString } from "@/lib/utils/date-utils";
 import { normalizeDateForInput } from "@/lib/utils/date-normalize";
 import { formatBusinessNumber, parseBusinessNumber } from "@/lib/utils/business-number";
 import { getDynamicEmailFontSize, splitEmails } from "@/lib/utils/email-utils";
-import { formatMeasurementPublicSampleAssignee, type PreliminarySurveyDisplayModel } from "@/lib/preliminary-survey-v2/display-model";
+import { type PreliminarySurveyDisplayModel } from "@/lib/preliminary-survey-v2/display-model";
+import { PublicSampleDisplay } from "@/components/ui/PublicSampleCodeBadge";
 import { formatMeasurementParticipants } from "@/lib/business/measurement-participant-display";
 
 
@@ -128,7 +129,7 @@ const preliminaryDisplayOf = (entry: SummaryEntry): PreliminarySurveyDisplayMode
 
 const PreliminarySummaryFields = ({ entry }: { entry: SummaryEntry }) => {
   const display = preliminaryDisplayOf(entry);
-  const cell = (label: string, value: string | null | undefined) => <div className="p-1" key={label}>
+  const cell = (label: string, value: React.ReactNode) => <div className="p-1" key={label}>
     <label className="block text-text-500 mb-1 text-xs font-bold uppercase tracking-wider">{label}</label>
     <div className="bg-white p-2.5 rounded-lg border text-base text-text-800 shadow-sm">{value || "-"}</div>
   </div>;
@@ -142,7 +143,7 @@ const PreliminarySummaryFields = ({ entry }: { entry: SummaryEntry }) => {
     <div className="grid grid-cols-1 md:grid-cols-4 print:grid-cols-4 gap-3 md:gap-4">
       {cell("예비조사일", display.preliminarySurveyDate)}
       {cell("예비조사자", display.preliminarySurveyors)}
-      {cell("측정자(공시료)", formatMeasurementPublicSampleAssignee(display))}
+      {cell("측정자(공시료)", <PublicSampleDisplay model={display} />)}
       {cell("측정 참여자", display.measurementParticipants)}
     </div>
   </>;
@@ -1246,7 +1247,7 @@ export const SummaryTable: React.FC = () => {
                               return uniqueDates.size > 0 ? uniqueDates.size : "-";
                             })()}
                           </TableCell>
-                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{formatMeasurementPublicSampleAssignee(preliminaryDisplayOf(entry))}</TableCell>
+                          <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1"><PublicSampleDisplay model={preliminaryDisplayOf(entry)} /></TableCell>
                           <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{preliminaryDisplayOf(entry).preliminarySurveyors}</TableCell>
                           <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{preliminaryDisplayOf(entry).measurementParticipants}</TableCell>
                           <TableCell className="w-20 text-center text-xs text-slate-600 font-medium py-3 px-1">{preliminaryDisplayOf(entry).reportWriter}</TableCell>
@@ -1343,7 +1344,7 @@ export const SummaryTable: React.FC = () => {
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">측정자(공시료)</span>
-                          <p className="text-xs font-medium text-slate-600">{formatMeasurementPublicSampleAssignee(preliminaryDisplayOf(entry))}</p>
+                          <p className="text-xs font-medium text-slate-600"><PublicSampleDisplay model={preliminaryDisplayOf(entry)} /></p>
                         </div>
                         <div className="space-y-0.5">
                           <span className="text-[11px] font-bold text-text-400 uppercase tracking-widest">예비조사자</span>

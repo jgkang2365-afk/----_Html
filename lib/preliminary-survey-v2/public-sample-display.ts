@@ -39,6 +39,13 @@ function label(name: unknown, surveyCode: unknown) {
   return normalizedName && normalizedCode ? `${normalizedName}(${normalizedCode})` : "-";
 }
 
+const repeatedCodes = new Set(["AA", "BB", "CC", "DD", "FF", "GG"]);
+
+/** 저장값이나 추천값을 정규화하지 않고 정확히 일치하는 두 번째 코드만 강조한다. */
+export function isRepeatedPublicSampleCode(code: string | null | undefined) {
+  return repeatedCodes.has(code ?? "");
+}
+
 function exactKey(value: MeasurementPublicSampleTargetKey) {
   return `${value.code.trim()}|${value.year}|${value.period.trim()}|${value.measurementDate}`;
 }
@@ -68,38 +75,49 @@ export function buildLegacyMeasurementPublicSampleLookup(rows: readonly LegacyMe
   };
 }
 
-export function resolveMeasurementPublicSampleDisplay(input: {
+export function resolveMeasurementPublicSampleDisplayParts(input: {
   v2Assignment: V2MeasurementPublicSampleAssignment | null;
   v2AssignmentId?: string | null;
   reconciliation?: ReconciledMeasurementPublicSampleAssignment | null;
   trueConfirmed: boolean;
   legacyAssignment: Pick<LegacyMeasurementPublicSampleAssignment, "measurer" | "surveyCode"> | null;
   userNameById: ReadonlyMap<number, string>;
-}): { label: string; source: MeasurementPublicSampleDisplaySource } {
+}): { assignee: string | null; publicSampleCode: string | null; source: MeasurementPublicSampleDisplaySource } {
   if (input.v2Assignment && input.reconciliation
       && input.reconciliation.appliedAssignmentId === input.v2AssignmentId) {
     return {
-      label: label(input.reconciliation.measurer, input.reconciliation.surveyCode),
+      assignee: input.reconciliation.measurer,
+      publicSampleCode: input.reconciliation.surveyCode,
       source: "legacy_reconciled",
     };
   }
   if (input.v2Assignment) {
     return {
-      label: label(input.userNameById.get(input.v2Assignment.assigneeUserId), input.v2Assignment.publicSampleCode),
+      assignee: input.userNameById.get(input.v2Assignment.assigneeUserId) ?? null,
+      publicSampleCode: input.v2Assignment.publicSampleCode,
       source: "v2",
     };
   }
   if (input.reconciliation) {
     return {
-      label: label(input.reconciliation.measurer, input.reconciliation.surveyCode),
+      assignee: input.reconciliation.measurer,
+      publicSampleCode: input.reconciliation.surveyCode,
       source: "legacy_snapshot",
     };
   }
   if (input.trueConfirmed && input.legacyAssignment) {
     return {
-      label: label(input.legacyAssignment.measurer, input.legacyAssignment.surveyCode),
+      assignee: input.legacyAssignment.measurer,
+      publicSampleCode: input.legacyAssignment.surveyCode,
       source: "legacy_live_fallback",
     };
   }
-  return { label: "-", source: "none" };
+  return { assignee: null, publicSampleCode: null, source: "none" };
+}
+
+export function resolveMeasurementPublicSampleDisplay(
+  input: Parameters<typeof resolveMeasurementPublicSampleDisplayParts>[0],
+): { label: string; source: MeasurementPublicSampleDisplaySource } {
+  const parts = resolveMeasurementPublicSampleDisplayParts(input);
+  return { label: label(parts.assignee, parts.publicSampleCode), source: parts.source };
 }

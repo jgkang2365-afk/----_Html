@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
+import { PublicSampleAssignment } from "@/components/ui/PublicSampleCodeBadge";
 import { FixedAssigneeReversePlanner } from "@/components/features/FixedAssigneeReversePlanner";
 import { useUser } from "@/hooks/use-user";
 import { formatMeasurementParticipantsForDisplay, formatPreliminarySurveyParticipantsForDisplay } from "@/lib/preliminary-survey-v2/participant-display";
@@ -53,6 +54,8 @@ interface WorkbenchMeasurementDay {
   date: string;
   mainMeasurer: string;
   mainMeasurerSource?: string;
+  measurementAssigneeName?: string | null;
+  publicSampleCode?: string | null;
   measurementParticipants: string;
   reportWriter: string;
 }
@@ -75,11 +78,12 @@ interface WorkbenchRow {
   sourceResponsibleUserId?: number;
   sourceRuleType?: "new" | "existing";
   mainMeasurer?: string;
+  mainMeasurerSource?: string;
   measurementParticipants?: string;
   reportWriter?: string;
   measurementAssigneeUserId?: number;
-  measurementAssigneeName?: string;
-  publicSampleCode?: string;
+  measurementAssigneeName?: string | null;
+  publicSampleCode?: string | null;
   measurementAssignmentApprovalRequired?: boolean;
   /** 서버 재추천 전체 snapshot hash. apply 시 임의 수정 draft를 거부한다. */
   canonicalFingerprint?: string;
@@ -358,6 +362,8 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     return dates.map((date) => dayByDate.get(date) ?? {
       date,
       mainMeasurer: row.mainMeasurer ?? "-",
+      measurementAssigneeName: row.measurementAssigneeName,
+      publicSampleCode: row.publicSampleCode,
       measurementParticipants: row.measurementParticipants ?? "-",
       reportWriter: row.reportWriter ?? "-",
     });
@@ -378,6 +384,26 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
     return visibleMeasurementDays(row).map((day) => field === "measurementParticipants"
       ? formatMeasurementParticipantsForDisplay(day.measurementParticipants, day.reportWriter)
       : day[field] || "-").join(" · ") || "-";
+  }, [mode, visibleMeasurementDays]);
+
+  const measurementPublicSampleContent = useCallback((row: WorkbenchRow) => {
+    if (mode !== "list") {
+      if (row.canonicalFingerprint && row.measurementAssignments?.length) return <span className="inline-flex flex-wrap gap-x-2 gap-y-1">
+        {row.measurementAssignments.map((assignment) => <span key={assignment.measurementDate} className="inline-flex items-center gap-1">
+          {row.measurementAssignments!.length > 1 && <span className="text-xs text-slate-600">{assignment.measurementDate.slice(5)}</span>}
+          <PublicSampleAssignment name={assignment.userName} code={assignment.surveyCode} sourceLabel="미저장 추천" />
+        </span>)}
+      </span>;
+      return <PublicSampleAssignment name={row.measurementAssigneeName} code={row.publicSampleCode}
+        sourceLabel={row.mainMeasurerSource && row.mainMeasurerSource !== "none" ? "저장값" : undefined} />;
+    }
+    const days = visibleMeasurementDays(row);
+    if (!days.length) return <span>-</span>;
+    return <span className="inline-flex flex-wrap gap-x-2 gap-y-1">{days.map((day) =>
+      <span key={day.date} className="inline-flex items-center gap-1">
+        {days.length > 1 && <span className="text-xs text-slate-600">{day.date.slice(5)}</span>}
+        <PublicSampleAssignment name={day.measurementAssigneeName} code={day.publicSampleCode} />
+      </span>)}</span>;
   }, [mode, visibleMeasurementDays]);
 
   const currentScope = useMemo(() => JSON.stringify({
@@ -818,7 +844,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
                   <td className="bg-primary-50/40 px-2 py-2 text-base font-bold text-primary-900 whitespace-nowrap">{row.preliminaryDate || "-"}</td>
                   <td className="truncate bg-primary-50/40 px-2 py-2 text-base font-bold text-primary-900" title={displaySurveyors(row.surveyors)}>{displaySurveyors(row.surveyors)}</td>
                   <td className="px-2 py-2">{row.surveyMethod === "field" ? "방문" : "유선"}</td>
-                  <td className="truncate px-2 py-2">{measurementDayText(row, "mainMeasurer")}</td>
+                  <td className="px-2 py-2">{measurementPublicSampleContent(row)}</td>
                   <td className="truncate px-2 py-2" title={measurementDayText(row, "measurementParticipants")}>{measurementDayText(row, "measurementParticipants")}</td>
                   <td className="truncate px-2 py-2">{measurementDayText(row, "reportWriter")}</td>
                   <td className="px-2 py-2"><span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ${STATUS_STYLES[row.status]}`}>{STATUS_LABELS[row.status]}</span></td>
@@ -867,7 +893,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
           {selected.reason && <Alert variant="warning">{selected.reason}</Alert>}
           {selected.recommendationReasons && selected.recommendationReasons.length > 0 && <div className="flex flex-wrap gap-2">{selected.recommendationReasons.map((reason) => <span key={reason} className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{reason}</span>)}</div>}
           <div className="grid grid-cols-3 gap-3 rounded-lg border border-surface-200 p-3 text-sm">
-            <div>측정자(공시료): <strong>{measurementDayText(selected, "mainMeasurer")}</strong></div>
+            <div>측정자(공시료): <strong>{measurementPublicSampleContent(selected)}</strong></div>
             <div>측정 참여자: <strong>{measurementDayText(selected, "measurementParticipants")}</strong></div>
             <div>보고서 담당자: <strong>{measurementDayText(selected, "reportWriter")}</strong></div>
           </div>

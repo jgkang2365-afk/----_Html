@@ -233,8 +233,8 @@ export async function resolveAutomaticMeasurementAssignments(
   };
   type CandidateTier = { sameAddress: number; participant: number; report: number;
     pairs: CandidatePair[]; exhaustive: boolean };
-  const findNextTier = (date: string, ceiling: CandidateTier | null, requiredSameAddress: number | null,
-    exactRole: Pick<CandidateTier, "participant" | "report"> | null = null) => {
+  const findNextTier = (date: string, ceiling: CandidateTier | null,
+    exactScore: Pick<CandidateTier, "participant" | "report" | "sameAddress"> | null = null) => {
     const targets = input.missing.filter((item) => item.measurementDate === date)
       .sort((left, right) => left.targetId - right.targetId);
     const users = activeUsers.filter((user) => !snapshot.scheduleBlocks.some((block) =>
@@ -243,7 +243,11 @@ export async function resolveAutomaticMeasurementAssignments(
     const occupancy = new Map(users.map((user) => [user.id,
       assigned.filter((item) => item.measurementDate === date && item.userId === user.id)]));
     const initialCounts = new Map(users.map((user) => [user.id, occupancy.get(user.id)?.length ?? 0]));
+    const matchBoundCache = new Map<string, number>();
     const remainingMatchUpperBound = (startIndex: number, kind: "participant" | "report") => {
+      const cacheKey = `${startIndex}|${kind}|${users.map((user) => occupancy.get(user.id)?.length ?? 0).join(",")}`;
+      const cached = matchBoundCache.get(cacheKey);
+      if (cached != null) return cached;
       const slots = users.flatMap((user) => Array.from({ length: Math.max(0, 2 - (occupancy.get(user.id)?.length ?? 0)) },
         (_, slotIndex) => ({ userId: user.id, key: `${user.id}|${slotIndex}` })));
       const occupiedBySlot = new Map<string, number>();
@@ -267,9 +271,10 @@ export async function resolveAutomaticMeasurementAssignments(
       for (let targetIndex = startIndex; targetIndex < targets.length; targetIndex += 1) {
         if (tryMatch(targetIndex, new Set())) matched += 1;
       }
+      matchBoundCache.set(cacheKey, matched);
       return matched;
     };
-    let bestSameAddress = requiredSameAddress ?? -1;
+    let bestSameAddress = -1;
     let bestParticipant = -1;
     let bestReport = -1;
     const bestPairs = new Map<string, CandidatePair>();
@@ -279,28 +284,28 @@ export async function resolveAutomaticMeasurementAssignments(
       return users.every((user, userIndex) => {
         const initialCount = initialCounts.get(user.id) ?? 0;
         if (counts[userIndex] <= Math.max(initialCount, 1)) return true;
-        const sameUser = occupancy.get(user.id) ?? [];
-        return sameUser.length === 2 && samePhysicalSite(sameUser[0], sameUser[1]);
+        return false;
       });
     };
     const canStillSatisfyFirstRotation = (remainingTargets: number) => {
       const counts = users.map((user) => occupancy.get(user.id)?.length ?? 0);
       const zeroCount = counts.filter((count) => count === 0).length;
       if (zeroCount === 0) return true;
-      const hasOrdinaryDuplicate = users.some((user, userIndex) => {
+      const hasPrematureDuplicate = users.some((user, userIndex) => {
         const initialCount = initialCounts.get(user.id) ?? 0;
-        if (counts[userIndex] <= Math.max(initialCount, 1)) return false;
-        const sameUser = occupancy.get(user.id) ?? [];
-        return sameUser.length !== 2 || !samePhysicalSite(sameUser[0], sameUser[1]);
+        return counts[userIndex] > Math.max(initialCount, 1);
       });
-      return !hasOrdinaryDuplicate || zeroCount <= remainingTargets;
+      return !hasPrematureDuplicate || zeroCount <= remainingTargets;
     };
     const sameAddressUpperBound = (startIndex: number, sameAddress: number) => {
       const remaining = targets.slice(startIndex);
+      const newSecondSlots = Math.max(0, remaining.length - users.filter((user) =>
+        (occupancy.get(user.id)?.length ?? 0) === 0).length);
+      if (newSecondSlots === 0) return sameAddress;
       const compatibleSingles = remaining.filter((target) => users.some((user) =>
         (occupancy.get(user.id)?.length ?? 0) < 2 && (occupancy.get(user.id) ?? []).some((item) =>
           samePhysicalSite(item, target)))).length;
-      return sameAddress + compatibleSingles + Math.floor(remaining.length / 2);
+      return sameAddress + Math.min(newSecondSlots, compatibleSingles + Math.floor(remaining.length / 2));
     };
     const mergeBestPair = (pair: CandidatePair) => {
       const ids = [pair.left.targetId, pair.right.targetId].sort((left, right) => left - right);
@@ -309,25 +314,27 @@ export async function resolveAutomaticMeasurementAssignments(
       bestPairs.set(key, { ...pair,
         userIds: [...new Set([...(previous?.userIds ?? []), ...pair.userIds])].sort((left, right) => left - right) });
     };
-    const belowCeiling = (participant: number, report: number) => !ceiling
-      || participant < ceiling.participant || (participant === ceiling.participant && report < ceiling.report);
+    const belowCeiling = (participant: number, report: number, sameAddress: number) => !ceiling
+      || participant < ceiling.participant
+      || (participant === ceiling.participant && report < ceiling.report)
+      || (participant === ceiling.participant && report === ceiling.report
+        && sameAddress < ceiling.sameAddress);
     const explore = (index: number, sameAddress: number, participant: number, report: number,
       pathPairs: CandidatePair[]) => {
       if (!canStillSatisfyFirstRotation(targets.length - index)) return;
       const sameAddressUpper = sameAddressUpperBound(index, sameAddress);
       const participantUpper = participant + remainingMatchUpperBound(index, "participant");
       const reportUpper = report + remainingMatchUpperBound(index, "report");
-      if (requiredSameAddress != null && (sameAddress > requiredSameAddress || sameAddressUpper < requiredSameAddress)) return;
-      if (requiredSameAddress == null && sameAddressUpper < bestSameAddress) return;
-      if (sameAddressUpper === bestSameAddress && participantUpper < bestParticipant) return;
-      if (sameAddressUpper === bestSameAddress && participantUpper === bestParticipant
-        && reportUpper < bestReport) return;
+      if (participantUpper < bestParticipant) return;
+      if (participantUpper === bestParticipant && reportUpper < bestReport) return;
+      if (participantUpper === bestParticipant && reportUpper === bestReport
+        && sameAddressUpper < bestSameAddress) return;
       if (index >= targets.length) {
-        if (!firstRotationValid() || !belowCeiling(participant, report)
-          || (requiredSameAddress != null && sameAddress !== requiredSameAddress)
-          || (exactRole && (participant !== exactRole.participant || report !== exactRole.report))) return;
-        if (sameAddress > bestSameAddress || (sameAddress === bestSameAddress
-          && (participant > bestParticipant || (participant === bestParticipant && report > bestReport)))) {
+        if (!firstRotationValid() || !belowCeiling(participant, report, sameAddress)
+          || (exactScore && (participant !== exactScore.participant || report !== exactScore.report
+            || sameAddress !== exactScore.sameAddress))) return;
+        if (participant > bestParticipant || (participant === bestParticipant
+          && (report > bestReport || (report === bestReport && sameAddress > bestSameAddress)))) {
           bestSameAddress = sameAddress;
           bestParticipant = participant;
           bestReport = report;
@@ -339,11 +346,12 @@ export async function resolveAutomaticMeasurementAssignments(
         }
         return;
       }
-      if (!exhaustive && bestPairs.size && sameAddressUpper === bestSameAddress
-        && participantUpper === bestParticipant && reportUpper === bestReport) return;
+      if (!exhaustive && bestPairs.size && participantUpper === bestParticipant
+        && reportUpper === bestReport && sameAddressUpper === bestSameAddress) return;
       const target = targets[index];
       const candidates = [...users].sort((left, right) =>
-        Number(target.measurementParticipantUserIds?.includes(right.id) ?? false)
+        Number((occupancy.get(left.id)?.length ?? 0) > 0) - Number((occupancy.get(right.id)?.length ?? 0) > 0)
+        || Number(target.measurementParticipantUserIds?.includes(right.id) ?? false)
           - Number(target.measurementParticipantUserIds?.includes(left.id) ?? false)
         || Number(target.reportWriterUserId === right.id) - Number(target.reportWriterUserId === left.id)
         || left.id - right.id);
@@ -459,26 +467,10 @@ export async function resolveAutomaticMeasurementAssignments(
   };
   try {
     for (const date of [...new Set(input.missing.map((item) => item.measurementDate))]) {
-      const oversizedTargets = input.missing.filter((item) => item.measurementDate === date)
-        .sort((left, right) => left.targetId - right.targetId);
-      if (oversizedTargets.length > 9) {
-        for (const [index, left] of oversizedTargets.entries()) {
-          for (const right of oversizedTargets.slice(index + 1)) {
-            if (samePhysicalSite(left, right)) continue;
-            requiredPairKeys.add(`${date}|${Math.min(left.targetId, right.targetId)}|${Math.max(left.targetId, right.targetId)}`);
-          }
-        }
-        if (requiredPairKeys.size > maxPairs) {
-          budgetExceeded = true;
-          break;
-        }
-      }
       let ceiling: CandidateTier | null = null;
-      let requiredSameAddress: number | null = null;
       while (!controller.signal.aborted && !budgetExceeded) {
-        let tier = findNextTier(date, ceiling, requiredSameAddress);
+        let tier = findNextTier(date, ceiling);
         if (!tier) break;
-        requiredSameAddress ??= tier.sameAddress;
         while (tier && !controller.signal.aborted && !budgetExceeded) {
           await queryTier(tier.pairs);
           const calculation = calculateAutomatic(snapshot, evidence);
@@ -500,7 +492,7 @@ export async function resolveAutomaticMeasurementAssignments(
             if (sameAddress === tier.sameAddress && participant === tier.participant && report === tier.report) break;
           }
           const alternative: CandidateTier | null = tier.exhaustive
-            ? null : findNextTier(date, null, requiredSameAddress, tier);
+            ? null : findNextTier(date, null, tier);
           if (!alternative) break;
           tier = alternative;
         }

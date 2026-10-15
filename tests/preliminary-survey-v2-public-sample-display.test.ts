@@ -1,11 +1,46 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   buildLegacyMeasurementPublicSampleLookup,
+  isRepeatedPublicSampleCode,
   resolveMeasurementPublicSampleDisplay,
+  resolveMeasurementPublicSampleDisplayParts,
 } from "../lib/preliminary-survey-v2/public-sample-display";
+import { PublicSampleAssignment, PublicSampleCodeBadge } from "../components/ui/PublicSampleCodeBadge";
 
 const users = new Map<number, string>([[1, "이태환"], [2, "한기문"], [3, "강종구"], [4, "이주형"], [5, "고유빈"], [6, "김민영"]]);
+
+test("공시료 두 글자 반복코드만 코드 영역을 적색·흰색으로 강조한다", () => {
+  for (const code of ["A", "B", "C", "D", "F", "G", "AAA", "GGG", "aa", "GG "]) {
+    assert.equal(isRepeatedPublicSampleCode(code), false);
+    const html = renderToStaticMarkup(createElement(PublicSampleCodeBadge, { code }));
+    assert.doesNotMatch(html, /bg-red-600/);
+  }
+  for (const code of ["AA", "BB", "CC", "DD", "FF", "GG"]) {
+    assert.equal(isRepeatedPublicSampleCode(code), true);
+    const html = renderToStaticMarkup(createElement(PublicSampleCodeBadge, { code }));
+    assert.match(html, /bg-red-600/);
+    assert.match(html, /text-white/);
+  }
+});
+
+test("저장 공시료와 미저장 계산안은 출처를 구분하고 같은 코드 강조를 쓴다", () => {
+  const parts = resolveMeasurementPublicSampleDisplayParts({
+    v2Assignment: { assigneeUserId: 6, publicSampleCode: "GG" },
+    trueConfirmed: true, legacyAssignment: null, userNameById: users,
+  });
+  assert.deepEqual(parts, { assignee: "김민영", publicSampleCode: "GG", source: "v2" });
+  const stored = renderToStaticMarkup(createElement(PublicSampleAssignment,
+    { name: parts.assignee, code: parts.publicSampleCode, sourceLabel: "저장값" }));
+  const preview = renderToStaticMarkup(createElement(PublicSampleAssignment,
+    { name: "김민영", code: "GG", sourceLabel: "미저장 계산안" }));
+  assert.match(stored, /저장값/);
+  assert.match(preview, /미저장 계산안/);
+  assert.match(stored, /bg-red-600/);
+  assert.match(preview, /bg-red-600/);
+});
 
 test("V2 assignment가 찐확정 legacy 값보다 우선한다", () => {
   assert.deepEqual(resolveMeasurementPublicSampleDisplay({
