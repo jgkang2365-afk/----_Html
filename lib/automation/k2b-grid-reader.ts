@@ -110,7 +110,7 @@ ${K2B_SUBMISSION_GRID_RUNTIME_SCRIPT}
     const submissionDate = fieldIndex(['\uC811\uC218\uC77C', '\uC811\uC218\uC77C\uC790', '\uC2E4\uC81C\uC811\uC218\uC77C', '\uC81C\uCD9C\uC77C', '\uC81C\uCD9C\uC77C\uC790']);
     const file = fieldIndex(['\uCCAD\uAD6C\uD30C\uC77C\uBA85', '\uD30C\uC77C\uBA85']);
     const status = fieldIndex(['\uCC98\uB9AC\uC0C1\uD0DC', '\uC811\uC218\uC0C1\uD0DC', '\uC0C1\uD0DC']);
-    return row => {
+    return (row, physicalIndex) => {
       if (text(row[submission])) return JSON.stringify(['submission', text(row[submission])]);
       const fileValue = normalize(row[file]);
       const dateValue = normalize(row[submissionDate]);
@@ -118,7 +118,9 @@ ${K2B_SUBMISSION_GRID_RUNTIME_SCRIPT}
       if (!fileValue || !dateValue) fail('missing_row_identity');
       // K2B can expose a file-error row before it has business identity fields.
       // It still counts toward a COMPLETE grid, but must never be matched to a journal.
-      if (!managementValue) return JSON.stringify(['unmatchable', fileValue, dateValue, normalize(row[status])]);
+      // Dataset iteration has a physical row index. It preserves two identical file-error
+      // rows; virtual-scroll snapshots below have no such proof and remain fail-closed.
+      if (!managementValue) return JSON.stringify(['unmatchable', fileValue, dateValue, normalize(row[status]), physicalIndex]);
       return JSON.stringify(['fallback', fileValue, dateValue, managementValue]);
     };
   };
@@ -176,7 +178,7 @@ ${K2B_SUBMISSION_GRID_RUNTIME_SCRIPT}
     }
     const stable = count(rowCount()) === expectedRowCount;
     const rowKey = identityReader(headers);
-    const collectedUniqueRowCount = new Set(rows.map(rowKey)).size;
+    const collectedUniqueRowCount = new Set(rows.map((row, index) => rowKey(row, index))).size;
     // 중복/충돌 원본 행은 보존해 downstream exact 후보가 사라지지 않게 한다.
     return { headers, rows, expectedRowCount, collectedUniqueRowCount,
       readMethod: 'nexacro_dataset', completeness: stable && rows.length === expectedRowCount && collectedUniqueRowCount === expectedRowCount ? 'COMPLETE' : 'INCOMPLETE' };

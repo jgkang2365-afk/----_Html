@@ -24,6 +24,11 @@ export type K2BOriginalReceipt = {
   identityConflict?: boolean;
   /** K2B file-error row that has no business identity and must never reconcile to a journal. */
   unmatchableError?: boolean;
+  /** Full physical row fingerprint and occurrence in this complete Grid snapshot. */
+  contentFingerprint?: string;
+  occurrenceOrdinal?: number;
+  identicalRowCount?: number;
+  sourceRowIndex?: number;
 };
 
 export type K2BRange = { fromDate: string; toDate: string };
@@ -48,7 +53,7 @@ export type K2BGridRead = K2BGridReadEvidence & (
   | { outcome: "SUCCESS"; rows: K2BOriginalReceipt[]; headers: string[] }
   | { outcome: "SUCCESS_EMPTY"; rows: []; headers: string[] });
 
-const HEADER_ALIASES: Record<keyof Omit<K2BOriginalReceipt, "raw" | "sourceKey" | "identityFallback" | "identityConflict" | "unmatchableError" | "errorViewAvailable" | "errorDetail">, string[]> = {
+const HEADER_ALIASES: Record<keyof Omit<K2BOriginalReceipt, "raw" | "sourceKey" | "identityFallback" | "identityConflict" | "unmatchableError" | "errorViewAvailable" | "errorDetail" | "contentFingerprint" | "occurrenceOrdinal" | "identicalRowCount" | "sourceRowIndex">, string[]> = {
   fileName: ["청구 파일명", "파일명", "파일 명"],
   companyName: ["사업장명", "사업장 명", "업체명"],
   actualSubmissionDate: ["접수일", "접수일자", "실제접수일", "제출일", "제출일자"],
@@ -233,7 +238,7 @@ export function parseK2BSubmissionGrid(headers: readonly string[], rows: readonl
   };
   const fieldIndexes = Object.fromEntries((Object.keys(HEADER_ALIASES) as (keyof typeof HEADER_ALIASES)[]).map(field => [field, indexFor(field, true)])) as Record<keyof typeof HEADER_ALIASES, number>;
   if (rows.length === 0) return { outcome: "SUCCESS_EMPTY", rows: [], headers: [...headers], ...read };
-  const parsed = rows.map((row, rowIndex) => {
+  const parsed: K2BOriginalReceipt[] = rows.map((row, rowIndex) => {
     if (!Array.isArray(row) || row.length !== headers.length) throw new Error('K2B_GRID_SCHEMA_MISMATCH:incomplete_row');
     const raw = Object.fromEntries(headers.map((header, index) => [header, String(row[index] ?? "").trim()]));
     const date = asKstDate(row[fieldIndexes.actualSubmissionDate]);
@@ -251,10 +256,12 @@ export function parseK2BSubmissionGrid(headers: readonly string[], rows: readonl
     const unmatchableError = Boolean(date && receipt.fileName && receipt.status && !receipt.submissionNumber
       && missingBusinessIdentity && (errorDetail || /\uC624\uB958|\uC2E4\uD328/.test(normalized(receipt.status))));
     if (unmatchableError) {
-      const canonical = [receipt.fileName, receipt.actualSubmissionDate, receipt.status, errorDetail].map(normalized).join("|");
+      const contentFingerprint = createHash("sha256").update(JSON.stringify([headers, row])).digest("hex");
       return {
         ...receipt,
-        sourceKey: `k2b:unmatchable:${createHash("sha256").update(canonical).digest("hex")}`,
+        sourceKey: `k2b:unmatchable:${contentFingerprint}`,
+        contentFingerprint,
+        sourceRowIndex: rowIndex,
         identityFallback: true,
         unmatchableError: true,
       };
@@ -269,19 +276,55 @@ export function parseK2BSubmissionGrid(headers: readonly string[], rows: readonl
     const identity = buildK2BSourceKey(receipt);
     return { ...receipt, ...identity };
   });
+  const identicalCounts = new Map<string, number>();
+  for (const row of parsed) if (row.unmatchableError) {
+    const fingerprint = row.contentFingerprint!;
+    identicalCounts.set(fingerprint, (identicalCounts.get(fingerprint) ?? 0) + 1);
+  }
+  const seenOccurrences = new Map<string, number>();
+  const physicalRows: K2BOriginalReceipt[] = parsed.map((row) => {
+    if (!row.unmatchableError) return row;
+    const fingerprint = row.contentFingerprint!;
+    const ordinal = (seenOccurrences.get(fingerprint) ?? 0) + 1;
+    seenOccurrences.set(fingerprint, ordinal);
+    const identicalRowCount = identicalCounts.get(fingerprint)!;
+    return { ...row, occurrenceOrdinal: ordinal, identicalRowCount,
+      sourceKey: `k2b:unmatchable:${fingerprint}:${identicalRowCount}:${ordinal}` };
+  });
   const rowKey = (row: K2BOriginalReceipt) => row.submissionNumber
     ? JSON.stringify(["submission", row.submissionNumber.trim()])
     : row.unmatchableError
       ? JSON.stringify(["unmatchable", row.sourceKey])
       : JSON.stringify(["fallback", normalized(row.fileName), normalized(row.actualSubmissionDate), normalized(row.managementNumber)]);
   const identities = new Map<string, number>();
-  for (const row of parsed) {
+  for (const row of physicalRows) {
     const key = rowKey(row);
     identities.set(key, (identities.get(key) ?? 0) + 1);
   }
   read.collectedUniqueRowCount = identities.size;
-  if (identities.size !== parsed.length || (read.expectedRowCount != null && identities.size !== read.expectedRowCount)) read.completeness = "INCOMPLETE";
+  if (identities.size !== physicalRows.length || (read.expectedRowCount != null && identities.size !== read.expectedRowCount)) read.completeness = "INCOMPLETE";
   // 동일 내용도 원본 identity 중복이다. 행을 보존하고 중복 exact 후보의 자동 선택을 차단한다.
-  const receipts = parsed.map(row => identities.get(rowKey(row))! > 1 ? { ...row, identityConflict: true } : row);
+  const receipts = physicalRows.map(row => identities.get(rowKey(row))! > 1 ? { ...row, identityConflict: true } : row);
   return { outcome: "SUCCESS", rows: receipts, headers: [...headers], ...read };
+}
+
+/** Prove an identity-free error belongs to this serialized upload only from a fresh
+ * pre/post Grid delta and one exact successfully uploaded artifact filename. */
+export function provenK2BPostUploadErrorKeys(
+  before: K2BGridRead | null,
+  after: K2BGridRead,
+  successfulUploadFilenames: readonly string[],
+): Set<string> {
+  const proven = new Set<string>();
+  if (!before || before.completeness !== "COMPLETE" || after.completeness !== "COMPLETE") return proven;
+  const uploadCounts = new Map<string, number>();
+  for (const filename of successfulUploadFilenames) uploadCounts.set(filename, (uploadCounts.get(filename) ?? 0) + 1);
+  const afterErrors = after.rows.filter((row) => row.unmatchableError);
+  for (const row of afterErrors) {
+    if (uploadCounts.get(row.fileName) !== 1 || row.identicalRowCount !== 1) continue;
+    if (before.rows.some((previous) => previous.fileName === row.fileName)) continue;
+    if (afterErrors.filter((candidate) => candidate.fileName === row.fileName).length !== 1) continue;
+    proven.add(row.sourceKey);
+  }
+  return proven;
 }

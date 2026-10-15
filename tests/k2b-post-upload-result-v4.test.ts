@@ -160,6 +160,12 @@ function workerLevelFixture(input: { upload: Record<string, unknown>; readGrid: 
       return input.readGrid();
     },
   });
+  // This fixture isolates post-upload confirmation from the separate original-sync
+  // persistence contract and never reaches a live/local Supabase project.
+  daemon.loadK2BSourceKeysForDate = async () => new Set();
+  daemon.loadPriorK2BTargetKeysForDate = async () => new Set();
+  daemon.loadK2BPreUploadGrid = async () => null;
+  daemon.processK2BOriginalSyncJob = async () => undefined;
   daemon.findK2BJobReportFiles = () => ({ dataFile: { path: "C:\\fixture\\report.xml" }, drawings: [], drawingFolderPath: "C:\\fixture" });
   daemon.getK2BPostUploadNow = () => now;
   daemon.waitForK2BPostUploadGrid = async (delay: number) => { now += delay; };
@@ -280,7 +286,7 @@ test("v5 Worker: COMPLETE exact 보류는 timeout까지 재조회하고 기존 �
   assert.equal(fixture.notifications.filter(({ type }) => type === "info").length, 0);
   assert.equal(fixture.calendarCalls.length, 0);
   assert.equal(fixture.journalBusinessStateUpdates, 0);
-  assert.equal(fixture.queryDates.length, 24);
+  assert.equal(fixture.queryDates.length, 2);
   assert.equal(fixture.existingJournal.k2b_send_date, "2026-09-10");
 });
 
@@ -334,7 +340,7 @@ test("exact 실제 오류내용은 terminal error로 확정하고 재조회하�
   assert.equal(fixture.journalBusinessStateUpdates, 1);
 });
 
-test("다중 target은 조회당 Grid를 한 번만 읽고 첫 terminal 결과를 뒤 조회에서 유지한다", async () => {
+test("다중 target은 최신 Grid 오류를 정상으로 유지하지 않고 조회당 한 번만 읽는다", async () => {
   let attempt = 0;
   const second = {
     code: "B-2", business_name: "두번째 사업장", year: 2026, period: "하반기",
@@ -350,7 +356,8 @@ test("다중 target은 조회당 Grid를 한 번만 읽고 첫 terminal 결과�
   });
   const results = await fixture.run();
   assert.equal(results.length, 2);
-  assert.ok(results.every((result: { success: boolean }) => result.success));
+  assert.equal(results[0].success, false);
+  assert.equal(results[1].success, true);
   assert.equal(fixture.queryDates.length, 2);
 });
 
