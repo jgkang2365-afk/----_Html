@@ -66,6 +66,8 @@ export class WorkerDaemon {
     private idlePollCount: number = 0;
     private currentK2BService: K2BService | null = null;
     private currentJobId: string | null = null;
+    private k2bOriginalSyncAdmin = createAdminClient;
+    private k2bOriginalSyncReadOnlySession = withK2BReadOnlySession;
 
     private constructor() {
         // 프로세스 종료 시 Graceful Shutdown을 위한 이벤트 등록
@@ -487,7 +489,7 @@ export class WorkerDaemon {
 
     /** K2B 원본 동기화: 한 range의 모든 receipt 저장과 일지 연계가 성공한 scheduled 작업만 cursor를 전진한다. */
     private async processK2BOriginalSyncJob(job: any, postUpload?: { grid: K2BGridRead; date: string; provenErrorSourceKeys?: Set<string> }) {
-        const admin = createAdminClient();
+        const admin = this.k2bOriginalSyncAdmin();
         const payload = job.payload && typeof job.payload === 'object' ? job.payload : {};
         const trigger: K2BSyncTrigger = postUpload ? 'manual' : payload.trigger as K2BSyncTrigger;
         const executionResult: Record<string, any> = {
@@ -523,7 +525,7 @@ export class WorkerDaemon {
             executionResult.remoteK2BReadAttempted = !postUpload;
             await this.updateK2BExecutionResult(job.id, executionResult);
             // 하나의 로그인/읽기전용 세션에서 range query를 정확히 한 번 실행한다.
-            const receipts = postUpload ? postUpload.grid.rows : await withK2BReadOnlySession(async (k2b) => {
+            const receipts = postUpload ? postUpload.grid.rows : await this.k2bOriginalSyncReadOnlySession(async (k2b) => {
                 try {
                   const grid = await k2b.querySubmissionResultsForRange(range.fromDate, range.toDate);
                   executionResult.remoteK2BReadExecuted = true;
@@ -654,9 +656,10 @@ export class WorkerDaemon {
                     }
                 }
             }
-            // Safe normal rows have been persisted and reconciled, but an unapproved error
-            // still blocks the whole range and cursor (and the scheduled STALE sweep).
-            if (executionResult.unmatchableErrorPersistence.awaitingApproval > 0) {
+            // The upload's canonical target results are independent of unrelated file errors.
+            // Scheduled/manual original sync still fails closed before STALE or cursor advancement.
+            executionResult.errorApprovalPending = executionResult.unmatchableErrorPersistence.awaitingApproval > 0;
+            if (executionResult.errorApprovalPending && !postUpload) {
                 throw new Error(`K2B_UNMATCHABLE_REMOTE_ROWS:${executionResult.unmatchableErrorPersistence.awaitingApproval}`);
             }
             // STALE sweep은 scheduled에만 실행한다. cursor/manual range가 아닌 KST 7일

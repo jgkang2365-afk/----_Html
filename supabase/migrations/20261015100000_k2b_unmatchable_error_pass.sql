@@ -35,7 +35,7 @@ CREATE TABLE public.k2b_unmatchable_error_approvals (
 CREATE TABLE public.k2b_unmatchable_error_notifications (
   error_id uuid NOT NULL REFERENCES public.k2b_unmatchable_errors(id) ON DELETE RESTRICT,
   user_id integer NOT NULL REFERENCES public.users(id) ON DELETE RESTRICT,
-  notification_id integer NOT NULL REFERENCES public.notifications(id) ON DELETE RESTRICT,
+  notification_id bigint NOT NULL REFERENCES public.notifications(id) ON DELETE RESTRICT,
   created_at timestamptz NOT NULL DEFAULT current_timestamp,
   PRIMARY KEY (error_id, user_id)
 );
@@ -63,7 +63,7 @@ DECLARE
   v_state text;
   v_submitter integer;
   v_recipient integer;
-  v_notification_id integer;
+  v_notification_id bigint;
   v_review_state text;
 BEGIN
   IF auth.role() IS DISTINCT FROM 'service_role' THEN
