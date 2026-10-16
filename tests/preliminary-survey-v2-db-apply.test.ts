@@ -1,8 +1,28 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { PRELIMINARY_SURVEY_CANONICAL_SHA } from "../lib/preliminary-survey-v2/reverse-planner/types";
 
 const read = (path: string) => readFileSync(path, "utf8");
+
+test("역산 플래너 canonical SHA는 현재 운영지침과 일치한다", () => {
+  const source = readFileSync("docs/business-rules/preliminary-survey.md", "utf8").replace(/\r\n/g, "\n");
+  const bytes = Buffer.from(source);
+  const gitBlobSha = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+  assert.equal(PRELIMINARY_SURVEY_CANONICAL_SHA, gitBlobSha);
+});
+
+test("역산 저장 RPC는 다일 측정의 첫 실제 측정일을 날짜형 원천으로 사용한다", () => {
+  const sql = read("supabase/migrations/20261016034200_reverse_planner_multiday_first_date.sql");
+  assert.match(sql, /min\(\(day->>'date'\)::date\)/);
+  assert.match(sql, /jsonb_array_elements\([\s\S]*p_daily_staff/);
+  assert.match(sql, /split_part\(p_measurement_date, ',', 1\)/);
+  assert.match(sql, /replace\(current_definition,[\s\S]*'actual\.measurement_date::date'/);
+  assert.match(sql, /corrected_definition := replace\(current_definition,[\s\S]*'target_row\.measurement_date::date'/);
+  assert.match(sql, /replace\(corrected_definition,[\s\S]*'impacted_target\.measurement_date::date'/);
+  assert.match(sql, /Keep the raw source text comparison intact/);
+});
 
 test("schema migration은 nullable/no-default 분류 컬럼과 OFF 정책을 추가한다", () => {
   const sql = read("supabase/migrations/20260814090000_add_preliminary_survey_classification_schema.sql");

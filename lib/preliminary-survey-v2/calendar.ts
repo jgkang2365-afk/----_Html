@@ -71,20 +71,21 @@ export function recommendationDates(measurementDate: string) {
 
 export type PhaseBBusinessType = "existing" | "first_measurement" | "external_new";
 
+// 타기관 신규·기존업체의 자동추천 구간. 최초실시 후보 순서는 별도로 유지한다.
+export const STANDARD_PRIMARY_WORKING_DAY_DISTANCES = Array.from({ length: 13 }, (_, index) => 15 - index);
+export const STANDARD_FALLBACK_WORKING_DAY_DISTANCES = Array.from({ length: 5 }, (_, index) => 20 - index);
+
 /** Phase B: 측정예정일과 업체 유형에서 후보일을 만든다. */
 export function recommendationDatesForBusinessType(
   measurementDate: string,
   businessType: PhaseBBusinessType,
 ) {
-  const maximum = businessType === "first_measurement" ? 30 : 25;
+  const maximum = businessType === "first_measurement" ? 30 : 20;
   const dates = workingDaysBefore(measurementDate, maximum);
   const byDistance = new Map(dates.map((item) => [item.workingDaysBefore, item]));
   const distances = businessType === "first_measurement"
     ? Array.from({ length: 28 }, (_, index) => 3 + index)
-    : [
-        ...Array.from({ length: 18 }, (_, index) => 20 - index),
-        ...Array.from({ length: 5 }, (_, index) => 25 - index),
-      ];
+    : [...STANDARD_PRIMARY_WORKING_DAY_DISTANCES, ...STANDARD_FALLBACK_WORKING_DAY_DISTANCES];
   return distances.flatMap((distance) => byDistance.get(distance) ?? []);
 }
 

@@ -1,4 +1,4 @@
-import { holidayCoverageWarning, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
+import { STANDARD_PRIMARY_WORKING_DAY_DISTANCES, holidayCoverageWarning, recommendationDates, recommendationDatesForBusinessType } from "./calendar";
 import { evaluateSameDayRoute, type EvaluatedSameDayRoute } from "./route-policy";
 import type {
   Availability, ExistingAssignment, RecommendationEvidence, RecommendationResult,
@@ -291,7 +291,7 @@ function sameAddressSelectedCount(
 
 function candidateRange(target: SurveyTarget, workingDaysBefore: number): "primary" | "fallback" {
   if (target.businessType === "external_new" || target.businessType === "existing") {
-    return workingDaysBefore <= 20 ? "primary" : "fallback";
+    return workingDaysBefore <= STANDARD_PRIMARY_WORKING_DAY_DISTANCES[0] ? "primary" : "fallback";
   }
   if (target.businessType === "first_measurement") return "primary";
   return workingDaysBefore >= 20 ? "primary" : "fallback";
@@ -303,8 +303,8 @@ function candidateDateGroups(
 ) {
   if (target.businessType === "external_new" || target.businessType === "existing") {
     return [
-      dates.filter((candidate) => candidate.workingDaysBefore <= 20),
-      dates.filter((candidate) => candidate.workingDaysBefore > 20),
+      dates.filter((candidate) => candidate.workingDaysBefore <= STANDARD_PRIMARY_WORKING_DAY_DISTANCES[0]),
+      dates.filter((candidate) => candidate.workingDaysBefore > STANDARD_PRIMARY_WORKING_DAY_DISTANCES[0]),
     ];
   }
   if (target.businessType === "first_measurement") return [dates];
@@ -523,7 +523,28 @@ export async function recommendBatch(input: RecommendBatchInput): Promise<Recomm
       return result;
     };
 
-    if (target.kind === "existing") {
+    if (target.kind === "existing" && target.businessType === "existing") {
+      for (const rangeDates of candidateDateGroups(target, dates)) {
+        let best: RecommendationResult | null = null;
+        let lowestDateUse = Number.POSITIVE_INFINITY;
+        for (const candidate of rangeDates) {
+          const result = await evaluateForResponsible(candidate, 1);
+          if (!result) continue;
+          const dateUse = virtual.filter((assignment) =>
+            assignment.kind === "existing" && assignmentSurveyMethod(assignment) === "phone"
+            && assignment.date === candidate.date).length;
+          if (dateUse < lowestDateUse) {
+            best = result;
+            lowestDateUse = dateUse;
+          }
+        }
+        if (best) {
+          selected = finalize(best, "single", "single_available", true, null);
+          break;
+        }
+      }
+    } else if (target.kind === "existing") {
+      // 유형 미지정 legacy 입력의 기존 추천 동작은 변경하지 않는다.
       let overlapFallback: RecommendationResult | null = null;
       for (const candidate of dates) {
         const result = await evaluateForResponsible(candidate, 1);

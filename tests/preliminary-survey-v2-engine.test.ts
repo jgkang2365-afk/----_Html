@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { recommendationDates, recommendationDatesForBusinessType } from "../lib/preliminary-survey-v2/calendar";
+import { recommendationDates, recommendationDatesForBusinessType, workingDaysBefore } from "../lib/preliminary-survey-v2/calendar";
 import { buildScheduleBlockKeys } from "../lib/preliminary-survey-v2/availability";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "../lib/preliminary-survey-v2/classification";
 import { recommendBatch } from "../lib/preliminary-survey-v2/engine";
@@ -268,7 +268,7 @@ test("A: 같은 날짜의 blocked 조사자는 제외하고 가능한 다른 조
   const blockedResponsible = { ...experienced(1), name: "이태환" };
   const availableResponsible = { ...experienced(2), name: "고유빈" };
   const dates = recommendationDatesForBusinessType("2026-08-27", "external_new");
-  assert.equal(dates[0].date, "2026-07-29");
+  assert.equal(dates[0].workingDaysBefore, 15);
   const [result] = await recommendBatch({
     targets: [{ ...target(1, "new", blockedResponsible, "2026-08-27"), businessType: "external_new" }],
     surveyors: [blockedResponsible, availableResponsible],
@@ -351,17 +351,17 @@ test("최초실시는 authoritative 후보 순서인 -3부터 추천한다", asy
   assert.equal(result.evidence.workingDaysBefore, 3);
 });
 
-test("타기관 신규 후보는 -20~-3 뒤에 -25~-21 fallback 순서를 유지한다", () => {
+test("타기관 신규 후보는 -15~-3 뒤에 -20~-16 fallback 순서를 유지한다", () => {
   const dates = recommendationDatesForBusinessType("2026-07-14", "external_new");
-  assert.deepEqual(dates.slice(0, 18).map((item) => item.workingDaysBefore),
-    Array.from({ length: 18 }, (_, index) => 20 - index));
-  assert.deepEqual(dates.slice(18).map((item) => item.workingDaysBefore), [25, 24, 23, 22, 21]);
+  assert.deepEqual(dates.slice(0, 13).map((item) => item.workingDaysBefore),
+    Array.from({ length: 13 }, (_, index) => 15 - index));
+  assert.deepEqual(dates.slice(13).map((item) => item.workingDaysBefore), [20, 19, 18, 17, 16]);
 });
 
 test("B: 첫 정책 날짜의 모든 조사자가 blocked면 다음 유효 날짜를 추천한다", async () => {
   const user = experienced(1);
   const dates = recommendationDatesForBusinessType("2026-08-27", "external_new");
-  assert.deepEqual(dates.slice(0, 2).map((item) => item.date), ["2026-07-29", "2026-07-30"]);
+  assert.deepEqual(dates.slice(0, 2).map((item) => item.workingDaysBefore), [15, 14]);
   const blocked = new Set([`${user.id}:${dates[0].date}`]);
   const [result] = await recommendBatch({
     targets: [{ ...target(1, "new", user, "2026-08-27"), businessType: "external_new" }],
@@ -1203,6 +1203,62 @@ test("I: 8/27 혼합 8건은 측정 역할 preference를 반영해 특정 사용
   assert.ok(results.filter((result) => result.targetId >= 5).every((result) => result.surveyMethod === "phone"));
   assert.deepEqual(results.map((result) => result.responsible.id), targets.map((_, index) => users[index % users.length].id));
   assert.ok(Math.max(...users.map((user) => results.filter((result) => result.responsible.id === user.id).length)) <= 2);
+});
+
+test("기존업체 typed 추천은 빈 날짜를 먼저 쓰고 같은 건수면 -15부터 분산한다", async () => {
+  const user = experienced(1);
+  const dateRows = recommendationDatesForBusinessType("2026-08-27", "existing");
+  const targets = Array.from({ length: 6 }, (_, index) =>
+    ({ ...target(index + 1, "existing", user, "2026-08-27"), businessType: "existing" as const }));
+  const output = await recommendBatch({
+    targets, experiencedUsers: [user], availability: available(), routes: route(),
+  });
+  assert.deepEqual(output.map((result) => result.date), dateRows.slice(0, 6).map((row) => row.date));
+  const occupied: ExistingAssignment[] = dateRows.slice(0, 13).map((row, index) => ({
+    targetId: 100 + index, businessCode: `E${index}`, kind: "existing", date: row.date,
+    participants: [user.id], responsibleUserId: user.id, experiencedReviewerId: null,
+    surveyMethod: "phone", coordinate: null, region: null,
+  }));
+  const [emptyFirst] = await recommendBatch({
+    targets: targets.slice(0, 1), experiencedUsers: [user],
+    existingAssignments: occupied.slice(0, 1), availability: available(), routes: route(),
+  });
+  assert.equal(emptyFirst.date, dateRows[1].date);
+  const [oneEach] = await recommendBatch({
+    targets: targets.slice(0, 1), experiencedUsers: [user],
+    existingAssignments: occupied, availability: available(), routes: route(),
+  });
+  assert.equal(oneEach.date, dateRows[0].date);
+});
+
+test("기본 후보가 모두 막혀야만 -20~-16 fallback을 쓰고 -21은 수동 검증에서 거부한다", async () => {
+  const user = experienced(1);
+  for (const businessType of ["external_new", "existing"] as const) {
+    const dates = recommendationDatesForBusinessType("2026-08-27", businessType);
+    const current = { ...target(1, businessType === "existing" ? "existing" : "new", user, "2026-08-27"),
+      businessType };
+    const blocked = new Set(dates.slice(0, 13).map((row) => `${user.id}:${row.date}`));
+    const [fallback] = await recommendBatch({
+      targets: [current], experiencedUsers: [user],
+      availability: available(blocked), routes: route(),
+    });
+    assert.equal(fallback.date, dates[13].date);
+    assert.equal(fallback.evidence.workingDaysBefore, 20);
+    assert.equal(fallback.evidence.range, "fallback");
+    const [primary] = await recommendBatch({
+      targets: [current], experiencedUsers: [user], availability: available(), routes: route(),
+    });
+    assert.equal(primary.evidence.range, "primary");
+    assert.equal(primary.evidence.workingDaysBefore, 15);
+    const outside = workingDaysBefore(current.measurementDate, 21).at(-1)!.date;
+    const validation = await validateManualPlanHardRules({
+      target: current, recommendedDate: outside, participants: [user],
+      surveyMethod: current.kind === "new" ? "field" : "phone",
+      existingAssignments: [], routes: route(),
+    });
+    assert.equal(validation.valid, false);
+    assert.match(validation.errors.join(" "), /영업일 범위/);
+  }
 });
 
 test("기존업체 유선 책임자 3건 한도는 다음 정책 날짜로 이동시킨다", async () => {
