@@ -24,6 +24,14 @@ test("역산 저장 RPC는 다일 측정의 첫 실제 측정일을 날짜형 �
   assert.match(sql, /Keep the raw source text comparison intact/);
 });
 
+test("빈 다일 daily_staff 날짜는 DB helper에서 건너뛰고 원본 첫날을 사용한다", () => {
+  const sql = read("supabase/migrations/20261016035008_fix_multiday_first_date_blank_staff.sql");
+  assert.match(sql, /min\(NULLIF\(btrim\(day->>'date'\), ''\)::date\)/);
+  assert.match(sql, /NULLIF\(btrim\(split_part\(p_measurement_date, ',', 1\)\), ''\)::date/);
+  assert.match(sql, /MULTIDAY_FIRST_DATE_HELPER_SHAPE_CHANGED/);
+  assert.doesNotMatch(sql, /UPDATE\s+public\.measurement_target_business|DELETE\s+FROM/i);
+});
+
 test("schema migration은 nullable/no-default 분류 컬럼과 OFF 정책을 추가한다", () => {
   const sql = read("supabase/migrations/20260814090000_add_preliminary_survey_classification_schema.sql");
   assert.match(sql, /ADD COLUMN IF NOT EXISTS business_type text/);
