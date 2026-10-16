@@ -80,11 +80,11 @@ export function recommendationDatesForBusinessType(
   measurementDate: string,
   businessType: PhaseBBusinessType,
 ) {
-  const maximum = businessType === "first_measurement" ? 30 : 20;
+  const maximum = 20;
   const dates = workingDaysBefore(measurementDate, maximum);
   const byDistance = new Map(dates.map((item) => [item.workingDaysBefore, item]));
   const distances = businessType === "first_measurement"
-    ? Array.from({ length: 28 }, (_, index) => 3 + index)
+    ? Array.from({ length: 18 }, (_, index) => 3 + index)
     : [...STANDARD_PRIMARY_WORKING_DAY_DISTANCES, ...STANDARD_FALLBACK_WORKING_DAY_DISTANCES];
   return distances.flatMap((distance) => byDistance.get(distance) ?? []);
 }
