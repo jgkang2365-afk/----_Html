@@ -14,7 +14,7 @@ test("역산 플래너 canonical SHA는 현재 운영지침과 일치한다", ()
 });
 
 test("역산 저장 RPC는 다일 측정의 첫 실제 측정일을 날짜형 원천으로 사용한다", () => {
-  const sql = read("supabase/migrations/20261016100000_reverse_planner_multiday_first_date.sql");
+  const sql = read("supabase/migrations/20261016034200_reverse_planner_multiday_first_date.sql");
   assert.match(sql, /min\(\(day->>'date'\)::date\)/);
   assert.match(sql, /jsonb_array_elements\([\s\S]*p_daily_staff/);
   assert.match(sql, /split_part\(p_measurement_date, ',', 1\)/);
