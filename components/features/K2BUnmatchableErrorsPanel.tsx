@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useUser } from "@/hooks/use-user";
@@ -35,6 +35,7 @@ export function K2BUnmatchableErrorsPanel({ refreshKey }: { refreshKey: string |
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const approvedIds = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -42,7 +43,7 @@ export function K2BUnmatchableErrorsPanel({ refreshKey }: { refreshKey: string |
       const response = await fetch(`/api/report-processing/k2b-unmatchable-errors?t=${Date.now()}`, { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "K2B 오류 원본을 불러오지 못했습니다.");
-      setRows(body.errors ?? []);
+      setRows((body.errors ?? []).filter((row: ErrorRow) => row.review_state !== "PASSED" && !approvedIds.current.has(row.id)));
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "K2B 오류 원본을 불러오지 못했습니다.");
@@ -63,6 +64,8 @@ export function K2BUnmatchableErrorsPanel({ refreshKey }: { refreshKey: string |
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "패스 처리에 실패했습니다.");
+      approvedIds.current.add(id);
+      setRows((current) => current.filter((row) => row.id !== id));
       toast.success(body.approval?.disposition === "already_passed" ? "이미 패스된 오류 원본입니다." : "오류 원본을 패스했습니다.");
       setSelectedId(null);
       setReason("");
