@@ -24,8 +24,9 @@ export async function GET() {
     const admin = createAdminClient();
     let query = admin.from("k2b_unmatchable_errors")
       .select("id, source_key, actual_submission_date, file_name, k2b_status, error_detail, raw_row, first_seen_at, last_seen_at, submission_job_id, submitter_user_id, review_state, approved_by_user_id, approved_at, approval_reason")
-      .order("last_seen_at", { ascending: false }).limit(100);
+      .neq("review_state", "PASSED");
     if (actor.role !== "관리자") query = query.eq("submitter_user_id", actor.id);
+    query = query.order("last_seen_at", { ascending: false }).limit(100);
     const { data: rows, error } = await query;
     if (error) throw error;
     const ids = (rows ?? []).map((row) => row.id);

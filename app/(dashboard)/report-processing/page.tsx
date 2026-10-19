@@ -842,8 +842,8 @@ export default function ReportProcessingPage() {
     return (
         <>
         {activeJob && showRemoteJobProgress && remoteJobView && <RemoteJobProgressDialog title={remoteJobCopy[activeJob.type].title} view={remoteJobView} running onClose={() => setShowRemoteJobProgress(false)} onCancel={cancelActiveJob} cancelLabel="작업 중단" cancelPending={activeJob.status === 'cancel_requested'} />}
-        <div className="w-full min-w-0 max-w-[calc(100vw-2rem)] space-y-4 overflow-hidden p-4 lg:px-0 lg:py-4 lg:max-w-none">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="w-full min-w-0 max-w-[calc(100vw-2rem)] space-y-4 overflow-x-clip p-4 lg:px-0 lg:py-4 lg:max-w-none">
+            <div className="sticky top-16 z-40 -mx-4 flex flex-col gap-3 border-b border-surface-200 bg-surface-50/95 px-4 py-3 shadow-sm backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between lg:top-[113px] lg:mx-0 lg:px-0">
                 <div>
                     <h1 className="text-xl font-bold text-gray-800 md:text-2xl">작업환경측정결과 보고서 처리</h1>
                     <p className="mt-1 text-sm text-slate-500">작업환경측정 결과를 확인하고 K2B 전송 및 보고서 처리를 진행할 수 있습니다.</p>
