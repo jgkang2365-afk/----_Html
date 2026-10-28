@@ -49,15 +49,12 @@ import {
 } from "@/lib/preliminary-survey-v2/report-writer-participation";
 import { compareCanonicalTargetBusinesses } from "@/lib/business/target-business-sort";
 import { HISTORICAL_PLAN_RECOVERY_PROTECTED_CODES } from "@/lib/preliminary-survey-v2/historical-plan-recovery";
+import { journalConfirmationKey, loadJournalConfirmationKeys, postSeptemberMeasurementDates, currentAssignmentsForDisplay } from "@/lib/preliminary-survey-v2/current-measurement";
 
 export const dynamic = "force-dynamic";
 
-function normalizedPeriod(value: unknown) {
-  return String(value ?? "").trim().replace("(수시)", "");
-}
-
 function journalKey(code: unknown, year: unknown, period: unknown) {
-  return `${code}|${Number(year)}|${normalizedPeriod(period)}`;
+  return journalConfirmationKey(code, year, period);
 }
 
 function routeRegion(address: unknown) {
@@ -302,16 +299,29 @@ interface CanonicalMeasurementAssignment {
   reason: string;
 }
 
+async function loadPersistedAssignmentsForDates(supabase: any, dates: string[]) {
+  if (!dates.length) return { data: [], error: null };
+  const rows: any[] = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from("preliminary_survey_v2_measurement_assignments").select(
+      "id, plan_id, measurement_date, assignee_user_id, approval_required, approval_group_fingerprint",
+    ).in("measurement_date", dates).order("id").range(offset, offset + pageSize - 1);
+    if (error) return { data: [], error };
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < pageSize) return { data: rows, error: null };
+  }
+}
+
 async function recomputeCanonicalMeasurementAssignments(
   supabase: any,
   contexts: Awaited<ReturnType<typeof loadV2ManualContext>>[],
   submitted: SubmittedDraft[],
 ) {
+  const relevantDates = [...new Set(contexts.flatMap((context) => context.target.measurementAssignmentDates ?? []))];
   const [{ data: assigneeUsers, error: assigneeUserError }, { data: persisted, error: persistedError }] = await Promise.all([
     supabase.from("users").select("id, name, is_active, survey_code").eq("job", "측정").eq("is_active", true).not("survey_code", "is", null),
-    supabase.from("preliminary_survey_v2_measurement_assignments").select(
-      "plan_id, measurement_date, assignee_user_id, approval_required, approval_group_fingerprint",
-    ),
+    loadPersistedAssignmentsForDates(supabase, relevantDates),
   ]);
   if (persistedError && isMeasurementAssignmentSchemaMissing(persistedError)) return { schemaMissing: true as const };
   if (assigneeUserError || persistedError) throw assigneeUserError || persistedError;
@@ -326,7 +336,7 @@ async function recomputeCanonicalMeasurementAssignments(
     .map((plan: any) => Number(plan.measurement_target_business_id))
     .filter((businessId: number) => !submittedIds.has(businessId)))];
   const { data: existingTargets, error: existingTargetError } = existingTargetIds.length
-    ? await supabase.from("measurement_target_business").select("id, code, address").in("id", existingTargetIds)
+    ? await supabase.from("measurement_target_business").select("id, code, address, measurement_date, daily_staff").in("id", existingTargetIds)
     : { data: [], error: null };
   if (existingTargetError) throw existingTargetError;
   const existingCodes = [...new Set((existingTargets ?? []).map((target: any) => target.code).filter(Boolean))];
@@ -337,7 +347,13 @@ async function recomputeCanonicalMeasurementAssignments(
   const planById = new Map((persistedPlans ?? []).map((plan: any) => [String(plan.id), plan]));
   const existingById = new Map((existingTargets ?? []).map((target: any) => [Number(target.id), target]));
   const infoByCode = new Map((existingBusinessInfo ?? []).map((info: any) => [info.code, info]));
-  const existing: ExistingMeasurementAssignment[] = (persisted ?? []).flatMap((item: any) => {
+  const currentPersisted = (persisted ?? []).filter((item: any) => {
+    const plan: any = planById.get(String(item.plan_id));
+    const target: any = existingById.get(Number(plan?.measurement_target_business_id));
+    return !target || postSeptemberMeasurementDates(target).length === 0
+      || currentAssignmentsForDisplay(target, [item]).length > 0;
+  });
+  const existing: ExistingMeasurementAssignment[] = currentPersisted.flatMap((item: any) => {
     const plan: any = planById.get(String(item.plan_id));
     const target: any = existingById.get(Number(plan?.measurement_target_business_id));
     const info: any = infoByCode.get(target?.code);
@@ -413,7 +429,7 @@ async function recomputeCanonicalMeasurementAssignments(
       reason: assignment.reason,
     } satisfies CanonicalMeasurementAssignment];
   });
-  const approvedGroupFingerprints = new Set((persisted ?? []).flatMap((assignment: any) =>
+  const approvedGroupFingerprints = new Set(currentPersisted.flatMap((assignment: any) =>
     assignment.approval_required === true && typeof assignment.approval_group_fingerprint === "string" &&
       /^[a-f0-9]{32}$/i.test(assignment.approval_group_fingerprint)
       ? [assignment.approval_group_fingerprint] : [],
@@ -484,12 +500,8 @@ async function applySubmittedDrafts(
   }
   const draftIds = new Set(submitted.map((draft) => draft.targetId));
   const codes = [...new Set(contexts.map((context) => context.target.code))];
-  const { data: journals, error: journalError } = codes.length
-    ? await supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes)
-    : { data: [], error: null };
-  if (journalError) throw journalError;
-  const lockedKeys = new Set((journals ?? []).map((row: any) =>
-    journalKey(row.code, row.measurement_year, row.measurement_period)));
+  const lockedKeys = await loadJournalConfirmationKeys(supabase, codes,
+    [...new Set(contexts.map((context) => Number(context.target.classificationSource?.measurementYear)).filter(Number.isInteger))]);
   const dates = [...new Set(submitted.map((draft) => draft.preliminaryDate))].sort();
   const participantIds = [...new Set(submitted.flatMap((draft) => [
     ...draft.participantUserIds,
@@ -733,12 +745,9 @@ export async function GET(request: NextRequest) {
 
     const targetIds = (targets ?? []).map((target: any) => Number(target.id));
     const codes = [...new Set((targets ?? []).map((target: any) => target.code))];
-    const [{ data: plans, error: planError }, { data: journals, error: journalError }, { data: users, error: userError }, { data: scheduleBlocks, error: scheduleBlockError }, { data: legacySurveys, error: legacySurveyError }] = await Promise.all([
+    const [{ data: plans, error: planError }, { data: users, error: userError }, { data: scheduleBlocks, error: scheduleBlockError }, { data: legacySurveys, error: legacySurveyError }] = await Promise.all([
       targetIds.length
         ? supabase.from("preliminary_survey_v2_plans").select("*").in("measurement_target_business_id", targetIds)
-        : Promise.resolve({ data: [], error: null }),
-      codes.length
-        ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period").in("code", codes)
         : Promise.resolve({ data: [], error: null }),
       supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced, job").eq("job", "측정"),
       supabase.from("user_schedule_blocks").select("user_id, start_date, end_date"),
@@ -748,16 +757,19 @@ export async function GET(request: NextRequest) {
         ).in("code", codes).eq("year", year)
         : Promise.resolve({ data: [], error: null }),
     ]);
-    if (planError || journalError || userError || scheduleBlockError || legacySurveyError) {
-      throw planError || journalError || userError || scheduleBlockError || legacySurveyError;
+    if (planError || userError || scheduleBlockError || legacySurveyError) {
+      throw planError || userError || scheduleBlockError || legacySurveyError;
     }
+    const confirmedKeys = await loadJournalConfirmationKeys(supabase, codes, [year]);
+
+    const planIds = (plans ?? []).map((plan: any) => String(plan.id));
 
     // migration 전에는 기존 plan snapshot을 읽기 fallback으로만 사용한다. POST apply는
     // fallback 저장을 허용하지 않고 새 원자 RPC를 요구한다.
-    const { data: assignmentRows, error: assignmentError } = targetIds.length
+    const { data: assignmentRows, error: assignmentError } = planIds.length
       ? await supabase.from("preliminary_survey_v2_measurement_assignments").select(
         "id, plan_id, measurement_date, assignee_user_id, public_sample_code, approval_required",
-      )
+      ).in("plan_id", planIds)
       : { data: [], error: null };
     if (assignmentError && !isMeasurementAssignmentSchemaMissing(assignmentError)) throw assignmentError;
 
@@ -768,7 +780,7 @@ export async function GET(request: NextRequest) {
       ).in("measurement_target_business_id", targetIds)
       : { data: [], error: null };
     if (reconciliationError && !isLegacyReconciliationSchemaMissing(reconciliationError)) throw reconciliationError;
-    const planIds = (plans ?? []).map((plan: any) => String(plan.id));
+
     const { data: historyRows, error: historyError } = planIds.length
       ? await supabase.from("preliminary_survey_v2_history_recovery_audit")
         .select("created_plan_id").in("created_plan_id", planIds)
@@ -801,9 +813,6 @@ export async function GET(request: NextRequest) {
       if (targetId == null) continue;
       assignmentsByTarget.set(targetId, [...(assignmentsByTarget.get(targetId) ?? []), assignment]);
     }
-    const confirmedKeys = new Set((journals ?? []).map((row: any) =>
-      journalKey(row.code, row.measurement_year, row.measurement_period),
-    ));
     const legacyMeasurementPublicSampleForTarget = buildLegacyMeasurementPublicSampleLookup(
       (legacySurveys ?? []).map((row: any) => ({
         code: String(row.code ?? ""), year: Number(row.year), period: String(row.period ?? ""),
@@ -848,7 +857,9 @@ export async function GET(request: NextRequest) {
       ));
       const preliminaryScheduleBlocked = Boolean(plan?.recommended_date) && roleIdsForPlan(plan)
         .some((userId) => scheduleBlockedKeys.has(`${userId}:${plan.recommended_date}`));
-      const measurementScheduleBlocked = (assignmentsByTarget.get(Number(target.id)) ?? []).some((assignment: any) =>
+      const targetAssignments = assignmentsByTarget.get(Number(target.id)) ?? [];
+      const measurementScheduleBlocked = (postSeptemberMeasurementDates(target).length > 0
+        ? currentAssignmentsForDisplay(target, targetAssignments) : targetAssignments).some((assignment: any) =>
         scheduleBlockedKeys.has(`${Number(assignment.assignee_user_id)}:${String(assignment.measurement_date)}`),
       );
       const measurementRoleScheduleBlocked = measurementRoleKeys(target, userIdByName)
@@ -1054,19 +1065,17 @@ export async function POST(request: NextRequest) {
       const relationCodes = [...new Set((relationTargets ?? []).map((target: any) => target.code))];
       const [
         { data: relationPlans, error: relationPlanError },
-        { data: relationJournals, error: relationJournalError },
         { data: relationUsers, error: relationUserError },
       ] = await Promise.all([
         relationIds.length ? supabase.from("preliminary_survey_v2_plans")
           .select("id, measurement_target_business_id, recommended_date, participant_user_ids, survey_method, route_evidence, recommendation_reason")
           .in("measurement_target_business_id", relationIds) : Promise.resolve({ data: [], error: null }),
-        relationCodes.length ? supabase.from("measurement_journal")
-          .select("code, measurement_year, measurement_period").in("code", relationCodes) : Promise.resolve({ data: [], error: null }),
         supabase.from("users").select("id, name").eq("job", "측정"),
       ]);
-      if (relationPlanError || relationJournalError || relationUserError) {
-        throw relationPlanError || relationJournalError || relationUserError;
+      if (relationPlanError || relationUserError) {
+        throw relationPlanError || relationUserError;
       }
+      const confirmed = await loadJournalConfirmationKeys(supabase, relationCodes, [Number(seedTarget.year)]);
       const planIds = (relationPlans ?? []).map((plan: any) => String(plan.id));
       const { data: relationAssignments, error: relationAssignmentError } = planIds.length
         ? await supabase.from("preliminary_survey_v2_measurement_assignments")
@@ -1098,16 +1107,16 @@ export async function POST(request: NextRequest) {
         relationScheduleDates,
         relationScheduleUserIds,
       );
-      const confirmed = new Set((relationJournals ?? []).map((journal: any) =>
-        journalKey(journal.code, journal.measurement_year, journal.measurement_period)));
       impactTargets = (relationTargets ?? []).map((target: any) => {
         const plan: any = planByTarget.get(Number(target.id));
         const planAssignments = assignmentsByPlan.get(String(plan?.id)) ?? [];
-        const persistedDates = planAssignments
+        const persistedDates = (postSeptemberMeasurementDates(target).length > 0
+          ? currentAssignmentsForDisplay(target, planAssignments) : planAssignments)
           .map((assignment) => String(assignment.measurement_date));
         const preliminaryScheduleBlocked = Boolean(plan?.recommended_date) && roleIdsForPlan(plan)
           .some((userId) => relationScheduleBlockedKeys.has(`${userId}:${plan.recommended_date}`));
-        const measurementScheduleBlocked = planAssignments.some((assignment) =>
+        const measurementScheduleBlocked = (postSeptemberMeasurementDates(target).length > 0
+          ? currentAssignmentsForDisplay(target, planAssignments) : planAssignments).some((assignment) =>
           relationScheduleBlockedKeys.has(`${Number(assignment.assignee_user_id)}:${String(assignment.measurement_date)}`),
         );
         const measurementRoleScheduleBlocked = measurementRoleKeys(target, relationUserIdByName)
@@ -1139,7 +1148,7 @@ export async function POST(request: NextRequest) {
         .map((target) => target.targetId).sort((left, right) => left - right);
       targetIds = impactScope.targetIds;
     }
-    let candidateQuery = supabase.from("measurement_target_business").select("id, code, year, period, measurement_date");
+    let candidateQuery = supabase.from("measurement_target_business").select("id, code, year, period, measurement_date, daily_staff");
     candidateQuery = candidateQuery.in("id", targetIds);
     if (requestedTargetIds.length !== 1 && measurementDateFrom) candidateQuery = candidateQuery.gte("measurement_date", measurementDateFrom);
     if (requestedTargetIds.length !== 1 && measurementDateTo) candidateQuery = candidateQuery.lte("measurement_date", measurementDateTo);
@@ -1147,16 +1156,14 @@ export async function POST(request: NextRequest) {
     if (candidateError) throw candidateError;
     const candidateCodes = [...new Set((candidateRows ?? []).map((row: any) => row.code))];
     const candidateIds = (candidateRows ?? []).map((row: any) => Number(row.id));
-    const [{ data: journalRows, error: journalError }, { data: planRows, error: planError }] = await Promise.all([
-      candidateCodes.length
-        ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", candidateCodes)
-        : Promise.resolve({ data: [], error: null }),
+    const [{ data: planRows, error: planError }, confirmedKeys] = await Promise.all([
       !explicitTargetSelection && candidateIds.length
         ? supabase.from("preliminary_survey_v2_plans").select("measurement_target_business_id, plan_origin, source_measurement_date").in("measurement_target_business_id", candidateIds)
         : Promise.resolve({ data: [], error: null }),
+      loadJournalConfirmationKeys(supabase, candidateCodes,
+        [...new Set((candidateRows ?? []).map((row: any) => Number(row.year)).filter(Number.isInteger))]),
     ]);
-    if (journalError || planError) throw journalError || planError;
-    const confirmedKeys = new Set((journalRows ?? []).map((row: any) => journalKey(row.code, row.measurement_year, row.measurement_period)));
+    if (planError) throw planError;
     const selectedTargetIds = new Set(targetIds);
     const planByTarget = new Map((planRows ?? []).map((plan: any) => [Number(plan.measurement_target_business_id), plan]));
     let eligibleTargetIds = (candidateRows ?? []).filter((row: any) => {

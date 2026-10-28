@@ -6,6 +6,7 @@ import { checkPermission } from "@/lib/auth/check-permission";
 import { toShortName } from "@/lib/constants/designated-offices";
 import { buildPreliminarySurveyDisplayModel, measurementRolesForDisplay } from "@/lib/preliminary-survey-v2/display-model";
 import { collectMeasurementParticipantNames } from "@/lib/business/measurement-day-form";
+import { currentAssignmentsForDisplay, postSeptemberMeasurementDates } from "@/lib/preliminary-survey-v2/current-measurement";
 
 /**
  * 측정정보 요약 조회 API
@@ -380,11 +381,14 @@ export async function GET(request: NextRequest) {
           collaborators: displayTarget.collaborators,
         })
         : [];
-      const v2PlanAssignments = v2Plan
-        ? (v2Assignments ?? [])
-          .filter((assignment: any) => String(assignment.plan_id) === String(v2Plan.id))
-          .sort((left: any, right: any) => String(left.measurement_date).localeCompare(String(right.measurement_date)))
+      const planAssignments = v2Plan
+        ? (v2Assignments ?? []).filter((assignment: any) => String(assignment.plan_id) === String(v2Plan.id))
         : [];
+      const v2PlanAssignments = displayTarget && postSeptemberMeasurementDates(displayTarget).length > 0
+        ? currentAssignmentsForDisplay(displayTarget, planAssignments)
+        : planAssignments;
+      v2PlanAssignments.sort((left: any, right: any) =>
+        String(left.measurement_date).localeCompare(String(right.measurement_date)));
       const v2Assignment: any = v2PlanAssignments.find(
         (assignment: any) => assignment.measurement_date === displayMeasurementDate,
       ) ?? v2PlanAssignments[0] ?? null;

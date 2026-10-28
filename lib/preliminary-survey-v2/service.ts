@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { collectMeasurementStaffNames } from "@/lib/business/link-measurer";
 import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
+import { journalConfirmationKey, loadJournalConfirmationKeys } from "./current-measurement";
 import { classifyMeasurementJournalBusiness, type MeasurementJournalClassificationRow } from "./classification";
 import { buildScheduleBlockKeys } from "./availability";
 import { fitsExistingPhoneResponsibleLimit } from "./responsible-capacity";
@@ -1006,25 +1007,21 @@ export async function loadGroupRecommendationTargets(
   if (targetError) throw new Error(`GROUP_TARGET_QUERY_FAILED:${targetError.message}`);
 
   const codes = [...new Set((targets ?? []).map((target: any) => target.code))];
-  const [{ data: users, error: userError }, { data: infoRows, error: infoError }, { data: journalRows, error: journalError }, { data: confirmedRows, error: confirmedError }, { data: planRows, error: planError }] = await Promise.all([
+  const [{ data: users, error: userError }, { data: infoRows, error: infoError }, { data: journalRows, error: journalError }, confirmedKeys, { data: planRows, error: planError }] = await Promise.all([
     supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
     codes.length ? supabase.from("business_info").select("code, latitude, longitude, geocoding_status").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
     codes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period, note, updated_at, created_at").in("code", codes)
       : Promise.resolve({ data: [], error: null }),
-    codes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", codes)
-      : Promise.resolve({ data: [], error: null }),
+    loadJournalConfirmationKeys(supabase, codes, [...new Set((targets ?? []).map((target: any) => Number(target.year)).filter(Number.isInteger))]),
     (targets ?? []).length ? supabase.from("preliminary_survey_v2_plans").select("measurement_target_business_id, plan_origin")
       .in("measurement_target_business_id", (targets ?? []).map((target: any) => Number(target.id)))
       : Promise.resolve({ data: [], error: null }),
   ]);
-  if (userError || infoError || journalError || confirmedError || planError) {
+  if (userError || infoError || journalError || planError) {
     throw new Error("GROUP_LOAD_FAILED");
   }
 
-  const confirmedKeys = new Set((confirmedRows ?? []).map((row: any) =>
-    `${row.code}|${row.measurement_year}|${String(row.measurement_period).trim().replace("(수시)", "")}`,
-  ));
   // 사용자가 확정한 manual plan 대상은 재추천 대상에서 제외한다 (묶음 확정 직후 중복 재추천 방지).
   const manualPlanTargetIds = new Set((planRows ?? [])
     .filter((row: any) => row.plan_origin === "manual")
@@ -1039,7 +1036,7 @@ export async function loadGroupRecommendationTargets(
   }));
 
   const result = (targets ?? []).flatMap((target: any) => {
-    if (confirmedKeys.has(`${target.code}|${target.year}|${String(target.period).trim().replace("(수시)", "")}`)) {
+    if (confirmedKeys.has(journalConfirmationKey(target.code, target.year, target.period))) {
       return [];
     }
     if (manualPlanTargetIds.has(Number(target.id))) {
@@ -1145,15 +1142,14 @@ export async function confirmGroupRecommendation(
   if (targetError) throw new Error("CONFIRM_LOAD_FAILED");
 
   const targetCodes = [...new Set((targets ?? []).map((target: any) => target.code))];
-  const [{ data: users, error: userError }, { data: journalRows, error: journalError }, { data: confirmedRows, error: confirmedError }, { data: planRows, error: planError }] = await Promise.all([
+  const [{ data: users, error: userError }, { data: journalRows, error: journalError }, confirmedKeys, { data: planRows, error: planError }] = await Promise.all([
     supabase.from("users").select("id, name, is_active, is_preliminary_survey_experienced").eq("job", "측정"),
     targetCodes.length ? supabase.from("measurement_journal").select("id, code, measurement_year, measurement_period, note, updated_at, created_at").in("code", targetCodes)
       : Promise.resolve({ data: [], error: null }),
-    targetCodes.length ? supabase.from("measurement_journal").select("code, measurement_year, measurement_period").in("code", targetCodes)
-      : Promise.resolve({ data: [], error: null }),
+    loadJournalConfirmationKeys(supabase, targetCodes, [...new Set((targets ?? []).map((target: any) => Number(target.year)).filter(Number.isInteger))]),
     supabase.from("preliminary_survey_v2_plans").select("id, measurement_target_business_id, plan_origin, survey_method").in("measurement_target_business_id", targetIds),
   ]);
-  if (userError || journalError || confirmedError || planError) {
+  if (userError || journalError || planError) {
     throw new Error("CONFIRM_LOAD_FAILED");
   }
 
@@ -1162,9 +1158,6 @@ export async function confirmGroupRecommendation(
     active: user.is_active,
   }));
   const userById = new Map(userRows.map((user) => [user.id, user]));
-  const confirmedKeys = new Set((confirmedRows ?? []).map((row: any) =>
-    `${row.code}|${row.measurement_year}|${String(row.measurement_period).trim().replace("(수시)", "")}`,
-  ));
   const planByTarget = new Map((planRows ?? []).map((row: any) => [Number(row.measurement_target_business_id), row]));
   const targetById = new Map((targets ?? []).map((target: any) => [Number(target.id), target]));
 
@@ -1177,7 +1170,7 @@ export async function confirmGroupRecommendation(
       failed.push({ targetId, code: String(targetId), reason: "TARGET_NOT_FOUND" });
       continue;
     }
-    if (confirmedKeys.has(`${target.code}|${target.year}|${String(target.period).trim().replace("(수시)", "")}`)) {
+    if (confirmedKeys.has(journalConfirmationKey(target.code, target.year, target.period))) {
       failed.push({ targetId, code: target.code, reason: "MEASUREMENT_JOURNAL_CONFIRMED" });
       continue;
     }
