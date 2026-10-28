@@ -4,6 +4,7 @@ import { hasAdminEditProof } from "@/lib/auth/admin-edit-proof";
 import { createClient } from "@/lib/supabase/server";
 import { canManagePreliminarySurvey } from "@/lib/preliminary-survey-v2/access";
 import { measurementDayFormsFrom } from "@/lib/business/measurement-day-form";
+import { currentMeasurementDates, postSeptemberMeasurementDates } from "@/lib/preliminary-survey-v2/current-measurement";
 import {
   resolveAutomaticMeasurementAssignments,
   withAutomaticMeasurementAssignments,
@@ -210,6 +211,15 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
     journalKeys.has(`${target.code}|${target.year}|${normalizedPeriod(target.period)}`)
     || protectedPlanIds.has(String(plans.find((plan: any) => Number(plan.measurement_target_business_id) === Number(target.id))?.id ?? ""))
   ).map((target: any) => Number(target.id));
+  const targetById = new Map(snapshotTargets.map((target: any) => [Number(target.id), target]));
+  const planById = new Map(plans.map((plan: any) => [String(plan.id), plan]));
+  const currentAssignments = assignments.filter((assignment: any) => {
+    const plan: any = planById.get(String(assignment.plan_id));
+    const target: any = targetById.get(Number(plan?.measurement_target_business_id));
+    if (!target || postSeptemberMeasurementDates(target).length === 0) return true;
+    // Preserve protected rows in storage, but an old date is not current occupancy.
+    return currentMeasurementDates(target).includes(String(assignment.measurement_date));
+  });
   const snapshot = buildPlanningSnapshot({
       targets: snapshotTargets.map((target: any) => ({ ...target,
         latitude: coordinateByCode.get(String(target.code))?.latitude ?? target.latitude ?? null,
@@ -218,7 +228,7 @@ async function loadSnapshot(supabase: any, measurementDate: string, mode: "displ
       users: users ?? [],
       fixedAssignments: fixedResult.data ?? [],
       plans,
-      assignments,
+      assignments: currentAssignments,
       scheduleBlocks: scheduleResult.data ?? [],
       routeEvidence: [],
       trueConfirmedTargetIds: protectedTargetIds,

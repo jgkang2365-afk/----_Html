@@ -7,6 +7,7 @@ import {
 } from "@/lib/preliminary-survey-v2/display-model";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { collectMeasurementParticipantNames } from "@/lib/business/measurement-day-form";
+import { currentAssignmentsForDisplay, postSeptemberMeasurementDates } from "@/lib/preliminary-survey-v2/current-measurement";
 
 /**
  * 직전 측정일지 데이터 조회 API
@@ -266,9 +267,12 @@ export async function GET(request: NextRequest) {
     if (v2AssignmentError) {
       throw new Error(`예비조사 V2 공시료 배정 표시 원천 조회 오류: ${v2AssignmentError.message}`);
     }
-    const v2Assignment = (v2Assignments ?? []).find(
+    const currentV2Assignments = targetRow && postSeptemberMeasurementDates(targetRow).length > 0
+      ? currentAssignmentsForDisplay(targetRow, v2Assignments ?? [])
+      : (v2Assignments ?? []);
+    const v2Assignment = currentV2Assignments.find(
       (assignment: any) => assignment.measurement_date === targetRow?.measurement_date,
-    ) ?? (v2Assignments ?? [])[0] ?? null;
+    ) ?? currentV2Assignments[0] ?? null;
 
     const measurementRoles = targetRow
       ? measurementRolesForDisplay({
@@ -296,7 +300,7 @@ export async function GET(request: NextRequest) {
       : [];
     const roleIds = [
       measurementRoles.reportWriterUserId,
-      ...(v2Assignments ?? []).map((assignment: any) => assignment.assignee_user_id),
+      ...currentV2Assignments.map((assignment: any) => assignment.assignee_user_id),
       ...participantIds,
     ]
       .map(Number)
@@ -347,7 +351,7 @@ export async function GET(request: NextRequest) {
           ? displayUserNames.get(Number(v2Assignment.assignee_user_id))
           : null,
         publicSampleCode: v2Assignment?.public_sample_code ?? v2Assignment?.survey_code,
-        measurementPublicSampleAssignments: (v2Assignments ?? []).map((assignment: any) => ({
+        measurementPublicSampleAssignments: currentV2Assignments.map((assignment: any) => ({
           measurementDate: assignment.measurement_date,
           assignee: displayUserNames.get(Number(assignment.assignee_user_id)),
           publicSampleCode: assignment.public_sample_code ?? assignment.survey_code,
