@@ -23,12 +23,13 @@ test("빈 값과 기본 대표자 동일 값은 override로 저장하지 않는�
   assert.equal(normalizeNationalSupportRepresentativeOverride("백두산", "홍길동"), "백두산");
 });
 
-test("관리자 수동 상태 API는 외부 신청 큐를 호출하지 않는다", () => {
+test("로그인 사용자 수동 상태 API는 외부 신청 큐를 호출하지 않는다", () => {
   const source = fs.readFileSync(
-    path.join(process.cwd(), "app/api/businesses/national-support/manual-status/route.ts"),
+    path.join(process.cwd(), "lib/national-support/manual-status-handler.ts"),
     "utf8",
   );
-  assert.match(source, /user\.role !== "관리자"/);
+  assert.match(source, /if \(!user\).*status: 401/);
+  assert.doesNotMatch(source, /user\.role !== "관리자"/);
   assert.match(source, /national_support_status !== "대상"/);
   assert.match(source, /set_manual_national_support_status/);
   assert.doesNotMatch(source, /enqueueAutomationJob|apply_if_missing|selenium/i);
@@ -168,7 +169,7 @@ test("Excel 확정결과는 신청 대표자를 snapshot으로 저장하고 expo
 
 test("수시 주기는 UI와 서버에서 대상 수동확정을 차단한다", () => {
   const manualApi = fs.readFileSync(
-    path.join(process.cwd(), "app/api/businesses/national-support/manual-status/route.ts"),
+    path.join(process.cwd(), "lib/national-support/manual-status-handler.ts"),
     "utf8",
   );
   const businessApi = fs.readFileSync(path.join(process.cwd(), "app/api/businesses/route.ts"), "utf8");
@@ -180,6 +181,6 @@ test("수시 주기는 UI와 서버에서 대상 수동확정을 차단한다", 
   assert.match(manualApi, /isAdHocMeasurement\(targetPeriod\) && national_support_status === "대상"/);
   assert.ok(manualApi.indexOf("isAdHocMeasurement(targetPeriod)") < manualApi.indexOf('.rpc("set_manual_national_support_status"'));
   assert.match(businessApi, /isAdHocMeasurement\(period\) && requestedManualStatus === "대상"/);
-  assert.match(form, /isAdmin && !isAdHocPeriod/);
+  assert.match(form, /\(!isCreate \|\| isAdmin\) && !isAdHocPeriod/);
   assert.match(form, /수시 주기는 건강디딤돌 비대상으로 처리됩니다/);
 });
