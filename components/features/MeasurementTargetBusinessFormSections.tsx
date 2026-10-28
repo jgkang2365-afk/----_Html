@@ -599,7 +599,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
                     commencement_number: value.commencement || value.commencement_number,
                   }))}
             </div>
-            {isAdmin && !isAdHocPeriod && (
+            {(!isCreate || isAdmin) && !isAdHocPeriod && (
               <label className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
                 <input
                   type="checkbox"
@@ -610,7 +610,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
                     );
                   }}
                 />
-                관리자 수정
+                수동 수정
               </label>
             )}
             {isAdHocPeriod && (

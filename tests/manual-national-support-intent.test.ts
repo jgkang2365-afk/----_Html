@@ -8,7 +8,7 @@ import {
   toggleManualNationalSupportIntent,
 } from "../lib/business/target-business-form";
 
-test("관리자 수동수정 ON → 선택 → OFF는 draft와 저장 intent를 함께 지운다", () => {
+test("수동수정 ON → 선택 → OFF는 draft와 저장 intent를 함께 지운다", () => {
   const enabled = toggleManualNationalSupportIntent(
     EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT,
     true,

@@ -1469,6 +1469,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             return;
         }
 
+        let manualNationalSupportStatusAttempted = false;
         try {
             const initialState = editInitialStateRef.current;
             const updatesToSave = buildTargetBusinessEditPatch(
@@ -1482,9 +1483,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 }),
                 measurementDays,
             );
-            const manualNationalSupportStatus = isAdmin
-                ? resolveManualNationalSupportStatus(editManualNationalSupportIntent)
-                : null;
+            const manualNationalSupportStatus = resolveManualNationalSupportStatus(editManualNationalSupportIntent);
             if (Object.keys(updatesToSave).length === 0 && !manualNationalSupportStatus) {
                 closeEditModal();
                 return;
@@ -1499,6 +1498,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 );
             }
             if (manualNationalSupportStatus) {
+                manualNationalSupportStatusAttempted = true;
                 const manualResponse = await fetch("/api/businesses/national-support/manual-status", {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
@@ -1511,7 +1511,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     }),
                 });
                 if (!manualResponse.ok) {
-                    const errData = await manualResponse.json();
+                    const errData = await manualResponse.json().catch(() => ({}));
                     throw new Error(errData.error || "국고지원 수동 확정에 실패했습니다.");
                 }
             }
@@ -1523,6 +1523,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         } catch (err) {
             // saveChanges 내부 catch 블록에서 이미 에러 얼럿창을 띄우므로, 모달을 닫지 않고 입력을 보존하며 리턴함
             console.error("수정 저장 실패:", err);
+            if (manualNationalSupportStatusAttempted) {
+                alert(`국고지원 수동 수정에 실패했습니다.\n${err instanceof Error ? err.message : String(err)}`);
+            }
         }
     };
 

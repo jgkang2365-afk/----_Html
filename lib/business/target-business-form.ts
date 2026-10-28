@@ -65,7 +65,7 @@ export interface TargetBusinessFormValues {
 }
 
 /**
- * 관리자 수동 국고지원 수정은 사업장 form 데이터가 아닌, 이번 저장의 UI 의도다.
+ * 수동 국고지원 수정은 사업장 form 데이터가 아닌, 이번 저장의 UI 의도다.
  * OFF 전환과 모달 재진입에서 draft를 함께 비우도록 한 곳에서 상태 전이를 정의한다.
  */
 export type ManualNationalSupportStatus = "대상" | "비대상";
