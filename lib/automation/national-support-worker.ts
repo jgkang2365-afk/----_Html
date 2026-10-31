@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "child_process";
+import { existsSync } from "fs";
 import path from "path";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -74,8 +75,11 @@ function runPythonAutomation(
 ): Promise<AutomationResult> {
   return new Promise((resolve, reject) => {
     const script = path.join(process.cwd(), "scratch", scriptName);
+    const venvPython = path.join(process.cwd(), ".venv-national-support", "Scripts", "python.exe");
+    const python = process.platform === "win32" && existsSync(venvPython) ? venvPython : "python";
+    console.info(`[NationalSupportWorker] ${label} Python 실행: ${python}`);
     let settled = false;
-    const child = spawn("python", [script, ...args], {
+    const child = spawn(python, [script, ...args], {
       windowsHide: true,
       detached: process.platform !== "win32",
     });
@@ -88,7 +92,7 @@ function runPythonAutomation(
     const timeoutHandle = setTimeout(() => {
       finish(() => {
         terminateProcessTree(child.pid);
-        reject(new Error(`${label}이 제한 시간 안에 끝나지 않아 중단했습니다.`));
+        reject(new Error(`${label}이 제한 시간 안에 끝나지 않아 중단했습니다. Python: ${python}`));
       });
     }, timeoutMs);
 
@@ -115,11 +119,11 @@ function runPythonAutomation(
       }
     });
     child.stderr.on("data", data => { stderr += data.toString(); });
-    child.on("error", error => finish(() => reject(error)));
+    child.on("error", error => finish(() => reject(new Error(`${label} Python 실행 실패 (${python}): ${error.message}`))));
     child.on("close", exitCode => {
       finish(() => {
         if (exitCode !== 0) {
-          reject(new Error(stderr.trim() || `${label} 프로그램 종료 코드: ${exitCode}`));
+          reject(new Error(`${label} Python 실행 실패 (${python}): ${stderr.trim() || `프로그램 종료 코드: ${exitCode}`}`));
           return;
         }
         const lines = stdout.split("\n").map(line => line.trim()).filter(Boolean);
