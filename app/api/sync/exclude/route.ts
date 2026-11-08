@@ -46,8 +46,12 @@ export async function POST(request: NextRequest) {
 
     // 예외가 등록되었으므로 데이터 정합성 검증을 즉시 재실행하여 알림 및 측정일지 특이사항 동기화
     try {
-      await verifyDataConsistency(supabase);
-      console.log("[제외 API] 데이터 정합성 검증 재실행 성공");
+      const verification = await verifyDataConsistency(supabase);
+      if (verification.success) {
+        console.log("[제외 API] 데이터 정합성 검증 재실행 성공");
+      } else {
+        console.error("[제외 API] 데이터 정합성 검증 재실행 실패:", verification.error);
+      }
     } catch (verError) {
       console.error("[제외 API] 데이터 정합성 검증 재실행 실패:", verError);
     }

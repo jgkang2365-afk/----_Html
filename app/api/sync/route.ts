@@ -51,14 +51,19 @@ export async function POST(request: Request) {
       errorCount: results.filter(r => !r.success).length
     });
 
-    // [ADD] 데이터 정합성 검증 실행
-    // 동기화 후 반드시 실행하여 최신 상태 검증
-    try {
-      await verifyDataConsistency();
-      console.log("[동기화 API] 데이터 정합성 검증 완료");
-    } catch (verError) {
-      console.error("[동기화 API] 데이터 정합성 검증 실패:", verError);
-      // 검증 실패는 전체 동기화 실패로 간주하지 않음 (로그만 남김)
+    // 소스 동기화가 부분 실패했다면 불완전한 스냅샷으로 경고를 정리하지 않는다.
+    if (!hasError) {
+      try {
+        const verification = await verifyDataConsistency();
+        if (!verification.success) {
+          console.error("[동기화 API] 데이터 정합성 검증 실패:", verification.error);
+        } else {
+          console.log("[동기화 API] 데이터 정합성 검증 완료");
+        }
+      } catch (verError) {
+        console.error("[동기화 API] 데이터 정합성 검증 실패:", verError);
+        // 검증 실패는 Excel 동기화 실패로 간주하지 않는다.
+      }
     }
 
     return NextResponse.json(
