@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { DESIGNATED_OFFICES, toShortName } from "@/lib/constants/designated-offices";
+import { latestReportWriters, type ReportWriterSurvey } from "@/lib/sales/latest-report-writer";
 
 /**
  * 매출관리 조회 API
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
     const representativeName = searchParams.get("representativeName")?.trim() || null;
     const measurementPeriod = searchParams.get("measurementPeriod")?.trim() || null;
     const designatedOffice = searchParams.get("designatedOffice")?.trim() || null;
+    const includeUnpaidWriters = searchParams.get("unpaidWriterLookup") === "1";
     
     // 정렬 파라미터
     const sortColumn = searchParams.get("sortColumn") || "measurement_year";
@@ -35,23 +37,23 @@ export async function GET(request: NextRequest) {
     // --- [최적화 1] 집계 계산을 위한 가벼운 전체 데이터 조회 ---
     // 전체 목록을 가져오는 대신, 계산에 꼭 필요한 컬럼만 선택하여 속도 향상
     // StatTables 컴포넌트에서 미수금 상세 분석 등을 위해 추가 컬럼이 필요하므로 포함합니다.
-    let measurementSummaryQuery = supabase
+    const makeMeasurementSummaryQuery = () => supabase
       .from("measurement_journal")
-      .select("id, business_name, representative_name, business_number, industrial_accident_number, commencement_number, designated_office, measurement_year, measurement_period, measurement_start_date, measurement_fee_total, deposit_total, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national, k2b_send_date, k2b_status, is_email_sent, last_email_sent_at, invoice_business_name, invoice_business_number, electronic_invoice_date, electronic_invoice_date_2, invoice_email, invoice_email_2, deposit_date_business, deposit_date_business_2, deposit_date_national, revenue_type, manager_mobile, manager_name, manager_position")
+      .select("id, code, business_name, representative_name, business_number, industrial_accident_number, commencement_number, designated_office, measurement_year, measurement_period, measurement_start_date, measurement_fee_total, deposit_total, measurement_fee_business, deposit_amount_business, deposit_amount_business_2, measurement_fee_national, deposit_amount_national, k2b_send_date, k2b_status, is_email_sent, last_email_sent_at, invoice_business_name, invoice_business_number, electronic_invoice_date, electronic_invoice_date_2, invoice_email, invoice_email_2, deposit_date_business, deposit_date_business_2, deposit_date_national, revenue_type, manager_mobile, manager_name, manager_position")
       .order("measurement_year", { ascending: false })
       .order("measurement_period", { ascending: false })
       .order("id", { ascending: false })
-      .limit(50000)
       .not("business_name", "ilike", "%번외%");
+    const measurementSummaryQuery = makeMeasurementSummaryQuery();
 
     // 기타 매출은 전체 데이터를 테이블에 표시해야 하므로 전체 컬럼을 선택합니다.
-    let otherSummaryQuery = supabase
+    const makeOtherSummaryQuery = () => supabase
       .from("other_revenue")
       .select("*")
       .order("revenue_year", { ascending: false })
       .order("revenue_period", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(50000);
+      .order("id", { ascending: false });
+    const otherSummaryQuery = makeOtherSummaryQuery();
 
     // 공통 필터 적용 함수
     const applyFilters = (query: any, isOther: boolean = false, excludeYear: boolean = false, includeSearch: boolean = true) => {
@@ -169,19 +171,63 @@ export async function GET(request: NextRequest) {
     const [
       { data: measurementRevenue, count: totalCount, error: measurementError },
       { data: otherRevenue, error: otherError },
-      { data: allMeasurementForSummary },
-      { data: allOtherForSummary }
+      { data: initialMeasurementForSummary, error: measurementSummaryError },
+      { data: initialOtherForSummary, error: otherSummaryError }
     ] = await Promise.all([
       measurementDataQuery,
       otherRevenueQuery,
       // 집계용 데이터는 년도 필터와 검색 필터(사업장/대표자) 제외 (통계의 정확성 유지)
-      applyFilters(measurementSummaryQuery, false, true, false),
-      applyFilters(otherSummaryQuery, true, true, false)
+      includeUnpaidWriters ? applyFilters(measurementSummaryQuery, false, true, false).range(0, 999) : applyFilters(measurementSummaryQuery, false, true, false).limit(50000),
+      includeUnpaidWriters ? applyFilters(otherSummaryQuery, true, true, false).range(0, 999) : applyFilters(otherSummaryQuery, true, true, false).limit(50000)
     ]);
 
-    if (measurementError || otherError) {
-      console.error("매출 조회 오류:", measurementError || otherError);
+    if (measurementError || otherError || measurementSummaryError || otherSummaryError) {
+      console.error("매출 조회 오류:", measurementError || otherError || measurementSummaryError || otherSummaryError);
       return NextResponse.json({ error: "데이터를 불러오는 중 오류가 발생했습니다." }, { status: 500 });
+    }
+
+    let allMeasurementForSummary = initialMeasurementForSummary || [];
+    let allOtherForSummary = initialOtherForSummary || [];
+    let reportWriterNames: string[] = [];
+    let latestReportWriterByCode: Record<string, string | null> = {};
+
+    if (includeUnpaidWriters) {
+      // PostgREST may cap a response at 1,000 rows even when a larger limit is requested.
+      const loadRemaining = async (initial: any[], makeQuery: () => any, isOther: boolean) => {
+        const rows = [...initial];
+        for (let offset = 1000; rows.length === offset; offset += 1000) {
+          const { data, error } = await applyFilters(makeQuery(), isOther, true, false).range(offset, offset + 999);
+          if (error) throw error;
+          rows.push(...(data || []));
+          if (!data || data.length < 1000) break;
+        }
+        return rows;
+      };
+      [allMeasurementForSummary, allOtherForSummary] = await Promise.all([
+        loadRemaining(allMeasurementForSummary, makeMeasurementSummaryQuery, false),
+        loadRemaining(allOtherForSummary, makeOtherSummaryQuery, true),
+      ]);
+
+      const staffResponse = await supabase.from("users").select("name").eq("job", "측정").order("name");
+      if (staffResponse.error) throw staffResponse.error;
+      reportWriterNames = [...new Set((staffResponse.data || []).map((row) => row.name?.trim()).filter((name): name is string => Boolean(name)))].sort((a, b) => a.localeCompare(b, "ko"));
+      const codes = [...new Set(allMeasurementForSummary
+        .filter((row: any) => Number(row.measurement_fee_total || 0) - Number(row.deposit_total || 0) > 0)
+        .map((row: any) => row.code?.trim())
+        .filter((code: unknown): code is string => typeof code === "string" && Boolean(code)))];
+      const surveys: ReportWriterSurvey[] = [];
+      for (let start = 0; start < codes.length; start += 100) {
+        const chunk = codes.slice(start, start + 100);
+        for (let offset = 0; ; offset += 1000) {
+          const { data, error } = await supabase.from("preliminary_survey")
+            .select("code, year, period, measurement_date, end_date, sequence_number, report_writer")
+            .in("code", chunk).order("id", { ascending: true }).range(offset, offset + 999);
+          if (error) throw error;
+          surveys.push(...(data || []));
+          if (!data || data.length < 1000) break;
+        }
+      }
+      latestReportWriterByCode = latestReportWriters(surveys, reportWriterNames);
     }
 
     // 3. 집계 데이터 계산
@@ -396,6 +442,7 @@ export async function GET(request: NextRequest) {
         ...item,
         designated_office: item.designated_office ? toShortName(item.designated_office) : item.designated_office,
       })),
+      ...(includeUnpaidWriters ? { reportWriterNames, latestReportWriterByCode } : {}),
       allOtherData: (allOtherForSummary || []).map((item: any) => ({
         ...item,
         designated_office: item.designated_office ? toShortName(item.designated_office) : item.designated_office,
