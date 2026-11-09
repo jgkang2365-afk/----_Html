@@ -43,6 +43,7 @@ import { ThirdPartyTable } from "./sales/ThirdPartyTable";
 import { StatTables } from "./sales/StatTables";
 import { MeasurementRevenue, OtherRevenue, OfficeSummary, YearlySummary, SalesSummaryData, ProcessingResult } from "./sales/types";
 import { useUser } from "@/hooks/use-user";
+import { matchesLatestReportWriter } from "@/lib/sales/latest-report-writer";
 
 export const SalesManagement: React.FC = () => {
   // KST 날짜를 YYYY-MM-DD 형식으로 포맷 (toISOString은 UTC로 변환되므로 사용 금지)
@@ -146,6 +147,8 @@ export const SalesManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [measurementRevenue, setMeasurementRevenue] = useState<MeasurementRevenue[]>([]);
   const [allMeasurementData, setAllMeasurementData] = useState<MeasurementRevenue[]>([]);
+  const [reportWriterNames, setReportWriterNames] = useState<string[]>([]);
+  const [latestReportWriterByCode, setLatestReportWriterByCode] = useState<Record<string, string | null>>({});
   const [otherRevenue, setOtherRevenue] = useState<OtherRevenue[]>([]);
   const [allOtherData, setAllOtherData] = useState<OtherRevenue[]>([]);
   const [summary, setSummary] = useState<SalesSummaryData | null>(null);
@@ -283,6 +286,7 @@ export const SalesManagement: React.FC = () => {
 
   // 미수관리 필터 및 정렬 상태
   const [unpaidFilters, setUnpaidFilters] = useState({
+    reportWriter: "", // 최신 보고서 담당자 (업체 code 기준)
     type: "", // 구분: "measurement" | "other" | ""
     name: "", // 사업장명/품명
     representativeName: "", // 대표자명
@@ -469,6 +473,7 @@ export const SalesManagement: React.FC = () => {
         params.append("sortColumn", measurementSort.column);
         params.append("sortDirection", measurementSort.direction);
       } else if (activeTab === "unpaid") {
+        params.append("unpaidWriterLookup", "1");
         if (unpaidFilters.year) params.append("year", unpaidFilters.year);
         if (unpaidFilters.period) params.append("measurementPeriod", unpaidFilters.period);
       } else if (activeTab === "other") {
@@ -502,6 +507,10 @@ export const SalesManagement: React.FC = () => {
       if (result.success !== false) {
         setMeasurementRevenue(result.measurementRevenue || []);
         setAllMeasurementData(result.allMeasurementData || []);
+        if (activeTab === "unpaid") {
+          setReportWriterNames(result.reportWriterNames || []);
+          setLatestReportWriterByCode(result.latestReportWriterByCode || {});
+        }
 
         const filteredOtherRevenue = (result.otherRevenue || []).filter(
           (item: OtherRevenue) => !deletedOtherIds.has(item.id)
@@ -1800,6 +1809,7 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
 
                   // 필터링 적용
                   let filteredItems = unpaidItems.filter((item) => {
+                    if (!matchesLatestReportWriter(unpaidFilters.reportWriter, item, latestReportWriterByCode)) return false;
                     if (unpaidFilters.type && item.type !== unpaidFilters.type) return false;
                     if (unpaidFilters.name && !checkSearchMatch(item.name, unpaidFilters.name)) return false;
                     if (unpaidFilters.representativeName && !checkSearchMatch(item.representative, unpaidFilters.representativeName)) return false;
@@ -1872,7 +1882,7 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
 
                   return (
                     <div className="mt-4">
-                      <div className="sticky top-[-1px] z-40 bg-white py-3 flex justify-between items-center border-b border-surface-100 mb-2">
+                      <div className="sticky top-[-1px] z-40 bg-white py-3 flex flex-wrap justify-between items-center gap-2 border-b border-surface-100 mb-2">
                         <div className="flex items-center gap-3">
                           <div className="text-sm font-medium text-text-700">
                             검색 결과: <span className="text-primary-600 font-bold">{filteredItems.length}</span>건 <span className="text-text-400 font-normal ml-1">(전체 {unpaidItems.length}건)</span>
@@ -1885,6 +1895,15 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                           )}
                         </div>
                         <div className="flex items-center gap-2">
+                          <div className="w-44">
+                            <Select
+                              aria-label="보고서 담당자"
+                              className="h-8 py-0 text-xs"
+                              value={unpaidFilters.reportWriter}
+                              onChange={(event) => setUnpaidFilters({ ...unpaidFilters, reportWriter: event.target.value })}
+                              options={[{ value: "", label: "보고서 담당자 / 전체" }, ...reportWriterNames.map((name) => ({ value: name, label: name }))]}
+                            />
+                          </div>
                           {activeTab !== "unpaid" && (user?.is_journal_manager || user?.role === "관리자") && (
                             <Button
                               variant="primary"
@@ -1911,6 +1930,7 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                             className="h-8 text-xs font-semibold"
                             onClick={() => {
                               const initial = {
+                                reportWriter: "",
                                 type: "",
                                 name: "",
                                 representativeName: "",
