@@ -1895,6 +1895,12 @@ ${periodsText} 작업환경측정 수수료 미수금 ${formatAmt}원 이오니 
                           )}
                         </div>
                         <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 mr-2 text-xs font-medium" aria-label="측정비 미수금 색상 구분">
+                            <span className="text-text-500">미수금 색상:</span>
+                            <span className="text-red-600">사업장 &amp; 국고 미수,</span>
+                            <span className="text-blue-600">사업장 미수,</span>
+                            <span className="text-black">국고 미수</span>
+                          </div>
                           <div className="w-44">
                             <Select
                               aria-label="보고서 담당자"
