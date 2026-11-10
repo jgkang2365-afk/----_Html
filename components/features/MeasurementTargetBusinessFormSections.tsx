@@ -25,6 +25,24 @@ import {
   hasNationalSupportApplicationInformation,
   hasNationalSupportLookupInformation,
 } from "@/lib/national-support/eligibility";
+import { describeNationalSupportLookupError } from "@/lib/national-support/lookup-error-display";
+
+function NationalSupportLookupFailure({ message }: { message: string | null | undefined }) {
+  const display = describeNationalSupportLookupError(message ?? "");
+  return (
+    <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800" role="alert">
+      <p className="font-semibold">조회 실패 유형: {display.type}</p>
+      <p className="mt-1">사유: {display.reason}</p>
+      <p className="mt-1">조치: {display.action}</p>
+      {message && (
+        <details className="mt-2 border-t border-red-200 pt-2">
+          <summary className="cursor-pointer font-medium">기술 상세</summary>
+          <p className="mt-2 whitespace-pre-wrap break-all text-slate-700">{message}</p>
+        </details>
+      )}
+    </div>
+  );
+}
 
 export interface MeasurementFormUser {
   id: number;
@@ -696,9 +714,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
                 commencement_number: value.commencement || value.commencement_number,
               })}
             </span>
-            {value.sync_status === "실패" && value.sync_error_message && (
-              <p className="mt-1 font-semibold text-red-600">사유: {value.sync_error_message}</p>
-            )}
+            {value.sync_status === "실패" && <NationalSupportLookupFailure message={value.sync_error_message} />}
           </div>
         )}
       </section>
