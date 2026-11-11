@@ -230,7 +230,7 @@ test("측정 기준일 범위·선택 대상 추천은 검색 결과 교집합�
   assert.match(ui, /explicitTargetSelection: Boolean\(targetId\) \|\| selectedTargetIds\.size > 0/);
   assert.doesNotMatch(ui, /recommendDateMode|추천 범위"|>없음<|>일자<|>기간</);
   assert.match(ui, /measurementRangeFromReference\(measurementBaseDate, measurementRangeUnit\)/);
-  assert.match(ui, /adjacentMeasurementReferenceDate\(measurementBaseDate, measurementRangeUnit, direction\)/);
+  assert.match(ui, /adjacentMeasurementReferenceDate\(measurementBaseDate \|\| currentDateInKst\(\), measurementRangeUnit, direction\)/);
   assert.match(ui, /measurementDateFrom: planSearchSnapshot\.measurementDateFrom \|\| undefined/);
   assert.match(ui, /measurementDateTo: planSearchSnapshot\.measurementDateTo \|\| undefined/);
   assert.doesNotMatch(ui, /preliminaryDateFrom|preliminaryDateTo/);

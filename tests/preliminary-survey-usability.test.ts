@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import { lookupLaborOffices } from "../lib/labor-offices/lookup";
-import { createDefaultPreliminarySurveyFilters } from "../lib/preliminary-survey-v2/filter-state";
+import { createDefaultPreliminarySurveyFilters, createResetPreliminarySurveyFilters } from "../lib/preliminary-survey-v2/filter-state";
 import {
   buildPersonAssignmentRows,
   filterPersonAssignmentRows,
@@ -171,4 +171,26 @@ test("개인별 API는 legacy preliminary_survey를 source로 조회하지 않�
   assert.match(api, /preliminary_survey_v2_plans/);
   assert.match(api, /measurement_target_business/);
   assert.doesNotMatch(api, /from\("preliminary_survey"\)/);
+});
+
+
+test("계획과 목록의 초기화는 측정 기준일·조회 범위도 공란으로 만들고 복원한다", () => {
+  const initial = createDefaultPreliminarySurveyFilters("2026-09-26");
+  const reset = createResetPreliminarySurveyFilters("2026-09-26");
+  const emptyRange = { measurementBaseDate: "", measurementDateFrom: "", measurementDateTo: "" };
+  assert.deepEqual(reset.plan, { ...initial.plan, ...emptyRange });
+  assert.deepEqual(reset.list, { ...initial.list, ...emptyRange });
+  assert.equal(reset.list.preliminaryDateFilter, "");
+  assert.equal(initial.plan.measurementBaseDate, "2026-09-26", "최초 진입 기본 날짜는 유지");
+
+  const ui = read("components/features/PreliminarySurveyV2Plans.tsx");
+  assert.match(ui, /const defaults = createResetPreliminarySurveyFilters\(\);/);
+  assert.match(ui, /setMeasurementBaseDate\(next\.measurementBaseDate\)/);
+  assert.match(ui, /setPlanSearchSnapshot\(defaults\.plan\)/);
+  assert.match(ui, /setListSearchSnapshot\(defaults\.list\)/);
+  assert.match(ui, /parsed\.measurementBaseDate === ""/);
+  assert.equal((ui.match(/: \{ startDate: "", endDate: "" \}/g) ?? []).length, 2);
+  assert.match(ui, /setMeasurementBaseDate\(nextDate\);\s+if \(!nextDate\) return;/);
+  assert.match(ui, /measurementBaseDate \|\| currentDateInKst\(\)/);
+  assert.equal((ui.match(/>초기화<\/Button>/g) ?? []).length, 2);
 });

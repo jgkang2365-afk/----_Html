@@ -46,3 +46,20 @@ export function createDefaultPreliminarySurveyFilters(referenceDate = currentDat
     },
   };
 }
+
+/** 검색 초기화에서는 기준일 제한을 해제하며, 최초 진입의 오늘 날짜 기본값은 유지한다. */
+export function createResetPreliminarySurveyFilters(referenceDate = currentDateInKst()): {
+  plan: PlanFilterState;
+  list: ListFilterState;
+} {
+  const defaults = createDefaultPreliminarySurveyFilters(referenceDate);
+  const withoutDate = {
+    measurementBaseDate: "",
+    measurementDateFrom: "",
+    measurementDateTo: "",
+  };
+  return {
+    plan: { ...defaults.plan, ...withoutDate },
+    list: { ...defaults.list, ...withoutDate },
+  };
+}

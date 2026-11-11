@@ -22,7 +22,7 @@ import {
   matchesWorkbenchSearch,
   measurementDatesInRange,
 } from "@/lib/preliminary-survey-v2/workbench-search";
-import { createDefaultPreliminarySurveyFilters } from "@/lib/preliminary-survey-v2/filter-state";
+import { createDefaultPreliminarySurveyFilters, createResetPreliminarySurveyFilters } from "@/lib/preliminary-survey-v2/filter-state";
 import type {
   CanonicalMeasurementAssignmentDraft,
   RecommendationScopeSnapshot,
@@ -149,13 +149,15 @@ function restoreSearchSnapshot<T extends PlanSearchSnapshot | ListSearchSnapshot
     const raw = window.localStorage.getItem(key);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const measurementBaseDate = isDateOnly(parsed.measurementBaseDate)
-      ? parsed.measurementBaseDate
-      : fallback.measurementBaseDate;
+    const measurementBaseDate = parsed.measurementBaseDate === ""
+      ? ""
+      : isDateOnly(parsed.measurementBaseDate) ? parsed.measurementBaseDate : fallback.measurementBaseDate;
     const measurementRangeUnit = isRangeUnit(parsed.measurementRangeUnit)
       ? parsed.measurementRangeUnit
       : fallback.measurementRangeUnit;
-    const range = measurementRangeFromReference(measurementBaseDate, measurementRangeUnit);
+    const range = measurementBaseDate
+      ? measurementRangeFromReference(measurementBaseDate, measurementRangeUnit)
+      : { startDate: "", endDate: "" };
     const common = {
       ...fallback,
       year: Number.isInteger(parsed.year) && Number(parsed.year) >= 2000 && Number(parsed.year) <= 2100
@@ -445,7 +447,9 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
 
   useEffect(() => {
     if (!filtersReady) return;
-    const range = measurementRangeFromReference(measurementBaseDate, measurementRangeUnit);
+    const range = measurementBaseDate
+      ? measurementRangeFromReference(measurementBaseDate, measurementRangeUnit)
+      : { startDate: "", endDate: "" };
     if (mode === "plan") {
       const changed = year !== planSearchSnapshot.year || period !== planSearchSnapshot.period
         || statusFilter !== planSearchSnapshot.statusFilter || kindFilter !== planSearchSnapshot.kindFilter
@@ -513,7 +517,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   };
 
   const resetFilters = () => {
-    const defaults = createDefaultPreliminarySurveyFilters();
+    const defaults = createResetPreliminarySurveyFilters();
     const next = mode === "plan" ? defaults.plan : defaults.list;
     invalidateDrafts("조회 조건을 초기화하여 새 추천이 필요합니다.");
     setSelectedTargetIds(new Set());
@@ -532,15 +536,15 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
   };
 
   const updateMeasurementBaseDate = (nextDate: string) => {
-    if (!nextDate) return;
     invalidateDrafts();
     setMeasurementBaseDate(nextDate);
+    if (!nextDate) return;
     setYear(Number(nextDate.slice(0, 4)));
     if (period) setPeriod(Number(nextDate.slice(5, 7)) <= 6 ? "상반기" : "하반기");
   };
 
   const moveMeasurementRange = (direction: -1 | 1) => {
-    updateMeasurementBaseDate(adjacentMeasurementReferenceDate(measurementBaseDate, measurementRangeUnit, direction));
+    updateMeasurementBaseDate(adjacentMeasurementReferenceDate(measurementBaseDate || currentDateInKst(), measurementRangeUnit, direction));
   };
 
   const changeMeasurementRangeUnit = (unit: MeasurementRangeUnit) => {
@@ -909,7 +913,7 @@ export function PreliminarySurveyV2Plans({ mode = "plan" }: { mode?: "plan" | "l
       </Modal>}
       {mode === "plan" && <FixedAssigneeReversePlanner
         isOpen={isAutoAssignmentOpen || editingRow != null}
-        initialMeasurementDate={editingRow?.measurementDates?.[0] ?? editingRow?.measurementDate ?? measurementBaseDate}
+        initialMeasurementDate={editingRow?.measurementDates?.[0] ?? editingRow?.measurementDate ?? (measurementBaseDate || currentDateInKst())}
         initialTargetId={editingRow?.targetId ?? null}
         onClose={() => { setIsAutoAssignmentOpen(false); setEditingRow(null); }}
         onApplied={async () => {
