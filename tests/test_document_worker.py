@@ -11,6 +11,7 @@ from document_worker import (
     build_filename,
     build_manager_contact,
     build_output_path,
+    ensure_output_directory,
     format_business_number,
     normalize_measurement_period,
     publish_file,
@@ -79,6 +80,44 @@ class DocumentWorkerTest(unittest.TestCase):
         mutex.release()
         mutex.release()
         self.assertEqual(closed, [456])
+
+    def test_output_directory_retries_transient_rai_drive_access_denial(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "final"
+            original_mkdir = Path.mkdir
+            calls = []
+
+            def intermittent_mkdir(path, *args, **kwargs):
+                calls.append(path)
+                if path == target and len(calls) <= 2:
+                    raise PermissionError(13, "Access is denied", str(path))
+                return original_mkdir(path, *args, **kwargs)
+
+            with patch.object(Path, "mkdir", new=intermittent_mkdir), patch("document_worker.time.sleep") as sleeper:
+                ensure_output_directory(target)
+
+            self.assertTrue(target.is_dir())
+            self.assertEqual(len(calls), 3)
+            self.assertEqual([call.args[0] for call in sleeper.call_args_list], [0.5, 1.0])
+
+    def test_output_directory_permanent_access_denial_remains_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "no-access"
+            with patch.object(Path, "mkdir", side_effect=PermissionError(13, "Access denied")) as mocked, patch("document_worker.time.sleep") as sleeper:
+                with self.assertRaises(PermissionError):
+                    ensure_output_directory(target)
+            self.assertEqual(mocked.call_count, 4)
+            self.assertEqual(sleeper.call_count, 3)
+            self.assertFalse(target.exists())
+
+    def test_output_directory_nonpermission_error_not_retried(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "not-directory"
+            with patch.object(Path, "mkdir", side_effect=FileExistsError(17, "Not a directory")) as mocked, patch("document_worker.time.sleep") as sleeper:
+                with self.assertRaises(FileExistsError):
+                    ensure_output_directory(target)
+            mocked.assert_called_once()
+            sleeper.assert_not_called()
 
     def test_h0507_output_path_and_filename(self):
         path = build_output_path(Path("Z:/data/측정팀/측정보고서"), self.snapshot)
