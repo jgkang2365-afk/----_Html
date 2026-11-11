@@ -12,6 +12,7 @@ import {
 import {
   isValidNationalSupportContactName,
   isValidNationalSupportMobile,
+  isSingleNationalSupportRepresentative,
 } from "@/lib/national-support/eligibility";
 import { hasMeasurementJournalForTarget, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
 
@@ -226,6 +227,10 @@ export async function processNationalSupportJob(
 
   try {
     if (mode === "apply_if_missing") {
+      if (!isSingleNationalSupportRepresentative(payload.representative)) {
+        await updateProgress("확인대기", "복수 대표자명이 확인되어 신청하지 않았습니다. 신청 대표자를 별도로 지정한 뒤 재검토해 주세요.");
+        return { resultCode: "REPRESENTATIVE_REVIEW_SKIP" };
+      }
       // Guard 2: this runs immediately before the integrated flow can reach
       // its application action, closing the enqueue-to-effect race.
       if (await hasMeasurementJournalForTarget(supabase, payload)) {

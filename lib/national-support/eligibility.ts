@@ -67,6 +67,15 @@ export function isValidNationalSupportMobile(value: unknown) {
   return digits !== "01012345678" && digits !== "0101234567";
 }
 
+/** Names for two or more representatives require a reviewed single-person override. */
+export function isSingleNationalSupportRepresentative(value: unknown): boolean {
+  const name = String(value ?? "").trim();
+  if (!name) return false;
+  // Never split the original master value or guess which person should sign.
+  return !(/[,，/／;；&＆]/.test(name) || /외\s*\d*\s*명/.test(name) ||
+    /\s(?:및|와|과)\s/.test(name));
+}
+
 export function hasNationalSupportApplicationInformation(input: NationalSupportLookupInput) {
   return Boolean(
     hasNationalSupportLookupInformation(input) &&
