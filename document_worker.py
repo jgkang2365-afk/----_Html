@@ -191,6 +191,27 @@ def sanitize_windows_filename(value: Any, fallback: str = "사업장") -> str:
     return sanitized or fallback
 
 
+def ensure_output_directory(
+    directory: Path, *, attempts: int = 4, retry_delay_seconds: float = 0.5
+) -> None:
+    """Retry only a permission-denied folder setup, before document effects begin."""
+    for attempt in range(attempts):
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            return
+        except PermissionError as error:
+            if attempt == attempts - 1:
+                raise
+            LOGGER.warning(
+                "문서 저장 폴더 접근 거부; 재시도 %d/%d: %s (winerror=%s)",
+                attempt + 1,
+                attempts - 1,
+                directory,
+                getattr(error, "winerror", None),
+            )
+            time.sleep(retry_delay_seconds * (2 ** attempt))
+
+
 def build_output_path(root: Path, snapshot: dict[str, Any]) -> Path:
     period = normalize_measurement_period(snapshot.get("measurement_period"))
     business_name = sanitize_windows_filename(snapshot.get("business_name"), normalize_text(snapshot.get("business_code")) or "사업장")
@@ -804,7 +825,7 @@ def process_job(
         if isinstance(document, dict) and normalize_text(document.get("code"))
     }
     final_folder = build_output_path(output_root, snapshot)
-    final_folder.mkdir(parents=True, exist_ok=True)
+    ensure_output_directory(final_folder)
     hwpx = hwpx or HwpxAutomation()
     excel = excel or ExcelAutomation()
     results: list[dict[str, Any]] = []
