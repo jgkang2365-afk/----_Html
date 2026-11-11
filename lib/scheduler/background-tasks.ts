@@ -189,6 +189,8 @@ export class BackgroundTasks {
 
     /** 17:00 KST: enqueue once only; the Windows Realtime worker performs it. */
     public async enqueueDailyNationalSupportChecks(): Promise<void> {
+        // Development servers must not enqueue real government applications.
+        if (process.env.NATIONAL_SUPPORT_WORKER_ENABLED !== "true") return;
         const admin = createAdminClient();
         const date = getKSTDateString();
         const pageSize = 500;
@@ -196,8 +198,9 @@ export class BackgroundTasks {
         let failed = 0;
         await forEachAscendingIdPage(pageSize, async (lastId, limit) => {
           const { data, error } = await admin.from('measurement_target_business')
-              .select('id, code, year, period, industrial_accident_number, commencement_number, representative_name, manager_name, manager_mobile, national_support_status')
+              .select('id, code, year, period, industrial_accident_number, commencement_number, representative_name, manager_name, manager_mobile, national_support_status, is_registered')
               .is('national_support_status', null)
+              .eq('is_registered', '미실시')
               .not('code', 'is', null)
               .not('year', 'is', null)
               .not('period', 'is', null)
