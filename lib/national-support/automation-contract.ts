@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const NATIONAL_SUPPORT_RESULT_CODES = [
   "SUPPORT", "NON_SUPPORT", "OVER_50_RECHECK", "NO_EMPLOYEE_INFO_RECHECK",
-  "EMPLOYEE_CHECK_FAILED_RECHECK", "JOURNAL_REGISTERED_SKIP",
+  "EMPLOYEE_CHECK_FAILED_RECHECK", "JOURNAL_REGISTERED_SKIP", "TARGET_STATUS_SKIP",
   "APPLIED_WAITING_RESULT", "ALREADY_APPLIED", "LOOKUP_NO_RESULT", "APPLICATION_UNCERTAIN",
 ] as const;
 
@@ -15,6 +15,7 @@ export function nationalSupportCompatibilityStatus(code: NationalSupportResultCo
     case "SUPPORT":
     case "NON_SUPPORT": return "성공";
     case "JOURNAL_REGISTERED_SKIP": return "일지 등록 · 제외";
+    case "TARGET_STATUS_SKIP": return "확인대기";
     case "OVER_50_RECHECK":
     case "NO_EMPLOYEE_INFO_RECHECK":
     case "EMPLOYEE_CHECK_FAILED_RECHECK": return "비대상대기";
@@ -35,6 +36,22 @@ export function nationalSupportCompatibilityProjection(
     sync_error_message: syncErrorMessage,
     updated_at: new Date().toISOString(),
   };
+}
+
+/** Only unmeasured active targets may be scheduled or auto-applied. */
+export function canAutomateNationalSupportForTargetStatus(value: unknown): boolean {
+  return value === "미실시";
+}
+
+/** Re-read the live target state, never trust an earlier queued payload. */
+export async function canAutomateNationalSupportForTarget(
+  supabase: SupabaseClient<any>,
+  targetId: number | string,
+): Promise<boolean> {
+  const { data, error } = await supabase.from("measurement_target_business")
+    .select("is_registered").eq("id", targetId).maybeSingle();
+  if (error) throw error;
+  return canAutomateNationalSupportForTargetStatus(data?.is_registered);
 }
 
 /** Production canonical mapping: target(year/period) -> journal(measurement_year/measurement_period). */

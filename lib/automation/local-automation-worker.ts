@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { claimNextAutomationJob, updateAutomationJobOwned } from "@/lib/automation/jobs";
 import { processNationalSupportJob, type NationalSupportJobPayload } from "@/lib/automation/national-support-worker";
-import { hasMeasurementJournalForTarget, nationalSupportCompatibilityProjection, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
+import { canAutomateNationalSupportForTarget, hasMeasurementJournalForTarget, nationalSupportCompatibilityProjection, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
 
 const NATIONAL_SUPPORT = "NATIONAL_SUPPORT";
@@ -49,7 +49,9 @@ export class LocalAutomationWorker {
   }
 
   start() {
-    if (this.started || !process.env.REPORT_STORAGE_ROOT) return;
+    // Only the explicitly designated Windows worker may handle portal actions.
+    if (this.started || !process.env.REPORT_STORAGE_ROOT ||
+        process.env.NATIONAL_SUPPORT_WORKER_ENABLED !== "true") return;
     this.started = true;
     const supabase = createAdminClient();
     const wake = () => void this.drain();
@@ -183,6 +185,12 @@ export class LocalAutomationWorker {
           }
           await this.projectRunning(payload);
           await updateAutomationJobOwned(supabase, job.id, workerId, { progress_stage: "신청조건 확인", progress_percent: 20 });
+          // Fail closed if a queued target became completed or closed before execution.
+          if (shouldRunNationalSupportJournalGuard(payload) &&
+              !await canAutomateNationalSupportForTarget(supabase, payload.target_id)) {
+            await this.completeTerminal(job.id, payload, "COMPLETED", "TARGET_STATUS_SKIP");
+            continue;
+          }
           // Guard 1: a journal makes both lookup scheduling and application ineligible.
           if (shouldRunNationalSupportJournalGuard(payload) && await hasMeasurementJournalForTarget(supabase, payload)) {
             await this.completeTerminal(job.id, payload, "COMPLETED", "JOURNAL_REGISTERED_SKIP");
@@ -192,6 +200,10 @@ export class LocalAutomationWorker {
             onWorkerEvent: async (event) => {
               if (event === "journal_guard_before_apply") {
                 try {
+                  // Guard 2: block application if status changed while Chrome was open.
+                  if (!await canAutomateNationalSupportForTarget(supabase, payload.target_id)) {
+                    return { allow: false, reason: "GUARD_ERROR" };
+                  }
                   const registered = await hasMeasurementJournalForTarget(supabase, payload);
                   return registered
                     ? { allow: false, reason: "JOURNAL_REGISTERED" }
