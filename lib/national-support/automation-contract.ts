@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const NATIONAL_SUPPORT_RESULT_CODES = [
   "SUPPORT", "NON_SUPPORT", "OVER_50_RECHECK", "NO_EMPLOYEE_INFO_RECHECK",
-  "EMPLOYEE_CHECK_FAILED_RECHECK", "JOURNAL_REGISTERED_SKIP", "TARGET_STATUS_SKIP",
+  "EMPLOYEE_CHECK_FAILED_RECHECK", "JOURNAL_REGISTERED_SKIP", "TARGET_STATUS_SKIP", "REPRESENTATIVE_REVIEW_SKIP",
   "APPLIED_WAITING_RESULT", "ALREADY_APPLIED", "LOOKUP_NO_RESULT", "APPLICATION_UNCERTAIN",
 ] as const;
 
@@ -15,7 +15,8 @@ export function nationalSupportCompatibilityStatus(code: NationalSupportResultCo
     case "SUPPORT":
     case "NON_SUPPORT": return "성공";
     case "JOURNAL_REGISTERED_SKIP": return "일지 등록 · 제외";
-    case "TARGET_STATUS_SKIP": return "확인대기";
+    case "TARGET_STATUS_SKIP":
+    case "REPRESENTATIVE_REVIEW_SKIP": return "확인대기";
     case "OVER_50_RECHECK":
     case "NO_EMPLOYEE_INFO_RECHECK":
     case "EMPLOYEE_CHECK_FAILED_RECHECK": return "비대상대기";

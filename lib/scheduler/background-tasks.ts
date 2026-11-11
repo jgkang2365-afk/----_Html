@@ -9,7 +9,7 @@ import { enqueueAutomationJob, mesScheduledIdempotencyKey, nationalSupportIdempo
 import { forEachAscendingIdPage } from './id-pages';
 import { hasMeasurementJournalForTarget } from '../national-support/automation-contract';
 import { resolveNationalSupportRepresentative } from '../national-support/representative';
-import { hasNationalSupportApplicationInformation } from '../national-support/eligibility';
+import { hasNationalSupportApplicationInformation, isSingleNationalSupportRepresentative } from '../national-support/eligibility';
 
 const KST_CRON_OPTIONS = { timezone: 'Asia/Seoul' };
 
@@ -229,7 +229,7 @@ export class BackgroundTasks {
                     target_id: target.id, code: target.code, year: target.year, period: target.period,
                     sanjae: target.industrial_accident_number, commencement: target.commencement_number,
                     representative, contact_name: target.manager_name || '', contact_phone: target.manager_mobile || '',
-                    mode: hasNationalSupportApplicationInformation({
+                    mode: isSingleNationalSupportRepresentative(representative) && hasNationalSupportApplicationInformation({
                       industrial_accident_number: target.industrial_accident_number,
                       commencement_number: target.commencement_number,
                       representative_name: representative,
