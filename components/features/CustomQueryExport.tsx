@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 import { ChevronDown, Search, Settings2 } from "lucide-react";
 import { DESIGNATED_OFFICE_OPTIONS, toShortName } from "@/lib/constants/designated-offices";
 import { DEFAULT_RESULT_SEARCH_FIELDS, filterResultSearchRows, normalizeResultSearchFields } from "@/lib/custom-query/result-search";
+import { isSortableField, normalizeSortRules, sortResultRows, type SortRule } from "@/lib/custom-query/result-sort";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -49,6 +50,7 @@ interface ReportTemplate {
   name: string;
   filters: FilterRule[];
   columns: ColumnConfig[];
+  sorts: SortRule[];
   isPublic: boolean;
   isOwner: boolean;
   ownerName: string;
@@ -59,6 +61,7 @@ interface LegacyReportTemplate {
   name: string;
   filters: FilterRule[];
   columns: ColumnConfig[];
+  sorts?: SortRule[];
 }
 
 interface PendingReportStatusChange {
@@ -89,6 +92,9 @@ export const CustomQueryExport: React.FC = () => {
   const [resultSearchQueryInput, setResultSearchQueryInput] = useState("");
   const [resultSearchFields, setResultSearchFields] = useState<string[]>([...DEFAULT_RESULT_SEARCH_FIELDS]);
   const [isResultSearchSettingsOpen, setIsResultSearchSettingsOpen] = useState(false);
+  const [sorts, setSorts] = useState<SortRule[]>([]);
+  const [isSortSettingsOpen, setIsSortSettingsOpen] = useState(false);
+  const sortSettingsRef = useRef<HTMLDivElement>(null);
   const [resultSearchPreferencesUserId, setResultSearchPreferencesUserId] = useState<string | null>(null);
   const resultSearchSettingsRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -186,6 +192,22 @@ export const CustomQueryExport: React.FC = () => {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [isResultSearchSettingsOpen]);
+
+  useEffect(() => {
+    if (!isSortSettingsOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!sortSettingsRef.current?.contains(event.target as Node)) setIsSortSettingsOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsSortSettingsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isSortSettingsOpen]);
 
   // 필터 대상 필드 스펙
   const FILTER_FIELDS = [
@@ -313,6 +335,7 @@ export const CustomQueryExport: React.FC = () => {
                 name: localTemplate.name,
                 filters: localTemplate.filters || [],
                 columns: localTemplate.columns || [],
+                sorts: normalizeSortRules(localTemplate.sorts),
                 isPublic: false,
               }),
             });
@@ -526,6 +549,7 @@ export const CustomQueryExport: React.FC = () => {
           name: targetName,
           filters,
           columns,
+          sorts,
           isPublic: templateIsPublic,
         }),
       });
@@ -557,6 +581,7 @@ export const CustomQueryExport: React.FC = () => {
     if (!target) return;
 
     setFilters(target.filters || []);
+    setSorts(normalizeSortRules(target.sorts));
     if (target.columns && target.columns.length > 0) {
       const mergedCols = [...target.columns];
       columns.forEach((column) => {
@@ -819,11 +844,27 @@ export const CustomQueryExport: React.FC = () => {
     setResultSearchQuery(resultSearchQueryInput.trim());
   };
 
+  const addSort = () => setSorts((current) => {
+    const next = columns.find((column) =>
+      isSortableField(column.key) && !current.some((rule) => rule.field === column.key)
+    );
+    return next ? [...current, { field: next.key, direction: "asc" }] : current;
+  });
+  const moveSort = (index: number, offset: number) => setSorts((current) => {
+    const target = index + offset;
+    if (target < 0 || target >= current.length) return current;
+    const next = [...current];
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  });
+
   const resultSearchTerms = resultSearchQuery
     .split(/[,\n]/)
     .map((term) => term.trim().toLocaleLowerCase("ko-KR"))
     .filter(Boolean);
-  const displayedResults = filterResultSearchRows(filteredResults, resultSearchQuery, resultSearchFields);
+  const displayedResults = useMemo(() => sortResultRows(
+    filterResultSearchRows(filteredResults, resultSearchQuery, resultSearchFields), sorts,
+  ), [filteredResults, resultSearchQuery, resultSearchFields, sorts]);
   const resultSearchScopeLabel = resultSearchFields.length === 1
     ? columns.find((column) => column.key === resultSearchFields[0])?.label || "사업장명"
     : `${resultSearchFields.length}개 열`;
@@ -1120,7 +1161,7 @@ export const CustomQueryExport: React.FC = () => {
 
       {/* 데이터 테이블 및 엑셀 다운로드 실행 영역 */}
       <Card className="p-4 border border-surface-200 space-y-4 overflow-visible">
-        <div className="sticky top-16 lg:top-[105px] z-40 -mx-4 grid min-h-16 grid-cols-1 items-center gap-2 border-b border-surface-200 bg-white px-4 py-2 shadow-sm lg:h-16 lg:grid-cols-[minmax(220px,1fr)_minmax(280px,520px)_minmax(220px,1fr)] lg:py-0">
+        <div className="sticky top-16 lg:top-[105px] z-40 -mx-4 grid min-h-16 grid-cols-1 items-center gap-2 border-b border-surface-200 bg-white px-4 py-2 shadow-sm lg:h-auto lg:grid-cols-[minmax(220px,1fr)_minmax(280px,520px)_minmax(220px,1fr)] lg:py-2">
           <div className="flex min-w-0 items-center gap-2 lg:justify-start">
             <h2 className="truncate text-sm font-semibold text-text-900 sm:text-base">5. 필터링 결과 및 다운로드</h2>
             <span className="bg-primary-50 text-primary-700 text-xs px-2.5 py-0.5 rounded-full font-medium border border-primary-100">
@@ -1129,7 +1170,7 @@ export const CustomQueryExport: React.FC = () => {
           </div>
 
           <form
-            className="flex w-full min-w-0 items-center gap-2"
+            className="flex w-full min-w-0 flex-wrap items-center gap-2"
             onSubmit={(event) => {
               event.preventDefault();
               applyResultSearch();
@@ -1141,7 +1182,7 @@ export const CustomQueryExport: React.FC = () => {
                 aria-expanded={isResultSearchSettingsOpen}
                 aria-controls="result-search-field-settings"
                 aria-label={`검색 설정, 현재 검색 대상: ${resultSearchScopeLabel}`}
-                onClick={() => setIsResultSearchSettingsOpen((open) => !open)}
+                onClick={() => { setIsSortSettingsOpen(false); setIsResultSearchSettingsOpen((open) => !open); }}
                 className="flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-primary-500"
               >
                 <Settings2 size={15} aria-hidden="true" />
@@ -1193,6 +1234,71 @@ export const CustomQueryExport: React.FC = () => {
                 </div>
               )}
             </div>
+            <div ref={sortSettingsRef} className="relative shrink-0">
+              <button
+                type="button"
+                aria-expanded={isSortSettingsOpen}
+                aria-controls="result-sort-settings"
+                onClick={() => { setIsResultSearchSettingsOpen(false); setIsSortSettingsOpen((open) => !open); }}
+                className="flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-primary-500"
+              >
+                <Settings2 size={15} aria-hidden="true" />
+                정렬 설정{sorts.length > 0 ? ` (${sorts.length})` : ""}
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+              {isSortSettingsOpen && (
+                <div
+                  id="result-sort-settings"
+                  role="group"
+                  aria-label="결과 다중 정렬 설정"
+                  className="absolute left-0 top-full z-[70] mt-1 w-[430px] max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 shadow-xl"
+                >
+                  <p className="text-sm font-semibold text-slate-800">우선순위별 정렬</p>
+                  <p className="mt-1 text-xs text-slate-500">위 조건부터 적용합니다. 숨긴 열도 정렬할 수 있습니다.</p>
+                  <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
+                    {sorts.length === 0 && <p className="rounded bg-slate-50 p-2 text-xs text-slate-600">정렬 조건이 없어 기존 결과 순서로 표시합니다.</p>}
+                    {sorts.map((rule, index) => (
+                      <div key={rule.field} className="flex flex-wrap items-center gap-1.5 rounded border border-slate-200 p-1.5">
+                        <span className="w-10 shrink-0 text-xs font-semibold text-slate-600">{index + 1}순위</span>
+                        <select
+                          aria-label={`${index + 1}순위 정렬 열`}
+                          value={rule.field}
+                          onChange={(event) => setSorts((current) => current.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, field: event.target.value } : item
+                          ))}
+                          className="h-9 min-w-32 flex-1 rounded border border-slate-300 bg-white px-2 text-xs"
+                        >
+                          {columns.filter((column) => isSortableField(column.key)).map((column) => (
+                            <option key={column.key} value={column.key} disabled={sorts.some((item, itemIndex) => itemIndex !== index && item.field === column.key)}>
+                              {column.label}{column.visible ? "" : " (숨김)"}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          aria-label={`${index + 1}순위 정렬 방향`}
+                          value={rule.direction}
+                          onChange={(event) => setSorts((current) => current.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, direction: event.target.value as SortRule["direction"] } : item
+                          ))}
+                          className="h-9 rounded border border-slate-300 bg-white px-1 text-xs"
+                        >
+                          <option value="asc">오름차순</option>
+                          <option value="desc">내림차순</option>
+                        </select>
+                        <button type="button" aria-label={`${index + 1}순위 위로`} title="위로" disabled={index === 0} onClick={() => moveSort(index, -1)} className="h-9 rounded border border-slate-200 px-1.5 text-xs disabled:opacity-40">▲</button>
+                        <button type="button" aria-label={`${index + 1}순위 아래로`} title="아래로" disabled={index === sorts.length - 1} onClick={() => moveSort(index, 1)} className="h-9 rounded border border-slate-200 px-1.5 text-xs disabled:opacity-40">▼</button>
+                        <button type="button" aria-label={`${index + 1}순위 삭제`} onClick={() => setSorts((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="h-9 rounded border border-slate-200 px-2 text-xs text-red-700">삭제</button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex items-center gap-3 border-t border-slate-100 pt-2">
+                    <button type="button" onClick={addSort} disabled={sorts.length >= columns.length} className="text-xs font-semibold text-primary-700 disabled:opacity-40">+ 조건 추가</button>
+                    <button type="button" onClick={() => setSorts([])} disabled={sorts.length === 0} className="text-xs text-slate-600 disabled:opacity-40">정렬 해제</button>
+                    <button type="button" onClick={() => setIsSortSettingsOpen(false)} className="ml-auto rounded border border-slate-200 px-2 py-1 text-xs text-slate-700">닫기</button>
+                  </div>
+                </div>
+              )}
+            </div>
             <label htmlFor="result-search-query" className="sr-only">결과 검색어</label>
             <Input
               id="result-search-query"
@@ -1202,7 +1308,7 @@ export const CustomQueryExport: React.FC = () => {
               onBlur={() => window.setTimeout(applyResultSearch, 0)}
               placeholder={`${resultSearchScopeLabel} 검색 · 여러 개는 쉼표로 구분`}
               aria-label={`필터 결과 내 검색: ${resultSearchScopeLabel}`}
-              className="h-9 min-w-0 w-full flex-1 border-slate-300 bg-white shadow-xs"
+              className="h-9 min-w-[180px] w-full flex-1 border-slate-300 bg-white shadow-xs"
             />
             <Button
               type="submit"
