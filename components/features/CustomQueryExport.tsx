@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import * as XLSX from "xlsx";
-import { Search } from "lucide-react";
+import { ChevronDown, Search, Settings2 } from "lucide-react";
 import { DESIGNATED_OFFICE_OPTIONS, toShortName } from "@/lib/constants/designated-offices";
+import { DEFAULT_RESULT_SEARCH_FIELDS, filterResultSearchRows, normalizeResultSearchFields } from "@/lib/custom-query/result-search";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -84,8 +85,12 @@ export const CustomQueryExport: React.FC = () => {
   // 상태 관리
   const [rawData, setRawData] = useState<any[]>([]);
   const [filteredResults, setFilteredResults] = useState<any[]>([]);
-  const [resultBusinessNameSearch, setResultBusinessNameSearch] = useState("");
-  const [resultBusinessNameSearchInput, setResultBusinessNameSearchInput] = useState("");
+  const [resultSearchQuery, setResultSearchQuery] = useState("");
+  const [resultSearchQueryInput, setResultSearchQueryInput] = useState("");
+  const [resultSearchFields, setResultSearchFields] = useState<string[]>([...DEFAULT_RESULT_SEARCH_FIELDS]);
+  const [isResultSearchSettingsOpen, setIsResultSearchSettingsOpen] = useState(false);
+  const [resultSearchPreferencesUserId, setResultSearchPreferencesUserId] = useState<string | null>(null);
+  const resultSearchSettingsRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [updatingReportStatusIds, setUpdatingReportStatusIds] = useState<Set<string>>(new Set());
@@ -135,6 +140,52 @@ export const CustomQueryExport: React.FC = () => {
     { key: "note", label: "측정일지 비고", visible: false },
     { key: "special_notes", label: "특이사항", visible: false },
   ]);
+  const initialResultSearchFields = useRef(columns.map((column) => column.key));
+
+  // 검색 환경설정은 서버 템플릿과 분리하여 로그인 사용자별 브라우저에 보존합니다.
+  useEffect(() => {
+    if (!user?.id) return;
+    const storageKey = `custom_query_result_search_fields_v1_${user.id}`;
+    let storedFields: unknown = null;
+    try {
+      const stored = localStorage.getItem(storageKey);
+      storedFields = stored ? JSON.parse(stored) : null;
+    } catch (storageError) {
+      console.warn("검색 설정 불러오기 실패:", storageError);
+    }
+    setResultSearchFields(normalizeResultSearchFields(storedFields, initialResultSearchFields.current));
+    setResultSearchPreferencesUserId(user.id);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || resultSearchPreferencesUserId !== user.id) return;
+    try {
+      localStorage.setItem(
+        `custom_query_result_search_fields_v1_${user.id}`,
+        JSON.stringify(resultSearchFields),
+      );
+    } catch (storageError) {
+      console.warn("검색 설정 저장 실패:", storageError);
+    }
+  }, [user?.id, resultSearchFields, resultSearchPreferencesUserId]);
+
+  useEffect(() => {
+    if (!isResultSearchSettingsOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!resultSearchSettingsRef.current?.contains(event.target as Node)) {
+        setIsResultSearchSettingsOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsResultSearchSettingsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isResultSearchSettingsOpen]);
 
   // 필터 대상 필드 스펙
   const FILTER_FIELDS = [
@@ -764,21 +815,18 @@ export const CustomQueryExport: React.FC = () => {
     }
   };
 
-  const applyResultBusinessNameSearch = () => {
-    setResultBusinessNameSearch(resultBusinessNameSearchInput.trim());
+  const applyResultSearch = () => {
+    setResultSearchQuery(resultSearchQueryInput.trim());
   };
 
-  const resultBusinessNameTerms = resultBusinessNameSearch
+  const resultSearchTerms = resultSearchQuery
     .split(/[,\n]/)
     .map((term) => term.trim().toLocaleLowerCase("ko-KR"))
     .filter(Boolean);
-  const displayedResults =
-    resultBusinessNameTerms.length === 0
-      ? filteredResults
-      : filteredResults.filter((item) => {
-          const businessName = String(item.business_name || "").toLocaleLowerCase("ko-KR");
-          return resultBusinessNameTerms.some((term) => businessName.includes(term));
-        });
+  const displayedResults = filterResultSearchRows(filteredResults, resultSearchQuery, resultSearchFields);
+  const resultSearchScopeLabel = resultSearchFields.length === 1
+    ? columns.find((column) => column.key === resultSearchFields[0])?.label || "사업장명"
+    : `${resultSearchFields.length}개 열`;
 
   const pendingReportChanges = Object.values(pendingReportStatusChanges);
   const selectedPendingReportChangeCount = pendingReportChanges.filter((change) => change.selected).length;
@@ -1076,34 +1124,85 @@ export const CustomQueryExport: React.FC = () => {
           <div className="flex min-w-0 items-center gap-2 lg:justify-start">
             <h2 className="truncate text-sm font-semibold text-text-900 sm:text-base">5. 필터링 결과 및 다운로드</h2>
             <span className="bg-primary-50 text-primary-700 text-xs px-2.5 py-0.5 rounded-full font-medium border border-primary-100">
-              {resultBusinessNameTerms.length > 0 ? `${displayedResults.length} / ${filteredResults.length}건` : `총 ${filteredResults.length}건`}
+              {resultSearchTerms.length > 0 ? `${displayedResults.length} / ${filteredResults.length}건` : `총 ${filteredResults.length}건`}
             </span>
           </div>
 
           <form
-            className="flex w-full items-center gap-2"
+            className="flex w-full min-w-0 items-center gap-2"
             onSubmit={(event) => {
               event.preventDefault();
-              applyResultBusinessNameSearch();
+              applyResultSearch();
             }}
           >
-            <label
-              htmlFor="result-business-name-search"
-              className="shrink-0 text-sm font-semibold text-text-800"
-            >
-              사업장명
-            </label>
+            <div ref={resultSearchSettingsRef} className="relative shrink-0">
+              <button
+                type="button"
+                aria-expanded={isResultSearchSettingsOpen}
+                aria-controls="result-search-field-settings"
+                aria-label={`검색 설정, 현재 검색 대상: ${resultSearchScopeLabel}`}
+                onClick={() => setIsResultSearchSettingsOpen((open) => !open)}
+                className="flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-primary-500"
+              >
+                <Settings2 size={15} aria-hidden="true" />
+                <span>검색 설정</span>
+                <span className="hidden max-w-[72px] truncate font-normal text-slate-500 2xl:inline">({resultSearchScopeLabel})</span>
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+              {isResultSearchSettingsOpen && (
+                <div
+                  id="result-search-field-settings"
+                  role="group"
+                  aria-label="결과 검색 대상 설정"
+                  className="absolute left-0 top-full z-[70] mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-slate-200 bg-white p-3 shadow-xl"
+                >
+                  <p className="text-sm font-semibold text-slate-800">검색 대상 열 선택</p>
+                  <p className="mt-1 text-xs text-slate-500">선택한 열 중 하나라도 검색어가 포함되면 표시됩니다. 숨긴 열도 선택할 수 있습니다.</p>
+                  <div className="mt-2 max-h-60 space-y-1 overflow-y-auto border-y border-slate-100 py-2">
+                    {columns.map((column) => {
+                      const checked = resultSearchFields.includes(column.key);
+                      return (
+                        <label key={column.key} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm text-slate-700 hover:bg-slate-50">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={checked && resultSearchFields.length === 1}
+                            onChange={() => setResultSearchFields((current) =>
+                              current.includes(column.key)
+                                ? (current.length > 1 ? current.filter((key) => key !== column.key) : current)
+                                : [...current, column.key]
+                            )}
+                            className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                          />
+                          {column.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <button type="button" onClick={() => setResultSearchFields([...DEFAULT_RESULT_SEARCH_FIELDS])} className="text-xs text-primary-700 hover:underline">
+                      사업장명만
+                    </button>
+                    <button type="button" onClick={() => setResultSearchFields(columns.map((column) => column.key))} className="text-xs text-primary-700 hover:underline">
+                      전체 선택
+                    </button>
+                    <button type="button" onClick={() => setIsResultSearchSettingsOpen(false)} className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
+                      닫기
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <label htmlFor="result-search-query" className="sr-only">결과 검색어</label>
             <Input
-              id="result-business-name-search"
+              id="result-search-query"
               type="search"
-              value={resultBusinessNameSearchInput}
-              onChange={(event) => setResultBusinessNameSearchInput(event.target.value)}
-              onBlur={() => {
-                window.setTimeout(applyResultBusinessNameSearch, 0);
-              }}
-              placeholder="일부 검색 · 여러 개는 쉼표로 구분"
-              aria-label="필터 결과 내 사업장명 검색"
-              className="h-9 w-full border-slate-300 bg-white shadow-xs"
+              value={resultSearchQueryInput}
+              onChange={(event) => setResultSearchQueryInput(event.target.value)}
+              onBlur={() => window.setTimeout(applyResultSearch, 0)}
+              placeholder={`${resultSearchScopeLabel} 검색 · 여러 개는 쉼표로 구분`}
+              aria-label={`필터 결과 내 검색: ${resultSearchScopeLabel}`}
+              className="h-9 min-w-0 w-full flex-1 border-slate-300 bg-white shadow-xs"
             />
             <Button
               type="submit"
