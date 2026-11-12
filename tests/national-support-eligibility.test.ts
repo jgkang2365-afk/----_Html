@@ -93,7 +93,7 @@ test("정기 측정의 조회 정보가 완성되면 미확인 상태에서도 �
     representative_name: "홍길동",
   };
   assert.equal(canRequestNationalSupportLookup(input), true);
-  assert.equal(getNationalSupportDisplayStatus(input), "정보 부족");
+  assert.equal(getNationalSupportDisplayStatus(input), "조회 대기");
 });
 
 test("수시·비대상·진행 중·완료 상태는 중복 조회하지 않는다", () => {

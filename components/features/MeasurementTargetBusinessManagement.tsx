@@ -50,6 +50,7 @@ import {
     ExactMeasurementBusiness,
     RegistrationAutoFillValues,
 } from "@/lib/business-info/registration-context";
+import { buildTargetEditEnrichment, LatestTargetBusinessInfo } from "@/lib/business-info/target-edit-enrichment";
 import {
     MeasurementDayForm,
     MeasurementDayFormWithUiKey,
@@ -821,6 +822,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     const [editingItem, setEditingItem] = useState<BusinessEntry | null>(null);
     const [editForm, setEditForm] = useState<Partial<BusinessEntry>>({});
+    const [editEnrichmentError, setEditEnrichmentError] = useState(false);
     const [editManualNationalSupportIntent, setEditManualNationalSupportIntent] =
         useState<ManualNationalSupportIntent>(EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT);
     const [editMeasurementDays, setEditMeasurementDays] = useState<MeasurementDayFormWithUiKey[]>(
@@ -830,6 +832,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         form: TargetBusinessFormValues;
         days: MeasurementDayForm[];
     } | null>(null);
+    const editOpenRequestRef = useRef(0);
     const [addForm, setAddForm] = useState<Partial<BusinessEntry>>({
         year: new Date().getFullYear(),
         period: (new Date().getMonth() + 1) <= 6 ? "상반기" : "하반기",
@@ -970,7 +973,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     const closeEditModal = () => {
+        editOpenRequestRef.current += 1;
         setIsEditModalOpen(false);
+        setEditEnrichmentError(false);
         setEditManualNationalSupportIntent(EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT);
     };
 
@@ -1372,17 +1377,43 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     const handleEditClick = async (item: BusinessEntry) => {
-        setEditingItem(item);
+        const requestId = ++editOpenRequestRef.current;
 
         let blockedKeys = measurementScheduleBlockedKeys;
-        try {
-            const response = await fetch("/api/user-schedule-blocks", { cache: "no-store" });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || "직원 불가 일정 조회 실패");
-            blockedKeys = buildMeasurementScheduleBlockKeys(result.blocks || []);
+        let businessInfo: LatestTargetBusinessInfo | null = null;
+        const [scheduleResult, enrichmentResult] = await Promise.allSettled([
+            fetch("/api/user-schedule-blocks", { cache: "no-store" }).then(async response => {
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || "직원 불가 일정 조회 실패");
+                return buildMeasurementScheduleBlockKeys(result.blocks || []);
+            }),
+            (item.business_type === "first_measurement" || item.business_type === "external_new")
+              ? fetch(`/api/business-info/target-edit-enrichment?${new URLSearchParams({
+                id: String(item.id), code: item.code, year: String(item.year), period: item.period,
+            })}`, { cache: "no-store" }).then(async response => {
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || "사업장 보완자료 조회 실패");
+                const match = result.match;
+                if (String(match?.id) !== String(item.id) || match?.code !== item.code ||
+                    Number(match?.year) !== item.year || match?.period !== item.period) {
+                    throw new Error("사업장 보완자료 식별자가 일치하지 않습니다.");
+                }
+                return result.businessInfo as LatestTargetBusinessInfo | null;
+            }) : Promise.resolve(null),
+        ]);
+        if (requestId !== editOpenRequestRef.current) return;
+        if (scheduleResult.status === "fulfilled") {
+            blockedKeys = scheduleResult.value;
             setMeasurementScheduleBlockedKeys(blockedKeys);
-        } catch (error) {
-            console.error("직원 불가 일정 조회 실패:", error);
+        } else {
+            console.error("직원 불가 일정 조회 실패:", scheduleResult.reason);
+        }
+        if (enrichmentResult.status === "fulfilled") {
+            businessInfo = enrichmentResult.value;
+            setEditEnrichmentError(false);
+        } else {
+            console.error("사업장 보완자료 조회 실패:", enrichmentResult.reason);
+            setEditEnrichmentError(true);
         }
 
         // 보고서 담당자(measurer_id)는 측정 참여자와 별개 역할이다.
@@ -1400,7 +1431,8 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             commencement: item.commencement_number || item.commencement || "",
         };
 
-        setEditForm(initialForm);
+        setEditingItem(item);
+        setEditForm({ ...initialForm, ...buildTargetEditEnrichment(initialForm, businessInfo) });
         setEditManualNationalSupportIntent(EMPTY_MANUAL_NATIONAL_SUPPORT_INTENT);
         editInitialStateRef.current = { form: initialForm, days: sourceDays };
         setEditMeasurementDays(withMeasurementDayUiKeys(initialDays));
@@ -2337,6 +2369,11 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 }
             >
                 <div className="p-6">
+                    {editEnrichmentError && (
+                        <p role="alert" className="mb-3 text-sm text-amber-700">
+                            최신 사업장 보완자료를 불러오지 못했습니다. 현재 저장된 값을 확인해 주세요.
+                        </p>
+                    )}
                     <MeasurementTargetBusinessFormSections
                         mode="edit"
                         value={editForm}
