@@ -1161,8 +1161,8 @@ export const CustomQueryExport: React.FC = () => {
 
       {/* 데이터 테이블 및 엑셀 다운로드 실행 영역 */}
       <Card className="p-4 border border-surface-200 space-y-4 overflow-visible">
-        <div className="sticky top-16 lg:top-[105px] z-40 -mx-4 grid min-h-16 grid-cols-1 items-center gap-2 border-b border-surface-200 bg-white px-4 py-2 shadow-sm lg:h-auto lg:grid-cols-[minmax(220px,1fr)_minmax(280px,520px)_minmax(220px,1fr)] lg:py-2">
-          <div className="flex min-w-0 items-center gap-2 lg:justify-start">
+        <div className="sticky top-16 lg:top-[105px] z-40 -mx-4 flex min-h-16 flex-col gap-2 border-b border-surface-200 bg-white px-4 py-2 shadow-sm min-[1200px]:flex-row min-[1200px]:items-center min-[1200px]:gap-3">
+          <div className="flex min-w-0 shrink-0 items-center gap-2 min-[1200px]:justify-start">
             <h2 className="truncate text-sm font-semibold text-text-900 sm:text-base">5. 필터링 결과 및 다운로드</h2>
             <span className="bg-primary-50 text-primary-700 text-xs px-2.5 py-0.5 rounded-full font-medium border border-primary-100">
               {resultSearchTerms.length > 0 ? `${displayedResults.length} / ${filteredResults.length}건` : `총 ${filteredResults.length}건`}
@@ -1170,7 +1170,7 @@ export const CustomQueryExport: React.FC = () => {
           </div>
 
           <form
-            className="flex w-full min-w-0 flex-wrap items-center gap-2"
+            className="flex w-full min-w-0 flex-wrap items-center gap-2 min-[1200px]:flex-1 min-[1200px]:flex-nowrap"
             onSubmit={(event) => {
               event.preventDefault();
               applyResultSearch();
@@ -1308,7 +1308,7 @@ export const CustomQueryExport: React.FC = () => {
               onBlur={() => window.setTimeout(applyResultSearch, 0)}
               placeholder={`${resultSearchScopeLabel} 검색 · 여러 개는 쉼표로 구분`}
               aria-label={`필터 결과 내 검색: ${resultSearchScopeLabel}`}
-              className="h-9 min-w-[180px] w-full flex-1 border-slate-300 bg-white shadow-xs"
+              className="h-9 min-w-0 w-full flex-1 border-slate-300 bg-white shadow-xs min-[1200px]:min-w-[140px]"
             />
             <Button
               type="submit"
@@ -1321,7 +1321,7 @@ export const CustomQueryExport: React.FC = () => {
             </Button>
           </form>
 
-          <div className="flex min-w-0 items-center justify-end gap-2">
+          <div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
             {canManageDesignatedOfficeReport && pendingReportChanges.length > 0 && (
               <Button
                 variant="secondary"
