@@ -740,6 +740,7 @@ export async function PATCH(request: NextRequest) {
     const supportInfoChanged = [
       "period",
       "representative_name",
+      "national_support_representative_name",
       "industrial_accident_number",
       "commencement_number",
     ].some(key => Object.prototype.hasOwnProperty.call(updates, key));
@@ -751,7 +752,24 @@ export async function PATCH(request: NextRequest) {
         supportStateUpdates.sync_status = "성공";
         supportStateUpdates.sync_error_message = null;
       } else if (!updatedData.national_support_status) {
-        supportStateUpdates.sync_status = hasNationalSupportLookupInformation(updatedData)
+        // 기본 대표자가 비어 있어도 business_info의 명시적 신청 대표자가 조회에 사용된다.
+        let supportLookupInput = updatedData;
+        if (!updatedData.representative_name && overrideCode) {
+          const { data: master, error: masterError } = await supabase
+            .from("business_info")
+            .select("national_support_representative_name")
+            .eq("code", String(overrideCode))
+            .maybeSingle();
+          if (masterError) {
+            console.error("신청 대표자 조회 실패:", masterError);
+          } else {
+            supportLookupInput = {
+              ...updatedData,
+              national_support_representative_name: master?.national_support_representative_name || null,
+            };
+          }
+        }
+        supportStateUpdates.sync_status = hasNationalSupportLookupInformation(supportLookupInput)
           ? "조회대기"
           : "정보부족";
         supportStateUpdates.sync_error_message = null;

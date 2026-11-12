@@ -7,6 +7,7 @@ export type NationalSupportLookupInput = {
   industrial_accident_number?: string | null;
   commencement_number?: string | null;
   representative_name?: string | null;
+  national_support_representative_name?: string | null;
   manager_name?: string | null;
   manager_mobile?: string | null;
 };
@@ -45,7 +46,7 @@ export function hasNationalSupportLookupInformation(input: NationalSupportLookup
   return Boolean(
     normalizeElevenDigitNumber(input.industrial_accident_number) &&
       normalizeElevenDigitNumber(input.commencement_number) &&
-      input.representative_name?.trim(),
+      (input.national_support_representative_name?.trim() || input.representative_name?.trim()),
   );
 }
 
@@ -117,7 +118,7 @@ export function getNationalSupportDisplayStatus(input: NationalSupportLookupInpu
     case "대기":
       return "조회 대기";
     case "정보부족":
-      return "정보 부족";
+      return hasNationalSupportLookupInformation(input) ? "조회 대기" : "정보 부족";
     default:
       return hasNationalSupportLookupInformation(input) ? "조회 대기" : "미확인";
   }
