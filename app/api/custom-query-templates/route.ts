@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getUser } from "@/lib/auth/get-user";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeSortRules, templateSortPatch } from "@/lib/custom-query/result-sort";
 
 const normalizeTemplate = (template: any, ownerNames: Map<number, string>, currentUserId: number) => ({
   id: String(template.id),
   name: template.name,
   filters: Array.isArray(template.filters) ? template.filters : [],
   columns: Array.isArray(template.columns) ? template.columns : [],
+  sorts: normalizeSortRules(template.sorts),
   isPublic: !!template.is_public,
   isOwner: Number(template.owner_id) === currentUserId,
   ownerName: ownerNames.get(Number(template.owner_id)) || "알 수 없음",
@@ -28,7 +30,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from("custom_report_templates")
-      .select("id, owner_id, name, is_public, filters, columns, updated_at")
+      .select("id, owner_id, name, is_public, filters, columns, sorts, updated_at")
       .or(`owner_id.eq.${user.numericId},is_public.eq.true`)
       .order("is_public", { ascending: true })
       .order("updated_at", { ascending: false });
@@ -66,6 +68,10 @@ export async function POST(request: NextRequest) {
     const name = String(body.name || "").trim();
     const filters = Array.isArray(body.filters) ? body.filters : [];
     const columns = Array.isArray(body.columns) ? body.columns : [];
+    const sortPatch = templateSortPatch(body);
+    if (sortPatch === null) {
+      return NextResponse.json({ error: "정렬 조건은 배열이어야 합니다." }, { status: 400 });
+    }
     const isPublic = body.isPublic === true;
 
     if (!name) {
@@ -76,7 +82,8 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const values = { name, filters, columns, is_public: isPublic };
+    // Older clients omit sorts. An update must then retain the saved value.
+    const values = { name, filters, columns, is_public: isPublic, ...sortPatch };
     let result;
 
     if (id) {
@@ -97,13 +104,13 @@ export async function POST(request: NextRequest) {
         .from("custom_report_templates")
         .update(values)
         .eq("id", id)
-        .select("id, owner_id, name, is_public, filters, columns, updated_at")
+        .select("id, owner_id, name, is_public, filters, columns, sorts, updated_at")
         .single();
     } else {
       result = await supabase
         .from("custom_report_templates")
         .insert({ ...values, owner_id: user.numericId })
-        .select("id, owner_id, name, is_public, filters, columns, updated_at")
+        .select("id, owner_id, name, is_public, filters, columns, sorts, updated_at")
         .single();
     }
 
