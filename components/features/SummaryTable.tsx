@@ -83,6 +83,7 @@ interface SummaryEntry {
   survey_end_date: string | null;
   survey_measurement_weekdays: string | null;
   office_jurisdiction: string | null;
+  office_jurisdiction_display?: string | null;
   designated_office: string | null; // 지정지청 추가 (약칭)
   business_name: string;
   representative_name: string | null; // 대표자명 추가
@@ -892,7 +893,7 @@ export const SummaryTable: React.FC = () => {
                       </label>
                       <Input
                         className="h-11 md:h-10 md:text-sm text-xs md:font-bold font-medium shadow-sm bg-white"
-                        value={entry.office_jurisdiction || ""}
+                        value={entry.office_jurisdiction_display ?? entry.office_jurisdiction ?? ""}
                         disabled
                       />
                     </div>
@@ -1851,7 +1852,7 @@ export const SummaryTable: React.FC = () => {
                       </label>
                       <Input
                         className="h-11 md:h-10 text-base md:text-sm shadow-sm bg-surface-50"
-                        value={toShortName(editFormData.office_jurisdiction || "")}
+                        value={selectedEntry.office_jurisdiction_display ?? editFormData.office_jurisdiction ?? ""}
                         disabled
                         title="측정일지의 소재지 관할청 정보가 연동됩니다."
                       />
