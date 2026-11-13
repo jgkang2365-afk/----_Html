@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import * as XLSX from "xlsx";
 import { ChevronDown, Search, Settings2 } from "lucide-react";
 import { DESIGNATED_OFFICE_OPTIONS, toShortName } from "@/lib/constants/designated-offices";
+import { toOfficeDisplayRows } from "@/lib/labor-offices/office-display";
 import { DEFAULT_RESULT_SEARCH_FIELDS, filterResultSearchRows, normalizeResultSearchFields } from "@/lib/custom-query/result-search";
 import { isSortableField, normalizeSortRules, sortResultRows, type SortRule } from "@/lib/custom-query/result-sort";
 import { Button } from "@/components/ui/Button";
@@ -282,7 +283,8 @@ export const CustomQueryExport: React.FC = () => {
       }
 
       const resJson = await response.json();
-      const list = resJson.data || [];
+      // 화면·검색·정렬·XLSX에 동일한 표시명 사용. 원본 API/DB는 변경하지 않습니다.
+      const list = toOfficeDisplayRows((resJson.data || []) as any[]);
       setRawData(list);
       setPendingReportStatusChanges({});
       setIsReportStatusReviewOpen(false);
@@ -382,6 +384,11 @@ export const CustomQueryExport: React.FC = () => {
       .filter(Boolean);
     const strItemVal = String(itemValue).toLowerCase();
     const strTargetVal = targetValue.toLowerCase();
+    // 기존 사용자 지정 필터의 '일치/불일치'는 저장된 원본도 비교해
+    // 표시명이 변경되더라도 이전 템플릿 조건이 달라지지 않게 합니다.
+    const originalItemVal = filter.field === "office_jurisdiction"
+      ? String(item.office_jurisdiction_original ?? "").toLowerCase()
+      : null;
 
     const fieldSpec = FILTER_FIELDS.find((f) => f.key === filter.field);
 
@@ -404,9 +411,9 @@ export const CustomQueryExport: React.FC = () => {
       case "not_contains":
         return compareValues.every((value) => !strItemVal.includes(value));
       case "equals":
-        return compareValues.some((value) => strItemVal === value);
+        return compareValues.some((value) => strItemVal === value || originalItemVal === value);
       case "not_equals":
-        return compareValues.every((value) => strItemVal !== value);
+        return compareValues.every((value) => strItemVal !== value && originalItemVal !== value);
       case "greater_than":
         return strItemVal > strTargetVal;
       case "greater_than_or_equal":

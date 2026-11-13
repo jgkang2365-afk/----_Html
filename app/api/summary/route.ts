@@ -4,6 +4,8 @@ export const dynamic = 'force-dynamic';
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { toShortName } from "@/lib/constants/designated-offices";
+import { buildOfficeJurisdictionDisplayLookup, toOfficeJurisdictionDisplayName } from "@/lib/labor-offices/office-display";
+import { loadLaborOfficeDirectory } from "@/lib/labor-offices/address-resolver";
 import { buildPreliminarySurveyDisplayModel, measurementRolesForDisplay } from "@/lib/preliminary-survey-v2/display-model";
 import { collectMeasurementParticipantNames } from "@/lib/business/measurement-day-form";
 import { currentAssignmentsForDisplay, postSeptemberMeasurementDates } from "@/lib/preliminary-survey-v2/current-measurement";
@@ -117,6 +119,17 @@ export async function GET(request: NextRequest) {
     }
 
     // 측정일지의 code 목록 추출
+    // 관할지청 표시명은 Supabase 노동관서 마스터·별칭에서 읽습니다.
+    // 기준정보를 조회할 수 없더라도 기존 요약 조회 기능을 유지합니다.
+    const officeDisplayLookup = (journals || []).length
+      ? await loadLaborOfficeDirectory(supabase)
+          .then(buildOfficeJurisdictionDisplayLookup)
+          .catch((officeError) => {
+            console.warn("[summary] labor office display lookup unavailable:", officeError);
+            return new Map<string, string>();
+          })
+      : new Map<string, string>();
+
     const codes = (journals || [])
       .map((j: any) => j.code)
       .filter((code: string | null) => code !== null && code !== undefined);
@@ -484,6 +497,7 @@ export async function GET(request: NextRequest) {
         survey_end_date: survey?.end_date || null,
         survey_measurement_weekdays: survey?.measurement_weekdays || null,
         office_jurisdiction: journal.office_jurisdiction,
+        office_jurisdiction_display: toOfficeJurisdictionDisplayName(journal.office_jurisdiction, officeDisplayLookup),
         designated_office: journal.designated_office ? toShortName(journal.designated_office) : null,
         business_name: journal.business_name,
         representative_name: reference.representative_name || journal.representative_name || null,
