@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { DESIGNATED_OFFICES, toShortName } from "@/lib/constants/designated-offices";
 import { latestReportWriters, type ReportWriterSurvey } from "@/lib/sales/latest-report-writer";
+import { fetchCompleteSalesSummaryRows } from "@/lib/sales/complete-summary-pages";
 
 /**
  * 매출관리 조회 API
@@ -44,7 +45,6 @@ export async function GET(request: NextRequest) {
       .order("measurement_period", { ascending: false })
       .order("id", { ascending: false })
       .not("business_name", "ilike", "%번외%");
-    const measurementSummaryQuery = makeMeasurementSummaryQuery();
 
     // 기타 매출은 전체 데이터를 테이블에 표시해야 하므로 전체 컬럼을 선택합니다.
     const makeOtherSummaryQuery = () => supabase
@@ -53,7 +53,6 @@ export async function GET(request: NextRequest) {
       .order("revenue_year", { ascending: false })
       .order("revenue_period", { ascending: false })
       .order("id", { ascending: false });
-    const otherSummaryQuery = makeOtherSummaryQuery();
 
     // 공통 필터 적용 함수
     const applyFilters = (query: any, isOther: boolean = false, excludeYear: boolean = false, includeSearch: boolean = true) => {
@@ -171,43 +170,31 @@ export async function GET(request: NextRequest) {
     const [
       { data: measurementRevenue, count: totalCount, error: measurementError },
       { data: otherRevenue, error: otherError },
-      { data: initialMeasurementForSummary, error: measurementSummaryError },
-      { data: initialOtherForSummary, error: otherSummaryError }
+      allMeasurementForSummary,
+      allOtherForSummary,
     ] = await Promise.all([
       measurementDataQuery,
       otherRevenueQuery,
-      // 집계용 데이터는 년도 필터와 검색 필터(사업장/대표자) 제외 (통계의 정확성 유지)
-      includeUnpaidWriters ? applyFilters(measurementSummaryQuery, false, true, false).range(0, 999) : applyFilters(measurementSummaryQuery, false, true, false).limit(50000),
-      includeUnpaidWriters ? applyFilters(otherSummaryQuery, true, true, false).range(0, 999) : applyFilters(otherSummaryQuery, true, true, false).limit(50000)
+      // PostgREST applies the server row cap to each response. The same
+      // complete, deterministic page fetch is used for regular and unpaid
+      // summary requests; no 2025 records may be silently discarded.
+      fetchCompleteSalesSummaryRows<any>((from, to) =>
+        applyFilters(makeMeasurementSummaryQuery(), false, true, false).range(from, to)
+      ),
+      fetchCompleteSalesSummaryRows<any>((from, to) =>
+        applyFilters(makeOtherSummaryQuery(), true, true, false).range(from, to)
+      ),
     ]);
 
-    if (measurementError || otherError || measurementSummaryError || otherSummaryError) {
-      console.error("매출 조회 오류:", measurementError || otherError || measurementSummaryError || otherSummaryError);
+    if (measurementError || otherError) {
+      console.error("매출 조회 오류:", measurementError || otherError);
       return NextResponse.json({ error: "데이터를 불러오는 중 오류가 발생했습니다." }, { status: 500 });
     }
 
-    let allMeasurementForSummary = initialMeasurementForSummary || [];
-    let allOtherForSummary = initialOtherForSummary || [];
     let reportWriterNames: string[] = [];
     let latestReportWriterByCode: Record<string, string | null> = {};
 
     if (includeUnpaidWriters) {
-      // PostgREST may cap a response at 1,000 rows even when a larger limit is requested.
-      const loadRemaining = async (initial: any[], makeQuery: () => any, isOther: boolean) => {
-        const rows = [...initial];
-        for (let offset = 1000; rows.length === offset; offset += 1000) {
-          const { data, error } = await applyFilters(makeQuery(), isOther, true, false).range(offset, offset + 999);
-          if (error) throw error;
-          rows.push(...(data || []));
-          if (!data || data.length < 1000) break;
-        }
-        return rows;
-      };
-      [allMeasurementForSummary, allOtherForSummary] = await Promise.all([
-        loadRemaining(allMeasurementForSummary, makeMeasurementSummaryQuery, false),
-        loadRemaining(allOtherForSummary, makeOtherSummaryQuery, true),
-      ]);
-
       const staffResponse = await supabase.from("users").select("name").eq("job", "측정").order("name");
       if (staffResponse.error) throw staffResponse.error;
       reportWriterNames = [...new Set((staffResponse.data || []).map((row) => row.name?.trim()).filter((name): name is string => Boolean(name)))].sort((a, b) => a.localeCompare(b, "ko"));
