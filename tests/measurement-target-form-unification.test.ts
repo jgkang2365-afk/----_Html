@@ -130,11 +130,34 @@ test("inline 날짜는 실제 change에서 시작일·종료일·상태를 함�
   assert.deepEqual(buildInlineMeasurementDateUpdates("실시", ""), {
     measurement_date: null,
     measurement_end_date: null,
+    daily_staff: null,
     is_registered: "미실시",
   });
   assert.deepEqual(buildInlineMeasurementDateUpdates("거래종료", ""), {
     measurement_date: null,
     measurement_end_date: null,
+    daily_staff: null,
+  });
+});
+
+test("목록에서 다일 일정의 표시 날짜만 지우고 남은 날짜와 배정을 저장한다", () => {
+  const daily_staff = [
+    { date: "2026-11-20", measurer_id: 3, collaborators: ["B"] },
+    { date: "2026-11-19", measurer_id: 2, collaborators: ["A"] },
+  ];
+  const patch = buildInlineMeasurementDateUpdates("거래종료", "", { measurement_date: "2026-11-19", daily_staff });
+  assert.deepEqual(patch, {
+    measurement_date: "2026-11-20", measurement_end_date: "2026-11-20",
+    daily_staff: null, measurer_id: 3, collaborators: "B", is_registered: "거래종료",
+  });
+});
+
+test("상세에서 둘째 날짜를 지운 뒤 첫 날짜까지 지워도 각 저장 요청의 일정이 명확하다", () => {
+  const first = { date: "2026-11-19", measurerId: 2, collaborators: ["A"] };
+  const second = { date: "2026-11-20", measurerId: 3, collaborators: ["B"] };
+  assert.deepEqual(buildTargetBusinessEditPatch({}, {}, [first, second], [first]), serializeMeasurementDayForms([first]));
+  assert.deepEqual(buildTargetBusinessEditPatch({}, {}, [first], [{ ...first, date: "" }]), {
+    measurement_date: null, measurement_end_date: null, daily_staff: null,
   });
 });
 
@@ -190,7 +213,7 @@ test("모달 날짜는 local callback과 stable key만 사용하고 inline 날�
 
   assert.match(
     management,
-    /value=\{item\.measurement_date \|\| ""\}[\s\S]{0,180}onChange=\{\(e\) => handleConfirmedDateChange/
+    /value=\{item\.measurement_date \|\| ""\}[\s\S]{0,180}onChange=\{\(e\) =>[\s\S]{0,120}handleConfirmedDateChange/
   );
   assert.doesNotMatch(
     management,

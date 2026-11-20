@@ -967,10 +967,13 @@ export async function PATCH(request: NextRequest) {
           const minDate = sortedDates.length > 0 ? sortedDates[0] : null;
           
           const businessUpdatePayload: any = {
-            collaborators: unifiedCollaborators || null,
             measurement_date: minDate,
             measurement_end_date: maxEndDate
           };
+          // 마지막 날짜만 지워도 단일 폼에서 별도로 관리하는 참여자는 보존한다.
+          if (sortedDates.length || updates.measurement_date !== null) {
+            businessUpdatePayload.collaborators = unifiedCollaborators || null;
+          }
 
           // 실시일이 있으면 화면에서 전달된 이전 상태와 관계없이 실시로 확정한다.
           // 거래종료는 사용자가 명시한 최우선 상태이므로 그대로 유지한다.
