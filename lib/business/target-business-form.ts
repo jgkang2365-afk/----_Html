@@ -1,5 +1,6 @@
 import {
   MeasurementDayForm,
+  measurementDayFormsFrom,
   serializeMeasurementDayForms,
 } from "@/lib/business/measurement-day-form";
 
@@ -289,6 +290,14 @@ export function buildTargetBusinessEditPatch(
     }
   }
 
+  // 일자별 배정 해제와 단일 일정 전환을 API가 구분하도록 두 값을 함께 보낸다.
+  if (patch.daily_staff === null) {
+    // 기존 다일 요약의 참여자는 여러 날짜의 합집합일 수 있다.
+    Object.assign(patch, currentSchedule);
+  } else if (patch.measurement_date === null) {
+    patch.daily_staff = currentSchedule.daily_staff;
+  }
+
   return patch as SerializedTargetBusinessForm;
 }
 
@@ -322,12 +331,24 @@ export function resolveTargetBusinessStatusForCreate(
 
 export function buildInlineMeasurementDateUpdates(
   currentStatus: unknown,
-  value: string
+  value: string,
+  target?: Pick<TargetBusinessFormValues, "measurement_date" | "daily_staff">
 ): SerializedTargetBusinessForm {
   const date = value || null;
+  if (!date && Array.isArray(target?.daily_staff) && target.daily_staff.length > 1) {
+    const days = measurementDayFormsFrom({ dailyStaff: target.daily_staff });
+    const index = days.findIndex((day) => day.date === target.measurement_date);
+    if (index < 0) throw new Error("목록의 측정일과 날짜별 배정이 다릅니다. 사업장 상세에서 일정을 확인해 주세요.");
+    const remaining = days.filter((_, dayIndex) => dayIndex !== index);
+    return {
+      ...serializeMeasurementDayForms(remaining),
+      is_registered: statusForMeasurementDays(currentStatus, remaining),
+    };
+  }
   const updates: SerializedTargetBusinessForm = {
     measurement_date: date,
     measurement_end_date: date,
+    ...(!date && { daily_staff: null }),
   };
   if (!isTargetBusinessTerminated(currentStatus)) {
     updates.is_registered = date ? "실시" : "미실시";

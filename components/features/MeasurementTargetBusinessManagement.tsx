@@ -1709,8 +1709,15 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     const handleConfirmedDateChange = (item: BusinessEntry, newDate: string) => {
-        const updates = buildInlineMeasurementDateUpdates(item.is_registered_text, newDate);
-        saveChanges(item.code, updates as Partial<BusinessEntry>, item);
+        let updates;
+        try {
+            updates = buildInlineMeasurementDateUpdates(item.is_registered_text, newDate, item);
+        } catch (error) {
+            alert(error instanceof Error ? error.message : "날짜별 배정을 확인해 주세요.");
+            return;
+        }
+        // saveChanges가 실패 안내와 화면 복구를 담당한다.
+        void saveChanges(item.code, updates as Partial<BusinessEntry>, item).catch(() => {});
     };
 
     const handleNotesChange = (item: BusinessEntry, newNotes: string) => {
@@ -1847,7 +1854,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         {nationalSupportJob && <AutomationProgressModal jobId={nationalSupportJob.id} title="건강디딤돌 작업을 처리하고 있습니다" processingMessage={nationalSupportJob.applying ? "깡통컴에서 건강디딤돌 조회·신청을 처리 중입니다" : "깡통컴에서 건강디딤돌 조회를 처리 중입니다"} nationalSupport onClose={() => setNationalSupportJob(null)} />}
         <div className="w-full min-w-0 max-w-full p-2 sm:p-4">
             {/* Sticky Container for Filter & Table Header */}
-            <div className="sticky top-16 lg:top-[113px] z-40 space-y-4 bg-gray-50/95 backdrop-blur">
+            <div className="sm:sticky sm:top-16 lg:top-[113px] z-40 space-y-4 bg-gray-50/95 backdrop-blur">
                 <Card className="p-4 bg-white shadow-sm border-surface-200">
                     <div className="flex items-center justify-between gap-4 flex-wrap overflow-visible p-1">
                         {/* Filters Group */}
@@ -2294,8 +2301,24 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                                             type="date"
                                             className="w-full text-xs h-7 border-slate-200 rounded focus:border-indigo-500 focus:ring focus:ring-indigo-100 bg-transparent text-center"
                                             value={item.measurement_date || ""}
-                                            onChange={(e) => handleConfirmedDateChange(item, e.target.value)}
+                                            onChange={(e) => {
+                                                if (!e.target.validity.badInput) handleConfirmedDateChange(item, e.target.value);
+                                            }}
                                         />
+                                        {item.measurement_date && (
+                                            <button
+                                                type="button"
+                                                className="min-h-11 rounded px-2 text-xs text-red-700 [@media(hover:hover)_and_(pointer:fine)]:hidden"
+                                                aria-label={`${item.business_name} ${item.measurement_date} 측정일 지우기`}
+                                                onClick={() => {
+                                                    if (window.confirm(`${item.business_name}의 ${item.measurement_date} 측정일을 지울까요?`)) {
+                                                        handleConfirmedDateChange(item, "");
+                                                    }
+                                                }}
+                                            >
+                                                지우기
+                                            </button>
+                                        )}
                                         {/* [The Joo Rule] Guard Logic: 시작일이 없으면 종료일 섹션 자체를 렌더링하지 않음 (찌꺼기 방지) */}
                                         {(item.measurement_date && item.measurement_end_date && item.measurement_end_date !== item.measurement_date) && (
                                             <div className="text-[10px] text-slate-400 font-medium">

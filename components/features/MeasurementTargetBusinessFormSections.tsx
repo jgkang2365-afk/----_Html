@@ -104,7 +104,7 @@ interface MeasurementDayAssignmentCardProps {
   fallbackDate: string | null | undefined;
   blockedKeys: Set<string>;
   canRemove: boolean;
-  onDateChange: (date: string) => void;
+  onDateChange: (date: string, incomplete: boolean) => void;
   onMeasurerChange: (measurerId: number | null) => void;
   onCollaboratorChange: (name: string, checked: boolean) => void;
   onRemove: () => void;
@@ -136,16 +136,6 @@ export const MeasurementDayAssignmentCard: React.FC<MeasurementDayAssignmentCard
       className="group relative border-slate-200 bg-white p-3"
       data-measurement-day-key={day.uiKey}
     >
-      {canRemove && (
-        <button
-          type="button"
-          className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-red-600 opacity-0 shadow-sm transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
-          onClick={onRemove}
-          aria-label={`측정일 ${index + 1} 삭제`}
-        >
-          ×
-        </button>
-      )}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="mb-1 block text-xs font-semibold text-slate-500">
@@ -154,8 +144,18 @@ export const MeasurementDayAssignmentCard: React.FC<MeasurementDayAssignmentCard
           <Input
             type="date"
             value={day.date}
-            onChange={(event) => onDateChange(event.target.value)}
+            onChange={(event) => onDateChange(event.target.value, event.target.validity.badInput)}
           />
+          {canRemove && (
+            <button
+              type="button"
+              className="min-h-11 rounded px-2 text-xs text-red-700 hover:bg-red-50 sm:min-h-8"
+              onClick={onRemove}
+              aria-label={`측정일 ${index + 1} 삭제`}
+            >
+              지우기
+            </button>
+          )}
         </div>
         <div>
           <label className="mb-1 block text-xs font-semibold text-slate-500">보고서 담당자</label>
@@ -334,6 +334,14 @@ export const MeasurementTargetBusinessFormSections: React.FC<
       dayIndex === index ? update(day) : day
     );
     onMeasurementDaysChange(nextDays, linkMeasurerId);
+  };
+
+  const removeMeasurementDate = (index: number) => {
+    if (measurementDays.length > 1) {
+      onMeasurementDaysChange(measurementDays.filter((_, dayIndex) => dayIndex !== index));
+    } else {
+      updateDay(index, (day) => ({ ...day, date: "" }));
+    }
   };
 
   return (
@@ -772,8 +780,12 @@ export const MeasurementTargetBusinessFormSections: React.FC<
               measurers={measurers}
               fallbackDate={value.future_measurement_date}
               blockedKeys={blockedKeys}
-              canRemove={measurementDays.length > 1}
-              onDateChange={(date) => {
+              canRemove={measurementDays.length > 1 || Boolean(day.date)}
+              onDateChange={(date, incomplete) => {
+                if (!date) {
+                  if (!incomplete) removeMeasurementDate(index);
+                  return;
+                }
                 const transition = swapMeasurerForMeasurementDateTransition(
                   day,
                   day.date || value.future_measurement_date,
@@ -809,9 +821,7 @@ export const MeasurementTargetBusinessFormSections: React.FC<
                     : day.collaborators.filter((collaborator) => collaborator !== name),
                 }))
               }
-              onRemove={() =>
-                onMeasurementDaysChange(measurementDays.filter((_, dayIndex) => dayIndex !== index))
-              }
+              onRemove={() => removeMeasurementDate(index)}
             />
           ))}
         </div>
