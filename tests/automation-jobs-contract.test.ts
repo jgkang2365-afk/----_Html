@@ -73,7 +73,7 @@ test("Production canonical journal key and compatibility projection are fixed", 
   assert.equal(nationalSupportCompatibilityStatus("ALREADY_APPLIED"), "확인대기");
   assert.equal(nationalSupportCompatibilityStatus("APPLICATION_UNCERTAIN"), "수동확인필요");
   assert.equal(nationalSupportCompatibilityStatus("JOURNAL_REGISTERED_SKIP"), "일지 등록 · 제외");
-  assert.equal(getNationalSupportDisplayStatus({ period: "하반기", sync_status: "일지 등록 · 제외", national_support_status: null, industrial_accident_number: "1", commencement_number: "2", representative_name: "대표" } as any), "일지 등록 · 제외");
+  assert.equal(getNationalSupportDisplayStatus({ period: "하반기", sync_status: "일지 등록 · 제외", national_support_status: null, industrial_accident_number: "1", commencement_number: "2", representative_name: "대표" } as any), "일지 등록 · 자동 제외");
 });
 
 test("journal lookup fails closed for null or malformed data", async () => {
@@ -201,7 +201,7 @@ test("Guard2 distinguishes a registered journal from a database/protocol error",
   const nationalSupportWorker = fs.readFileSync(path.join(process.cwd(), "lib/automation/national-support-worker.ts"), "utf8");
   const flow = fs.readFileSync(path.join(process.cwd(), "건강디딤돌_접수_자동화.py"), "utf8");
   const cli = fs.readFileSync(path.join(process.cwd(), "scratch/national_support_flow_cli.py"), "utf8");
-  assert.match(worker, /reason: "JOURNAL_REGISTERED"/);
+  assert.match(worker, /"JOURNAL_REGISTERED" : "TARGET_STATUS"/);
   assert.match(worker, /reason: "GUARD_ERROR"/);
   assert.match(flow, /guard_reason == "JOURNAL_REGISTERED"/);
   assert.match(flow, /classify_journal_guard_result/);
@@ -239,7 +239,9 @@ test("Health marker failure is a pre-effect FAILED terminal", () => {
 
 test("National-support journal guard has one fail-closed canonical lookup", () => {
   const worker = fs.readFileSync(path.join(process.cwd(), "lib/automation/national-support-worker.ts"), "utf8");
-  assert.match(worker, /hasMeasurementJournalForTarget/);
+  const contract = fs.readFileSync(path.join(process.cwd(), "lib/national-support/automation-contract.ts"), "utf8");
+  assert.match(worker, /readNationalSupportExecutionDecision/);
+  assert.match(contract, /hasMeasurementJournalForTarget\(supabase, data\)/);
   assert.doesNotMatch(worker, /Boolean\(data\?\.length\)/);
 });
 

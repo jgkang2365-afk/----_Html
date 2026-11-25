@@ -58,7 +58,7 @@ test("target_id의 canonical code/year/period가 다르면 409이고 guard·payl
   assert.match(route, /errorCode: NATIONAL_SUPPORT_TARGET_KEY_MISMATCH/);
   assert.equal(NATIONAL_SUPPORT_TARGET_KEY_MISMATCH, "NATIONAL_SUPPORT_TARGET_KEY_MISMATCH");
   assert.match(route, /const \{ id: canonicalTargetId, code, year, period \} = canonicalTarget/);
-  assert.match(route, /hasMeasurementJournalForTarget\(createAdminClient\(\), \{[\s\S]*?code: String\(code\), year: Number\(year\), period: String\(period\)/);
+  assert.match(route, /readNationalSupportExecutionDecision\([\s\S]*?createAdminClient\(\), executionTarget/);
   assert.match(route, /target_id: canonicalTargetId/);
   assert.match(route, /targetKey: `national-support:\$\{canonicalTargetId\}`/);
 });
@@ -72,6 +72,6 @@ test("JOURNAL_REGISTERED_SKIP는 네 UI 호출 경로 모두 제외로 분류하
   const users = fs.readFileSync(path.join(process.cwd(), "components/features/UserManagement.tsx"), "utf8");
   assert.equal((management.match(/nationalSupportApplyOutcome\([^)]*\) === "excluded"/g) ?? []).length, 3);
   assert.equal((users.match(/nationalSupportApplyOutcome\([^)]*\) === "excluded"/g) ?? []).length, 1);
-  assert.match(management, /\[제외\].*측정일지가 등록되어/);
-  assert.match(users, /\[제외\].*측정일지가 등록되어/);
+  assert.match(management, /\[제외\].*resJson\.message/);
+  assert.match(users, /\[제외\].*resJson\.message/);
 });

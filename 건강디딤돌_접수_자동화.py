@@ -34,6 +34,20 @@ def classify_journal_guard_result(result):
             and result["reason"] == "JOURNAL_REGISTERED"
         ):
             return "JOURNAL_REGISTERED"
+        if (
+            set(result) == {"allow", "reason"}
+            and type(result["allow"]) is bool
+            and result["allow"] is False
+            and result["reason"] == "TARGET_STATUS"
+        ):
+            return "TARGET_STATUS"
+        if (
+            set(result) == {"allow", "reason"}
+            and type(result["allow"]) is bool
+            and result["allow"] is False
+            and result["reason"] == "INFO_CHANGED"
+        ):
+            return "INFO_CHANGED"
     return "GUARD_ERROR"
 
 
@@ -984,11 +998,27 @@ class HealthProgramAutomation:
                 if guard_reason == "JOURNAL_REGISTERED":
                     self.update_progress("  -> 측정일지 등록이 확인되어 최종 신청을 중단합니다.")
                     return "JOURNAL_REGISTERED_SKIP"
+                if guard_reason == "TARGET_STATUS":
+                    self.update_progress("  -> 사업장 종료 또는 상태 변경이 확인되어 최종 신청을 중단합니다.")
+                    return "TARGET_STATUS_SKIP"
+                if guard_reason == "INFO_CHANGED":
+                    self.update_progress("  -> 저장된 신청 정보가 변경되어 최종 신청을 중단합니다.")
+                    return "APPLICATION_INFO_CHANGED_SKIP"
                 self.update_progress("  -> 측정일지 Guard2 조회 오류로 최종 신청을 중단합니다.")
                 return "GUARD_ERROR"
         mark_effect_started = getattr(self, "mark_effect_started", None)
         if callable(mark_effect_started):
             effect_result = mark_effect_started()
+            effect_reason = classify_journal_guard_result(effect_result)
+            if effect_reason == "JOURNAL_REGISTERED":
+                self.update_progress("  -> 측정일지 등록이 확인되어 최종 신청을 중단합니다.")
+                return "JOURNAL_REGISTERED_SKIP"
+            if effect_reason == "TARGET_STATUS":
+                self.update_progress("  -> 사업장 종료 또는 상태 변경이 확인되어 최종 신청을 중단합니다.")
+                return "TARGET_STATUS_SKIP"
+            if effect_reason == "INFO_CHANGED":
+                self.update_progress("  -> 저장된 신청 정보가 변경되어 최종 신청을 중단합니다.")
+                return "APPLICATION_INFO_CHANGED_SKIP"
             effect_allowed = (
                 effect_result.get("allow") is True
                 if isinstance(effect_result, dict)

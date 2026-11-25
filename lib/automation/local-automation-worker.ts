@@ -1,14 +1,15 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { claimNextAutomationJob, updateAutomationJobOwned } from "@/lib/automation/jobs";
 import { processNationalSupportJob, type NationalSupportJobPayload } from "@/lib/automation/national-support-worker";
-import { canAutomateNationalSupportForTarget, hasMeasurementJournalForTarget, nationalSupportCompatibilityProjection, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
+import { isCurrentNationalSupportApplicationReady } from "@/lib/national-support/apply-readiness";
+import { readNationalSupportExecutionDecision, nationalSupportCompatibilityProjection, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
 import { syncToMasterTables } from "@/lib/sync/master-tables";
 
 const NATIONAL_SUPPORT = "NATIONAL_SUPPORT";
 const workerId = `local-automation-${process.pid}`;
 
-export function shouldRunNationalSupportJournalGuard(payload: Pick<NationalSupportJobPayload, "mode">) {
-  return payload.mode !== "final_lookup";
+export function shouldRunNationalSupportJournalGuard(payload: Pick<NationalSupportJobPayload, "mode" | "intent">) {
+  return payload.mode !== "final_lookup" && !(payload.intent === "direct" && payload.mode === "lookup_only");
 }
 
 export function terminalForNationalSupportResult(
@@ -183,37 +184,54 @@ export class LocalAutomationWorker {
               "NATIONAL_SUPPORT_FINAL_LOOKUP_LINEAGE_MISSING");
             continue;
           }
+          let runPayload = payload;
+          if (payload.mode !== "final_lookup") {
+            const decision = await readNationalSupportExecutionDecision(supabase, payload, {
+              intent: payload.intent === "direct" ? "direct" : "automatic",
+              mode: payload.mode === "apply_if_missing" ? "apply_if_missing" : "lookup_only",
+            });
+            if (decision.action === "skip") {
+              await this.completeTerminal(job.id, payload, "COMPLETED", decision.resultCode);
+              continue;
+            }
+            runPayload = { ...payload, mode: decision.mode };
+          }
           await this.projectRunning(payload);
           await updateAutomationJobOwned(supabase, job.id, workerId, { progress_stage: "신청조건 확인", progress_percent: 20 });
-          // Fail closed if a queued target became completed or closed before execution.
-          if (shouldRunNationalSupportJournalGuard(payload) &&
-              !await canAutomateNationalSupportForTarget(supabase, payload.target_id)) {
-            await this.completeTerminal(job.id, payload, "COMPLETED", "TARGET_STATUS_SKIP");
-            continue;
-          }
-          // Guard 1: a journal makes both lookup scheduling and application ineligible.
-          if (shouldRunNationalSupportJournalGuard(payload) && await hasMeasurementJournalForTarget(supabase, payload)) {
-            await this.completeTerminal(job.id, payload, "COMPLETED", "JOURNAL_REGISTERED_SKIP");
-            continue;
-          }
-          const result = await processNationalSupportJob(payload, {
+          const result = await processNationalSupportJob(runPayload, {
             onWorkerEvent: async (event) => {
               if (event === "journal_guard_before_apply") {
                 try {
-                  // Guard 2: block application if status changed while Chrome was open.
-                  if (!await canAutomateNationalSupportForTarget(supabase, payload.target_id)) {
-                    return { allow: false, reason: "GUARD_ERROR" };
+                  const decision = await readNationalSupportExecutionDecision(supabase, payload, {
+                    intent: payload.intent === "direct" ? "direct" : "automatic",
+                    mode: "apply_if_missing", beforeApply: true,
+                  });
+                  if (decision.action === "skip") return { allow: false, reason: decision.resultCode === "JOURNAL_REGISTERED_SKIP"
+                    ? "JOURNAL_REGISTERED" : "TARGET_STATUS" };
+                  if (!await isCurrentNationalSupportApplicationReady(supabase, payload)) {
+                    return { allow: false, reason: "INFO_CHANGED" };
                   }
-                  const registered = await hasMeasurementJournalForTarget(supabase, payload);
-                  return registered
-                    ? { allow: false, reason: "JOURNAL_REGISTERED" }
-                    : { allow: true };
+                  return { allow: true };
                 } catch (error) {
                   console.error("[NationalSupportWorker] Guard2 조회 실패", error);
                   return { allow: false, reason: "GUARD_ERROR" };
                 }
               }
               if (event === "effect_started") {
+                try {
+                  const decision = await readNationalSupportExecutionDecision(supabase, payload, {
+                    intent: payload.intent === "direct" ? "direct" : "automatic",
+                    mode: "apply_if_missing", beforeApply: true,
+                  });
+                  if (decision.action === "skip") return { allow: false, reason: decision.resultCode === "JOURNAL_REGISTERED_SKIP"
+                    ? "JOURNAL_REGISTERED" : "TARGET_STATUS" };
+                  if (!await isCurrentNationalSupportApplicationReady(supabase, payload)) {
+                    return { allow: false, reason: "INFO_CHANGED" };
+                  }
+                } catch (error) {
+                  console.error("[NationalSupportWorker] effect 경계 재검사 실패", error);
+                  return { allow: false, reason: "GUARD_ERROR" };
+                }
                 await updateAutomationJobOwned(supabase, job.id, workerId, {
                   effect_started_at: new Date().toISOString(),
                   progress_stage: "신청 요청 전송", progress_percent: 70,

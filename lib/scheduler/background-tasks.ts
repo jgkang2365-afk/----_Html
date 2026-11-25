@@ -7,9 +7,9 @@ import { buildK2BSyncRange } from '../automation/k2b-original-sync';
 import { K2B_VERIFY_UNRESOLVED_DAYS } from '../constants/k2b-verification';
 import { enqueueAutomationJob, mesScheduledIdempotencyKey, nationalSupportIdempotencyKey } from '../automation/jobs';
 import { forEachAscendingIdPage } from './id-pages';
-import { hasMeasurementJournalForTarget } from '../national-support/automation-contract';
+import { readNationalSupportExecutionDecision } from '../national-support/automation-contract';
 import { resolveNationalSupportRepresentative } from '../national-support/representative';
-import { hasNationalSupportApplicationInformation, isSingleNationalSupportRepresentative } from '../national-support/eligibility';
+import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber, isSingleNationalSupportRepresentative } from '../national-support/eligibility';
 
 const KST_CRON_OPTIONS = { timezone: 'Asia/Seoul' };
 
@@ -189,7 +189,6 @@ export class BackgroundTasks {
 
     /** 17:00 KST: enqueue once only; the Windows Realtime worker performs it. */
     public async enqueueDailyNationalSupportChecks(): Promise<void> {
-        // Development servers must not enqueue real government applications.
         if (process.env.NATIONAL_SUPPORT_WORKER_ENABLED !== "true") return;
         const admin = createAdminClient();
         const date = getKSTDateString();
@@ -200,7 +199,7 @@ export class BackgroundTasks {
           const { data, error } = await admin.from('measurement_target_business')
               .select('id, code, year, period, industrial_accident_number, commencement_number, representative_name, manager_name, manager_mobile, national_support_status, is_registered')
               .is('national_support_status', null)
-              .eq('is_registered', '미실시')
+              .in('is_registered', ['미실시', '실시'])
               .not('code', 'is', null)
               .not('year', 'is', null)
               .not('period', 'is', null)
@@ -219,8 +218,18 @@ export class BackgroundTasks {
               businessInfo?.national_support_representative_name,
               businessInfo?.representative_name || target.representative_name,
             );
-            if (!target.industrial_accident_number || !target.commencement_number || !representative) return;
-            if (await hasMeasurementJournalForTarget(admin, target)) return;
+            if (!normalizeElevenDigitNumber(target.industrial_accident_number) ||
+                !normalizeElevenDigitNumber(target.commencement_number) || !representative) return;
+            const mode = isSingleNationalSupportRepresentative(representative) && hasNationalSupportApplicationInformation({
+                industrial_accident_number: target.industrial_accident_number,
+                commencement_number: target.commencement_number,
+                representative_name: representative,
+                manager_name: target.manager_name,
+                manager_mobile: target.manager_mobile,
+            }) ? 'apply_if_missing' : 'lookup_only';
+            const decision = await readNationalSupportExecutionDecision(admin, { ...target, target_id: target.id },
+                { intent: 'automatic', mode });
+            if (decision.action === 'skip') return;
             await enqueueAutomationJob(admin, {
                 jobType: 'NATIONAL_SUPPORT',
                 idempotencyKey: nationalSupportIdempotencyKey('scheduled_lookup', String(target.code), target.year, target.period, date),
@@ -229,13 +238,8 @@ export class BackgroundTasks {
                     target_id: target.id, code: target.code, year: target.year, period: target.period,
                     sanjae: target.industrial_accident_number, commencement: target.commencement_number,
                     representative, contact_name: target.manager_name || '', contact_phone: target.manager_mobile || '',
-                    mode: isSingleNationalSupportRepresentative(representative) && hasNationalSupportApplicationInformation({
-                      industrial_accident_number: target.industrial_accident_number,
-                      commencement_number: target.commencement_number,
-                      representative_name: representative,
-                      manager_name: target.manager_name,
-                      manager_mobile: target.manager_mobile,
-                    }) ? 'apply_if_missing' : 'lookup_only', scheduled_at: date,
+                    intent: 'automatic',
+                    mode: decision.mode, scheduled_at: date,
                 },
             });
             enqueued += 1;

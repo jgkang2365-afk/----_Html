@@ -4,13 +4,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   canAutomateNationalSupportForTargetStatus,
-  canAutomateNationalSupportForTarget,
+  readNationalSupportExecutionDecision,
   nationalSupportCompatibilityProjection,
 } from "../lib/national-support/automation-contract";
 
-test("Only not-yet-measured, active targets are eligible for automation", () => {
+test("Both active plan states pass the status gate regardless of whether the plan has a date", () => {
   assert.equal(canAutomateNationalSupportForTargetStatus("미실시"), true);
-  for (const status of ["실시", "거래종료", "완료", null, undefined, ""]) {
+  assert.equal(canAutomateNationalSupportForTargetStatus("실시"), true);
+  for (const status of ["거래종료", "완료", null, undefined, ""]) {
     assert.equal(canAutomateNationalSupportForTargetStatus(status), false);
   }
 });
@@ -21,13 +22,13 @@ test("Worker checks current DB status rather than stale queued status", async ()
       assert.equal(table, "measurement_target_business");
       return {
         select(fields: string) {
-          assert.equal(fields, "is_registered");
+          assert.equal(fields, "id,code,year,period,is_registered");
           return {
             eq(field: string, id: string | number) {
               assert.equal(field, "id");
               assert.equal(id, 17);
               return {
-                maybeSingle: async () => ({ data: { is_registered: "거래종료" }, error: null }),
+                maybeSingle: async () => ({ data: { id: 17, code: "H0557", year: 2026, period: "하반기", is_registered: "거래종료" }, error: null }),
               };
             },
           };
@@ -35,15 +36,21 @@ test("Worker checks current DB status rather than stale queued status", async ()
       };
     },
   };
-  assert.equal(await canAutomateNationalSupportForTarget(database as any, 17), false);
+  assert.deepEqual(await readNationalSupportExecutionDecision(database as any,
+    { target_id: 17, code: "H0557", year: 2026, period: "하반기" },
+    { intent: "automatic", mode: "apply_if_missing", beforeApply: true }),
+  { action: "skip", resultCode: "TARGET_STATUS_SKIP" });
 });
 
 test("Worker fails closed when status lookup errors or returns no row", async () => {
   const makeClient = (response: any) => ({
     from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => response }) }) }),
   });
-  assert.equal(await canAutomateNationalSupportForTarget(makeClient({ data: null, error: null }) as any, 12), false);
-  await assert.rejects(canAutomateNationalSupportForTarget(makeClient({ data: null, error: new Error("DB unavailable") }) as any, 12));
+  const read = (response: unknown) => readNationalSupportExecutionDecision(makeClient(response) as any,
+    { target_id: 12, code: "H0557", year: 2026, period: "하반기" },
+    { intent: "automatic", mode: "apply_if_missing", beforeApply: true });
+  await assert.rejects(read({ data: null, error: null }), /TARGET_KEY_MISMATCH/);
+  await assert.rejects(read({ data: null, error: new Error("DB unavailable") }), /DB unavailable/);
 });
 
 test("Skipped closed targets do not become confirmed non-support", () => {
@@ -56,9 +63,10 @@ test("Scheduler and both worker guard boundaries check live status", () => {
   const root = process.cwd();
   const scheduler = readFileSync(path.join(root,"lib/scheduler/background-tasks.ts"),"utf8");
   const worker = readFileSync(path.join(root,"lib/automation/local-automation-worker.ts"),"utf8");
-  assert.match(scheduler,/\.eq\('is_registered', '미실시'\)/);
-  assert.match(worker,/!await canAutomateNationalSupportForTarget\(supabase, payload.target_id\)/);
-  assert.equal((worker.match(/canAutomateNationalSupportForTarget\(supabase, payload.target_id\)/g)||[]).length,2);
+  assert.match(scheduler,/\.in\('is_registered', \['미실시', '실시'\]\)/);
+  assert.match(scheduler,/await readNationalSupportExecutionDecision\(admin,/);
+  assert.equal((worker.match(/readNationalSupportExecutionDecision\(supabase, payload,/g)||[]).length,3);
+  assert.equal((worker.match(/beforeApply: true/g)||[]).length,2);
 });
 
 

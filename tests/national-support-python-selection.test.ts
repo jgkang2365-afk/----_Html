@@ -47,12 +47,20 @@ function loadWorker(platform: string, venvExists: boolean, spawnError = false) {
     if (name === "@/lib/supabase/server") return {
       createClient: async () => ({ from: () => ({ update: () => ({ eq: async () => ({ error: null }) }) }) }),
     };
+    if (name === "@/lib/supabase/admin") return { createAdminClient: () => ({}) };
+    if (name === "@/lib/national-support/apply-readiness") return {
+      isCurrentNationalSupportApplicationReady: async () => true,
+    };
     if (name === "@/lib/national-support/workflow") return { FINAL_LOOKUP_DELAY_MS: 0, FINAL_LOOKUP_MAX_ATTEMPTS: 0 };
     if (name === "@/lib/national-support/eligibility") return {
       isValidNationalSupportContactName: () => true,
       isValidNationalSupportMobile: () => true,
+      isSingleNationalSupportRepresentative: () => true,
     };
-    if (name === "@/lib/national-support/automation-contract") return { hasMeasurementJournalForTarget: async () => false };
+    if (name === "@/lib/national-support/automation-contract") return {
+      readNationalSupportExecutionDecision: async (_db: unknown, _payload: unknown, { mode }: { mode: string }) =>
+        ({ action: "run", mode }),
+    };
     throw new Error(`Unexpected import: ${name}`);
   };
   vm.runInNewContext(compiled, {

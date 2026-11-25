@@ -4,13 +4,13 @@ from 건강디딤돌_접수_자동화 import classify_journal_guard_result
 
 
 class HealthGuard2ContractTests(unittest.TestCase):
-    def test_only_explicit_journal_reason_is_skip(self):
-        self.assertEqual(
-            classify_journal_guard_result(
-                {"allow": False, "reason": "JOURNAL_REGISTERED"}
-            ),
-            "JOURNAL_REGISTERED",
-        )
+    def test_only_explicit_policy_reasons_are_skips(self):
+        for reason in ("JOURNAL_REGISTERED", "TARGET_STATUS", "INFO_CHANGED"):
+            with self.subTest(reason=reason):
+                self.assertEqual(
+                    classify_journal_guard_result({"allow": False, "reason": reason}),
+                    reason,
+                )
 
     def test_explicit_allow_is_the_only_success(self):
         self.assertEqual(classify_journal_guard_result({"allow": True}), "ALLOW")

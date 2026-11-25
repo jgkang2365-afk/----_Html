@@ -7,6 +7,8 @@ export type ApplicationResult =
   | "YEAR_CHECK_REQUIRED"
   | "APPLY_RESULT_UNKNOWN"
   | "ALREADY_APPLIED"
+  | "TARGET_STATUS_SKIP"
+  | "APPLICATION_INFO_CHANGED_SKIP"
   | "FAIL";
 export type NationalSupportMode = "lookup_only" | "apply_if_missing" | "final_lookup";
 
