@@ -1,6 +1,10 @@
 import { normalizeContactName } from "@/lib/utils/data-utils";
 
 export type NationalSupportLookupInput = {
+  is_registered?: string | null;
+  has_actual_measurement_journal?: boolean;
+  national_support_has_lookup_information?: boolean;
+  national_support_has_application_information?: boolean;
   period?: string | null;
   national_support_status?: string | null;
   sync_status?: string | null;
@@ -68,18 +72,21 @@ export function isValidNationalSupportMobile(value: unknown) {
   return digits !== "01012345678" && digits !== "0101234567";
 }
 
-/** Names for two or more representatives require a reviewed single-person override. */
+/** 복수 대표자 문자열은 사용자가 단일 신청 대표자를 확정할 때까지 신청하지 않는다. */
 export function isSingleNationalSupportRepresentative(value: unknown): boolean {
   const name = String(value ?? "").trim();
   if (!name) return false;
-  // Never split the original master value or guess which person should sign.
   return !(/[,，/／;；&＆]/.test(name) || /외\s*\d*\s*명/.test(name) ||
     /\s(?:및|와|과)\s/.test(name));
 }
 
 export function hasNationalSupportApplicationInformation(input: NationalSupportLookupInput) {
+  if (input.national_support_has_application_information !== undefined) {
+    return input.national_support_has_application_information;
+  }
   return Boolean(
     hasNationalSupportLookupInformation(input) &&
+      isSingleNationalSupportRepresentative(input.national_support_representative_name || input.representative_name) &&
       isValidNationalSupportContactName(input.manager_name) &&
       isValidNationalSupportMobile(input.manager_mobile),
   );
@@ -87,20 +94,25 @@ export function hasNationalSupportApplicationInformation(input: NationalSupportL
 
 export function canRequestNationalSupportLookup(input: NationalSupportLookupInput) {
   if (isAdHocMeasurement(input.period)) return false;
-  if (input.national_support_status === "비대상") return false;
+  if ("is_registered" in input && input.is_registered !== "미실시" && input.is_registered !== "실시") return false;
+  if (input.national_support_status === "비대상" && !input.has_actual_measurement_journal) return false;
   if (IN_PROGRESS_STATUSES.has(input.sync_status || "")) return false;
-  if (input.sync_status === "성공" && COMPLETED_STATUSES.has(input.national_support_status || "")) {
+  if (input.sync_status === "성공" && COMPLETED_STATUSES.has(input.national_support_status || "") &&
+      !input.has_actual_measurement_journal) {
     return false;
   }
-  return hasNationalSupportLookupInformation(input);
+  return input.national_support_has_lookup_information ?? hasNationalSupportLookupInformation(input);
 }
 
 export function getNationalSupportDisplayStatus(input: NationalSupportLookupInput) {
   if (isAdHocMeasurement(input.period)) return "비대상";
-  if (input.sync_status === "일지 등록 · 제외") return "일지 등록 · 제외";
   if (COMPLETED_STATUSES.has(input.national_support_status || "")) {
     return input.national_support_status as "대상" | "비대상";
   }
+  if ("is_registered" in input && input.is_registered !== "미실시" && input.is_registered !== "실시") {
+    return input.is_registered === "거래종료" || input.is_registered === "종료" ? "거래종료 · 제외" : "상태 확인 필요";
+  }
+  if (input.sync_status === "일지 등록 · 제외") return "일지 등록 · 자동 제외";
   switch (input.sync_status) {
     case "신청중":
     case "조회중":

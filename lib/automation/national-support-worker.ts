@@ -2,6 +2,8 @@ import { spawn, spawnSync } from "child_process";
 import { existsSync } from "fs";
 import path from "path";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { isCurrentNationalSupportApplicationReady } from "@/lib/national-support/apply-readiness";
 import {
   FINAL_LOOKUP_DELAY_MS,
   FINAL_LOOKUP_MAX_ATTEMPTS,
@@ -14,7 +16,7 @@ import {
   isValidNationalSupportMobile,
   isSingleNationalSupportRepresentative,
 } from "@/lib/national-support/eligibility";
-import { hasMeasurementJournalForTarget, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
+import { readNationalSupportExecutionDecision, type NationalSupportRequestIntent, type NationalSupportResultCode } from "@/lib/national-support/automation-contract";
 
 export type NationalSupportJobPayload = {
   target_id: number | string;
@@ -27,6 +29,7 @@ export type NationalSupportJobPayload = {
   code: string;
   year: string | number;
   mode?: "lookup_only" | "apply_if_missing" | "final_lookup";
+  intent?: NationalSupportRequestIntent;
   requested_by?: number | string;
   attempt_count?: number;
   /** Durable lineage: true once the parent application effect was approved. */
@@ -189,12 +192,8 @@ export async function processNationalSupportJob(
   options: { onWorkerEvent?: (event: string) => Promise<WorkerBoundaryReply> } = {},
 ): Promise<NationalSupportProcessResult> {
   const supabase = await createClient();
-  const mode = payload.mode || "lookup_only";
+  let mode = payload.mode || "lookup_only";
   const attemptCount = Number(payload.attempt_count || 0);
-  const commonTargetFields = {
-    industrial_accident_number: payload.sanjae || null,
-    commencement_number: payload.commencement || null,
-  };
 
   const resultCode = (result: AutomationResult, label: string) => {
     if (result.status !== "SUCCESS" || !result.result || result.result === "FAIL") {
@@ -207,7 +206,6 @@ export async function processNationalSupportJob(
     const { error } = await supabase
       .from("measurement_target_business")
       .update({
-        ...commonTargetFields,
         sync_error_message: message,
         updated_at: new Date().toISOString(),
       })
@@ -226,16 +224,37 @@ export async function processNationalSupportJob(
   };
 
   try {
+    if (mode !== "final_lookup") {
+      const decision = await readNationalSupportExecutionDecision(createAdminClient(), payload, {
+        intent: payload.intent === "direct" ? "direct" : "automatic", mode,
+      });
+      if (decision.action === "skip") {
+        await updateProgress("확인대기", decision.resultCode === "JOURNAL_REGISTERED_SKIP"
+          ? "측정일지가 등록되어 자동 조회·신청을 시작하지 않았습니다."
+          : "거래종료 또는 활성 상태가 아니어서 조회·신청하지 않았습니다.");
+        return { resultCode: decision.resultCode };
+      }
+      mode = decision.mode;
+    }
     if (mode === "apply_if_missing") {
       if (!isSingleNationalSupportRepresentative(payload.representative)) {
-        await updateProgress("확인대기", "복수 대표자명이 확인되어 신청하지 않았습니다. 신청 대표자를 별도로 지정한 뒤 재검토해 주세요.");
+        await updateProgress("확인대기", "복수 대표자명이 확인되어 신청하지 않았습니다. 신청 대표자를 별도로 지정해 주세요.");
         return { resultCode: "REPRESENTATIVE_REVIEW_SKIP" };
       }
       // Guard 2: this runs immediately before the integrated flow can reach
       // its application action, closing the enqueue-to-effect race.
-      if (await hasMeasurementJournalForTarget(supabase, payload)) {
-        await updateProgress("성공", "측정일지 등록이 확인되어 신청하지 않았습니다.");
-        return { resultCode: "JOURNAL_REGISTERED_SKIP" };
+      const preflight = await readNationalSupportExecutionDecision(createAdminClient(), payload, {
+        intent: payload.intent === "direct" ? "direct" : "automatic", mode, beforeApply: true,
+      });
+      if (preflight.action === "skip") {
+        await updateProgress("확인대기", preflight.resultCode === "JOURNAL_REGISTERED_SKIP"
+          ? "측정일지 등록이 확인되어 신청하지 않았습니다."
+          : "거래종료 또는 활성 상태가 아니어서 신청하지 않았습니다.");
+        return { resultCode: preflight.resultCode };
+      }
+      if (!await isCurrentNationalSupportApplicationReady(createAdminClient(), payload)) {
+        await updateProgress("확인대기", "저장된 신청 정보가 변경되었거나 부족하여 신청하지 않았습니다.");
+        return { resultCode: "APPLICATION_INFO_CHANGED_SKIP" };
       }
       const flowResult = resultCode(
         await runIntegratedFlow(payload, options.onWorkerEvent),
@@ -269,6 +288,14 @@ export async function processNationalSupportJob(
       if (flowResult === "JOURNAL_REGISTERED_SKIP") {
         await updateProgress("성공", "측정일지 등록이 확인되어 신청하지 않았습니다.");
         return { resultCode: "JOURNAL_REGISTERED_SKIP" };
+      }
+      if (flowResult === "TARGET_STATUS_SKIP") {
+        await updateProgress("확인대기", "거래종료 또는 활성 상태가 아니어서 신청하지 않았습니다.");
+        return { resultCode: "TARGET_STATUS_SKIP" };
+      }
+      if (flowResult === "APPLICATION_INFO_CHANGED_SKIP") {
+        await updateProgress("확인대기", "저장된 신청 정보가 변경되었거나 부족하여 신청하지 않았습니다.");
+        return { resultCode: "APPLICATION_INFO_CHANGED_SKIP" };
       }
       if (flowResult === "GUARD_ERROR") {
         throw new Error("건강디딤돌 Guard2 조회 오류로 신청을 중단했습니다.");

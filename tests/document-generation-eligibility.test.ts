@@ -349,8 +349,8 @@ test("고아 journal_id는 실제 레코드가 없으면 버튼을 숨기지 않
 });
 
 test("목록은 정확한 code year period 일지 여부를 문서 생성 힌트로 제공한다", () => {
-  assert.match(businessesRoute, /actualMeasurementJournalKeys/);
-  assert.match(businessesRoute, /\[item\.code, item\.year, item\.period\]/);
+  assert.match(businessesRoute, /readNationalSupportJournalCodes\(supabase, codes, targetYear, period\)/);
+  assert.match(businessesRoute, /actualMeasurementJournalCodes\.has\(item\.code\)/);
   assert.match(businessesRoute, /has_actual_measurement_journal: hasActualMeasurementJournal/);
 });
 

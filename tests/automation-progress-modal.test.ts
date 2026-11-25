@@ -27,7 +27,7 @@ test("실패 단계는 실제 시작·결과 확인 증거를 따른다", () => 
 
 test("terminal 결과는 열린 진행 모달에 남고, 닫힌 진행 화면만 자동 정리한다", () => {
   const component = readFileSync("components/features/AutomationProgressModal.tsx", "utf8");
-  assert.match(component, /terminal\.has\(job\.status\) && props\.visible === false/);
+  assert.match(component, /AUTOMATION_TERMINAL_STATUSES\.has\(job\.status\) && props\.visible === false/);
   assert.match(component, /const handleClose = \(\) => \{/);
   assert.match(component, /if \(props\.onTerminal\) props\.onTerminal\(\);/);
   assert.match(component, /else props\.onClose\(\);/);
@@ -36,7 +36,7 @@ test("terminal 결과는 열린 진행 모달에 남고, 닫힌 진행 화면만
 test("Realtime 누락 시 열린 실행 모달만 5초 안전 조회하고 terminal에서 즉시 중단한다", () => {
   const component = readFileSync("components/features/AutomationProgressModal.tsx", "utf8");
   assert.equal(AUTOMATION_PROGRESS_FALLBACK_POLL_MS, 5000);
-  assert.match(component, /if \(props\.visible === false \|\| !running\) return/);
+  assert.match(component, /if \(props\.visible === false \|\| !running \|\| externallyObserved\) return/);
   assert.match(component, /document\.visibilityState !== "visible"/);
   assert.match(component, /window\.setTimeout\(async \(\) => \{/);
   assert.match(component, /AUTOMATION_PROGRESS_FALLBACK_POLL_MS/);

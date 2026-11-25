@@ -8,6 +8,10 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = 'force-dynamic'; // Force dynamic rendering
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { readNationalSupportJournalCodes } from "@/lib/national-support/automation-contract";
+import { resolveNationalSupportRepresentative } from "@/lib/national-support/representative";
+import { projectNationalSupportOrphanStatuses } from "@/lib/national-support/orphan-status";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { getSession } from "@/lib/auth/session";
 import { toShortName } from "@/lib/constants/designated-offices";
@@ -35,6 +39,7 @@ import {
 } from "@/lib/national-support/representative-storage";
 import {
   hasNationalSupportLookupInformation,
+  hasNationalSupportApplicationInformation,
   getInitialNationalSupportState,
   isAdHocMeasurement,
 } from "@/lib/national-support/eligibility";
@@ -284,16 +289,12 @@ export async function GET(request: NextRequest) {
       .order("measurement_period", { ascending: false });
 
     // 문서 생성 버튼은 같은 사업장 코드라도 현재 대상의 연도·주기 일지에만 막힌다.
-    const actualMeasurementJournalKeys = new Set(
-      (latestJournalData || []).map((item: any) =>
-        JSON.stringify([item.code, item.measurement_year, item.measurement_period])
-      )
-    );
+    const actualMeasurementJournalCodes = await readNationalSupportJournalCodes(supabase, codes, targetYear, period);
 
     // 3순위 보완: 사업장정보(business_info)에만 있는 기본 사업자등록번호와 대표전화
     const { data: businessInfoData } = await supabase
       .from("business_info")
-      .select("code, business_number, phone, fax, invoice_email, latitude, longitude, geocoded_address, geocoded_source_address, geocoding_status, geocoding_error, geocoded_at, geocode_provider, coordinate_locked, national_support_representative_name")
+      .select("code, business_number, phone, fax, invoice_email, latitude, longitude, geocoded_address, geocoded_source_address, geocoding_status, geocoding_error, geocoded_at, geocode_provider, coordinate_locked, national_support_representative_name, representative_name")
       .in("code", codes);
 
     // Map: Code -> Latest Info (Business)
@@ -357,9 +358,14 @@ export async function GET(request: NextRequest) {
       const exactInfo = exactMeasurementInfoMap.get(item.code);
       const jInfo = journalInfoMap.get(item.code);
       const basicInfo = businessBasicInfoMap.get(item.code);
-      const hasActualMeasurementJournal = actualMeasurementJournalKeys.has(
-        JSON.stringify([item.code, item.year, item.period])
-      );
+      const hasActualMeasurementJournal = actualMeasurementJournalCodes.has(item.code);
+      const nationalSupportInfo = {
+        ...item,
+        representative_name: resolveNationalSupportRepresentative(
+          basicInfo?.national_support_representative_name,
+          basicInfo?.representative_name || item.representative_name,
+        ),
+      };
 
       // 실시여부 로직: 기 입력된 값이 '거래종료', '종료', '실시', '미실시' 등 정규화된 값이면 유지.
       // 그 외(null 등)의 경우 기본값('미실시')으로 처리
@@ -410,6 +416,8 @@ export async function GET(request: NextRequest) {
         national_unpaid_count: nationalCount, // 국고 미수 (Calculated)
         unpaid_details: filteredDetails, // Filtered details
         has_actual_measurement_journal: hasActualMeasurementJournal,
+        national_support_has_lookup_information: hasNationalSupportLookupInformation(nationalSupportInfo),
+        national_support_has_application_information: hasNationalSupportApplicationInformation(nationalSupportInfo),
         // 지정지청은 소재지지청을 기존 production 4분류 규칙으로 파생한다.
         office_code: laborOffice.officeCode,
         office_jurisdiction: officeJurisdictionDisplay,
@@ -448,15 +456,23 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    let displayResult = result;
+    try {
+      displayResult = await projectNationalSupportOrphanStatuses(createAdminClient(), result);
+    } catch (orphanError) {
+      // 활성 job 조회 오류에서는 조회중을 임의로 해제하지 않는다.
+      console.warn("[Businesses] 건강디딤돌 활성 작업 확인 실패:", orphanError);
+    }
+
     const filteredResult = designatedOffice && designatedOffice !== "전체"
-      ? result.filter((item: any) =>
+      ? displayResult.filter((item: any) =>
           designatedOffice
             .split(",")
             .map((office) => office.trim())
             .filter(Boolean)
             .includes(item.designated_office)
         )
-      : result;
+      : displayResult;
 
     console.log(`[API] 조회된 사업장 수: ${filteredResult.length}, 요청 조건: year=${year}, period=${period}`);
 

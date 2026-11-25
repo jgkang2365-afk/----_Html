@@ -9,7 +9,7 @@ import { syncToMasterTables } from "@/lib/sync/master-tables";
 import { hasNationalSupportApplicationInformation, normalizeElevenDigitNumber } from "@/lib/national-support/eligibility";
 import { enqueueAutomationJob, nationalSupportIdempotencyKey } from "@/lib/automation/jobs";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { hasMeasurementJournalForTarget, nationalSupportCompatibilityProjection } from "@/lib/national-support/automation-contract";
+import { nationalSupportCompatibilityProjection, readNationalSupportExecutionDecision } from "@/lib/national-support/automation-contract";
 import { matchesNationalSupportTargetKey, NATIONAL_SUPPORT_TARGET_KEY_MISMATCH } from "@/lib/national-support/apply-boundaries";
 
 /**
@@ -34,15 +34,11 @@ export async function POST(request: NextRequest) {
     const requestId = request.headers.get("Idempotency-Key")?.trim() || String(body.request_id || "").trim() || randomUUID();
     const {
       target_id,
-      sanjae,
-      commencement,
-      representative,
-      contact_name,
-      contact_phone,
       period: requestedPeriod,
       code: requestedCode,
       year: requestedYear,
       mode = "lookup_only",
+      intent: requestedIntent,
     } = body;
 
     if (mode === "final_lookup") {
@@ -52,12 +48,13 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const jobMode = mode === "apply_if_missing"
+    let jobMode: "apply_if_missing" | "lookup_only" = mode === "apply_if_missing"
       ? mode
       : "lookup_only";
+    const intent = requestedIntent === "direct" ? "direct" as const : "automatic" as const;
 
     // 필수 입력값 검증 (담당자명 및 연락처는 결과 조회 시 필수 항목이 아니므로 제외)
-    if (!target_id || !sanjae || !commencement || !representative || !requestedPeriod || !requestedCode || !requestedYear) {
+    if (!target_id || !requestedPeriod || !requestedCode || !requestedYear) {
       return NextResponse.json(
         { error: "필수 요청 항목이 누락되었습니다." },
         { status: 400 }
@@ -66,7 +63,7 @@ export async function POST(request: NextRequest) {
 
     const { data: canonicalTarget, error: targetError } = await createAdminClient()
       .from("measurement_target_business")
-      .select("id, code, year, period, representative_name")
+      .select("id, code, year, period, representative_name, industrial_accident_number, commencement_number, manager_name, manager_mobile, is_registered")
       .eq("id", target_id).maybeSingle();
     if (targetError) throw targetError;
     if (!canonicalTarget) {
@@ -81,6 +78,19 @@ export async function POST(request: NextRequest) {
       }, { status: 409 });
     }
     const { id: canonicalTargetId, code, year, period } = canonicalTarget;
+    const executionTarget = {
+      target_id: canonicalTargetId, code: String(code), year: Number(year), period: String(period),
+    };
+    const executionDecision = await readNationalSupportExecutionDecision(
+      createAdminClient(), executionTarget, { intent, mode: jobMode },
+    );
+    if (executionDecision.action === "skip") {
+      return NextResponse.json({ success: true, resultCode: executionDecision.resultCode,
+        message: executionDecision.resultCode === "JOURNAL_REGISTERED_SKIP"
+          ? "측정일지가 등록되어 자동 조회·신청을 시작하지 않았습니다. 직접 결과 조회는 가능합니다."
+          : "거래종료 또는 활성 상태가 아닌 사업장은 건강디딤돌 조회·신청에서 제외됩니다." });
+    }
+    jobMode = executionDecision.mode === "apply_if_missing" ? "apply_if_missing" : "lookup_only";
     const { data: businessInfo, error: businessInfoError } = await createAdminClient()
       .from("business_info")
       .select("representative_name, national_support_representative_name")
@@ -89,7 +99,7 @@ export async function POST(request: NextRequest) {
     if (businessInfoError) throw businessInfoError;
     const effectiveRepresentative = resolveNationalSupportRepresentative(
       businessInfo?.national_support_representative_name,
-      businessInfo?.representative_name || canonicalTarget.representative_name || representative,
+      businessInfo?.representative_name || canonicalTarget.representative_name,
     );
     // 건강디딤돌 신청 대표자는 전용 override일 뿐, master 대표자 projection에
     // 전달할 값이 아니다. 기존 기본 대표자를 그대로 유지한다.
@@ -98,19 +108,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "신청 대표자 정보가 없습니다." }, { status: 400 });
     }
 
-    const normalizedSanjae = normalizeElevenDigitNumber(sanjae);
-    const normalizedCommencement = normalizeElevenDigitNumber(commencement);
+    const normalizedSanjae = normalizeElevenDigitNumber(canonicalTarget.industrial_accident_number);
+    const normalizedCommencement = normalizeElevenDigitNumber(canonicalTarget.commencement_number);
     if (!normalizedSanjae || !normalizedCommencement) {
       return NextResponse.json(
-        { error: "산재관리번호와 사업개시번호는 각각 정확한 11자리여야 합니다." },
+        { error: "저장된 산재관리번호와 사업개시번호가 각각 정확한 11자리여야 합니다. 상세에서 저장한 뒤 조회해 주세요." },
         { status: 400 },
-      );
-    }
-
-    if (period.includes("(수시)")) {
-      return NextResponse.json(
-        { error: "수시 주기는 건강디딤돌 지원 대상이 아닙니다." },
-        { status: 400 }
       );
     }
 
@@ -118,8 +121,8 @@ export async function POST(request: NextRequest) {
       industrial_accident_number: normalizedSanjae,
       commencement_number: normalizedCommencement,
       representative_name: effectiveRepresentative,
-      manager_name: contact_name,
-      manager_mobile: contact_phone,
+      manager_name: canonicalTarget.manager_name,
+      manager_mobile: canonicalTarget.manager_mobile,
     })) {
       return NextResponse.json(
         { error: "자동 신청에는 실제 담당자명과 010 휴대전화가 필요합니다." },
@@ -129,22 +132,22 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // Guard 1: never enqueue an application when the canonical journal key
-    // already exists.  Guard 2 remains inside the local flow at its effect boundary.
-    if (jobMode === "apply_if_missing" && await hasMeasurementJournalForTarget(createAdminClient(), {
-      code: String(code), year: Number(year), period: String(period),
-    })) {
-      return NextResponse.json({
-        success: true,
-        resultCode: "JOURNAL_REGISTERED_SKIP",
-        message: "측정일지가 등록되어 건강디딤돌 신청을 생성하지 않았습니다.",
-      });
+    // Enqueue 직전에도 상태/일지를 다시 읽는다. Worker와 신청 직전에도 재검사한다.
+    const latestDecision = await readNationalSupportExecutionDecision(
+      createAdminClient(), executionTarget, { intent, mode: jobMode },
+    );
+    if (latestDecision.action === "skip") {
+      return NextResponse.json({ success: true, resultCode: latestDecision.resultCode,
+        message: latestDecision.resultCode === "JOURNAL_REGISTERED_SKIP"
+          ? "측정일지가 등록되어 자동 조회·신청을 시작하지 않았습니다."
+          : "거래종료 또는 활성 상태가 아닌 사업장은 조회·신청하지 않습니다." });
     }
+    jobMode = latestDecision.mode === "apply_if_missing" ? "apply_if_missing" : "lookup_only";
 
-    // 중복 전송 방지를 위한 락(Lock) 확인 및 설정
+    // 대상 행의 수동 상태와 기존 공단 결과를 확인한다. 중복 실행은 durable lane에서 막는다.
     const { data: currentPlan, error: selectError } = await supabase
       .from("measurement_target_business")
-      .select("sync_status, national_support_status")
+      .select("national_support_status")
       .eq("id", canonicalTargetId)
       .single();
 
@@ -165,26 +168,17 @@ export async function POST(request: NextRequest) {
       .eq("year", parseInt(String(year)))
       .eq("period", period)
       .maybeSingle();
-    const hasManualInternalPlaceholder = !appError && existingApp?.status_source === "manual_internal";
+    if (appError) throw appError;
+    const hasManualInternalPlaceholder = existingApp?.status_source === "manual_internal";
 
     // 목록은 측정사업장/측정일지의 국고 상태를 보완해 표시할 수 있습니다.
     // 화면에서 "대상"으로 확인한 뒤 새로고침을 누른 경우, 대상 사업장 테이블의
-    // 값이 비어 있어도 조회를 허용하고 아래 락 단계에서 "대상"으로 맞춥니다.
-    if (currentPlan.national_support_status === "비대상" && !hasManualInternalPlaceholder) {
+    // 값이 비어 있어도 조회를 허용한다.
+    if (currentPlan.national_support_status === "비대상" && !hasManualInternalPlaceholder &&
+        !(intent === "direct" && jobMode === "lookup_only")) {
       return NextResponse.json(
         { error: "국고 지원 비대상 사업장입니다." },
         { status: 400 }
-      );
-    }
-
-    if (currentPlan.sync_status === "신청중" || currentPlan.sync_status === "조회중") {
-      return NextResponse.json(
-        {
-          error: "이미 해당 사업장에 대한 결과 조회 작업이 진행 중입니다.",
-          errorCode: "NATIONAL_SUPPORT_ALREADY_RUNNING",
-          correlationId,
-        },
-        { status: 409 },
       );
     }
 
@@ -195,7 +189,9 @@ export async function POST(request: NextRequest) {
       existingApp.status_source === "confirmed_result" ||
       (existingApp.status_source == null && Boolean(existingApp.result || existingApp.application_status))
     );
-    if (!appError && hasConfirmedExistingResult && (existingApp.national_support_status === "대상" || existingApp.national_support_status === "비대상")) {
+    // 직접 조회는 저장된 과거 판정을 반환하지 않고 현재 공단 결과를 확인한다.
+    if (intent === "direct" && hasConfirmedExistingResult) jobMode = "lookup_only";
+    if (intent !== "direct" && hasConfirmedExistingResult && (existingApp.national_support_status === "대상" || existingApp.national_support_status === "비대상")) {
       const dbStatus = existingApp.national_support_status;
 
       // 계획 테이블(measurement_target_business) 즉시 성공 처리 및 상태 업데이트
@@ -204,9 +200,6 @@ export async function POST(request: NextRequest) {
         .update({
           ...nationalSupportCompatibilityProjection(dbStatus === "대상" ? "SUPPORT" : "NON_SUPPORT"),
           national_support_status: dbStatus,
-          industrial_accident_number: normalizedSanjae,
-          commencement_number: normalizedCommencement,
-          updated_at: new Date().toISOString(),
         })
         .eq("id", canonicalTargetId);
 
@@ -253,12 +246,13 @@ export async function POST(request: NextRequest) {
       sanjae: normalizedSanjae,
       commencement: normalizedCommencement,
       representative: effectiveRepresentative,
-      contact_name: normalizeContactName(contact_name) || "",
-      contact_phone: contact_phone || "",
+      contact_name: normalizeContactName(canonicalTarget.manager_name) || "",
+      contact_phone: canonicalTarget.manager_mobile || "",
       period,
       code,
       year,
       requested_by: user.id,
+      intent,
       mode: jobMode,
     };
 
@@ -288,6 +282,7 @@ export async function POST(request: NextRequest) {
         ? "건강디딤돌 조회 및 자동 신청 작업이 백그라운드 작업자에 전달되었습니다."
         : "건강디딤돌 조회 작업이 백그라운드 작업자에 전달되었습니다. 결과는 잠시 후 반영됩니다.",
       jobId: automationJob.id,
+      mode: automationJob.request_payload?.mode ?? jobMode,
     });
 
   } catch (error: any) {

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readNationalSupportJournalCodes } from "@/lib/national-support/automation-contract";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { projectNationalSupportOrphanStatuses } from "@/lib/national-support/orphan-status";
 import { createClient } from "@/lib/supabase/server";
 import { checkPermission } from "@/lib/auth/check-permission";
 import { canRequestNationalSupportLookup } from "@/lib/national-support/eligibility";
+import { resolveNationalSupportRepresentative } from "@/lib/national-support/representative";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +32,7 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
 
     // 년도와 주기에 매칭되는 전체 대상 사업장 데이터 조회
-    const { data: allTargets, error: queryError } = await supabase
+    const { data: rawTargets, error: queryError } = await supabase
       .from("measurement_target_business")
       .select(`
         id,
@@ -42,7 +46,8 @@ export async function GET(request: NextRequest) {
         manager_name,
         manager_mobile,
         period,
-        year
+        year,
+        is_registered
       `)
       .eq("year", parseInt(year))
       .eq("period", period);
@@ -55,6 +60,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const allTargets = await projectNationalSupportOrphanStatuses(createAdminClient(), rawTargets);
     const total = allTargets.length;
     const success = allTargets.filter((t) => t.sync_status === "성공").length;
     const pending = allTargets.filter((t) => t.sync_status === "신청중" || t.sync_status === "조회중").length;
@@ -62,9 +68,23 @@ export async function GET(request: NextRequest) {
     
     // 일괄 처리(조회)가 가능한 유효 대상 필터링
     // (성공이 아니고, 수시 주기가 아니며, 필수 정보(산재번호, 개시번호, 대표자명)가 채워진 대상)
-    const queue = allTargets.filter((target) =>
-      canRequestNationalSupportLookup(target)
-    );
+    const codes = [...new Set(allTargets.map(target => target.code).filter(Boolean))];
+    const { data: businessInfo, error: businessInfoError } = codes.length
+      ? await supabase.from("business_info")
+          .select("code,representative_name,national_support_representative_name")
+          .in("code", codes)
+      : { data: [], error: null };
+    if (businessInfoError) throw businessInfoError;
+    const representatives = new Map((businessInfo || []).map(info => [info.code, info]));
+    const journalCodes = await readNationalSupportJournalCodes(supabase, codes, Number(year), period);
+    const queue = allTargets.map(target => ({
+      ...target,
+      has_actual_measurement_journal: journalCodes.has(target.code),
+      representative_name: resolveNationalSupportRepresentative(
+        representatives.get(target.code)?.national_support_representative_name,
+        representatives.get(target.code)?.representative_name || target.representative_name,
+      ),
+    })).filter(canRequestNationalSupportLookup);
 
     return NextResponse.json({
       success: true,

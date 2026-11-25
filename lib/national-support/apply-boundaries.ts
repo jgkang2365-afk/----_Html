@@ -11,6 +11,6 @@ export function matchesNationalSupportTargetKey(
 }
 
 export function nationalSupportApplyOutcome(response: { resultCode?: string; instantSync?: boolean }) {
-  if (response.resultCode === "JOURNAL_REGISTERED_SKIP") return "excluded" as const;
+  if (["JOURNAL_REGISTERED_SKIP", "TARGET_STATUS_SKIP", "REPRESENTATIVE_REVIEW_SKIP", "APPLICATION_INFO_CHANGED_SKIP"].includes(response.resultCode || "")) return "excluded" as const;
   return response.instantSync ? "instant" as const : "queued" as const;
 }

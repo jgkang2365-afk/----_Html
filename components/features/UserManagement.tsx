@@ -155,6 +155,7 @@ export const UserManagement: React.FC = () => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               target_id: item.id,
+              intent: "direct",
               sanjae: item.sanjae,
               commencement: item.commencement,
               representative: item.representative,
@@ -169,7 +170,7 @@ export const UserManagement: React.FC = () => {
           const resJson = await res.json();
           if (res.ok) {
             if (nationalSupportApplyOutcome(resJson) === "excluded") {
-              setBulkLogs(prev => [`[제외] ${item.business_name}: 측정일지가 등록되어 건강디딤돌 조회·신청 대상에서 제외`, ...prev]);
+              setBulkLogs(prev => [`[제외] ${item.business_name}: ${resJson.message || "정책 조건에 따라 처리하지 않았습니다."}`, ...prev]);
             } else if (nationalSupportApplyOutcome(resJson) === "instant") {
               setBulkSuccessCount(prev => prev + 1);
               setBulkLogs(prev => [`[즉시반영] ${item.business_name}: 기존 결과 매핑 완료`, ...prev]);

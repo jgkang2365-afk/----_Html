@@ -25,6 +25,20 @@ export function subscribeAutomationJob(
   return () => void supabase.removeChannel(channel);
 }
 
+/** A scheduled or final lookup has no user-visible job ID at enqueue time. */
+export function subscribeNationalSupportChanges(onTerminal: (jobId: string) => void) {
+  const supabase = createClient();
+  const channel = supabase.channel("national-support-terminal")
+    .on("postgres_changes", {
+      event: "UPDATE", schema: "public", table: "automation_job_signals", filter: "job_type=eq.NATIONAL_SUPPORT",
+    }, ({ new: signal }) => {
+      if (["COMPLETED", "FAILED", "CANCELLED", "CONFIRM_REQUIRED"].includes(signal.status)) {
+        onTerminal(signal.job_id);
+      }
+    }).subscribe();
+  return () => void supabase.removeChannel(channel);
+}
+
 export async function fetchAutomationJob(jobId: string): Promise<AutomationJob> {
   const response = await fetch(`/api/automation-jobs/${jobId}`, { cache: "no-store" });
   const body = await response.json();

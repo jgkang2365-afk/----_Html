@@ -10,7 +10,10 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { Modal } from "@/components/ui/Modal";
 import { ExcelUpload } from "@/components/features/ExcelUpload";
 import { NewBusinessDocumentGeneration } from "@/components/features/NewBusinessDocumentGeneration";
-import AutomationProgressModal from "@/components/features/AutomationProgressModal";
+import AutomationProgressModal, { AUTOMATION_TERMINAL_STATUSES } from "@/components/features/AutomationProgressModal";
+import type { AutomationJob } from "@/lib/automation/jobs";
+import { fetchAutomationJob, subscribeAutomationJob, subscribeNationalSupportChanges } from "@/lib/automation/job-client";
+import { mergeNationalSupportTargetState, type NationalSupportTargetState } from "@/lib/national-support/target-state-sync";
 import { BusinessMapModal } from "@/components/features/BusinessMapModal";
 import { MeasurementTargetBusinessFormSections } from "@/components/features/MeasurementTargetBusinessFormSections";
 import { MeasurementTargetIntegrityPanel } from "@/components/features/MeasurementTargetIntegrityPanel";
@@ -86,6 +89,8 @@ interface BusinessEntry {
     period: string;
     document_generation_enabled?: boolean;
     has_actual_measurement_journal?: boolean;
+    national_support_has_lookup_information?: boolean;
+    national_support_has_application_information?: boolean;
     business_name: string;
     business_number: string | null; // 사업자등록번호
     business_category: string | null; // 업종
@@ -302,7 +307,12 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     // Data State
     const [data, setData] = useState<BusinessEntry[]>([]);
     const [filteredData, setFilteredData] = useState<BusinessEntry[]>([]);
-    const dataFetchInFlightRef = useRef(false);
+    const dataRef = useRef(data);
+    dataRef.current = data;
+    const stateReadSequence = useRef(0);
+    const listRead = useRef<{ period: string; sequence: number } | null>(null);
+    const refreshAfterListRead = useRef(false);
+    const detailReadById = useRef(new Map<string, number>());
     const tableHeaderScrollRef = useRef<HTMLDivElement | null>(null);
     const tableBodyScrollRef = useRef<HTMLDivElement | null>(null);
     const syncTableHorizontalScroll = useCallback((source: HTMLDivElement, target: HTMLDivElement | null) => {
@@ -321,7 +331,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     const [bulkFailedCount, setBulkFailedCount] = useState(0);
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [bulkLogs, setBulkLogs] = useState<string[]>([]);
-    const [nationalSupportJob, setNationalSupportJob] = useState<{ id: string; applying: boolean } | null>(null);
+    const [nationalSupportJob, setNationalSupportJob] = useState<{
+        id: string;
+        applying: boolean;
+        job: AutomationJob | null;
+        error: string | null;
+    } | null>(null);
+    const nationalSupportWatchers = useRef(new Map<string, { targetId: string; stop: () => void }>());
 
     // 좌표 일괄 재조회를 위한 상태 정의
     const [isGeocodeProcessing, setIsGeocodeProcessing] = useState(false);
@@ -542,6 +558,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         target_id: item.id,
+                        intent: "direct",
                         sanjae: item.industrial_accident_number || item.sanjae,
                         commencement: item.commencement_number || item.commencement,
                         representative: item.representative_name,
@@ -556,7 +573,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 const resJson = await res.json();
                 if (res.ok) {
                     if (nationalSupportApplyOutcome(resJson) === "excluded") {
-                        setBulkLogs((prev) => [`[제외] ${item.business_name}: 측정일지가 등록되어 건강디딤돌 조회·신청 대상에서 제외`, ...prev]);
+                        setBulkLogs((prev) => [`[제외] ${item.business_name}: ${resJson.message || "정책 조건에 따라 처리하지 않았습니다."}`, ...prev]);
                         setData((prev) => prev.map((d) => d.id === item.id ? { ...d, sync_status: item.sync_status, sync_error_message: item.sync_error_message } : d));
                     } else if (nationalSupportApplyOutcome(resJson) === "instant") {
                         setBulkSuccessCount((prev) => prev + 1);
@@ -565,6 +582,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     } else {
                         setBulkCrawlerCount((prev) => prev + 1);
                         setBulkLogs((prev) => [`[백그라운드 기동] ${item.business_name}: 공단 조회 기동`, ...prev]);
+                        if (typeof resJson.jobId === "string") watchNationalSupportJob(resJson.jobId, item);
                     }
                 } else {
                     setBulkFailedCount((prev) => prev + 1);
@@ -632,6 +650,9 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
         planManager: "",
         confirmedDate: "",
     });
+
+    const activePeriod = useRef(filters.yearPeriod);
+    activePeriod.current = filters.yearPeriod;
 
     const buildMapInitializeMessage = useCallback((): MeasurementMapMessage | null => {
         const [yearText, period] = filters.yearPeriod.split("-");
@@ -1074,6 +1095,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                             target_id: createResult.data.id,
+                            intent: "automatic",
                             sanjae: addForm.sanjae,
                             commencement: addForm.commencement,
                             representative: addForm.national_support_representative_name || addForm.representative_name,
@@ -1089,8 +1111,13 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     if (!followUpResponse.ok) {
                         throw new Error(followUpResult.error || "건강디딤돌 처리 요청 실패");
                     }
+                    if (typeof followUpResult.jobId === "string") {
+                        watchNationalSupportJob(followUpResult.jobId, {
+                            id: createResult.data.id, code: createResult.data.code, year: Number(createResult.data.year), period: createResult.data.period,
+                        });
+                    }
                     completionMessage += nationalSupportApplyOutcome(followUpResult) === "excluded"
-                        ? "\n측정일지가 등록되어 건강디딤돌 조회·신청 대상에서 제외했습니다."
+                        ? `\n${followUpResult.message || "정책 조건에 따라 처리하지 않았습니다."}`
                         : `\n${followUpResult.message || "건강디딤돌 결과조회가 시작되었습니다."}`;
                 } catch (followUpError) {
                     completionMessage += `\n건강디딤돌 처리 요청은 실패했습니다. 목록의 조회 버튼으로 재시도할 수 있습니다.\n사유: ${followUpError instanceof Error ? followUpError.message : String(followUpError)}`;
@@ -1125,49 +1152,151 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
     };
 
     // Fetch Raw Data
-    const fetchData = useCallback(async (options?: { silent?: boolean }) => {
-        if (dataFetchInFlightRef.current) return;
-        dataFetchInFlightRef.current = true;
-
-        const [year, period] = filters.yearPeriod.split("-");
-        if (!year || !period) {
-            dataFetchInFlightRef.current = false;
+    const fetchData = useCallback(async (options?: { silent?: boolean; ensureFresh?: boolean }): Promise<void> => {
+        const requestPeriod = activePeriod.current;
+        const [year, period] = requestPeriod.split("-");
+        if (!year || !period) return;
+        if (options?.silent && listRead.current?.period === requestPeriod) {
+            if (options.ensureFresh) refreshAfterListRead.current = true;
             return;
         }
 
-        if (!options?.silent) {
-            setLoading(true);
-        }
+        const read = { period: requestPeriod, sequence: ++stateReadSequence.current };
+        listRead.current = read;
+        if (!options?.silent) setLoading(true);
         try {
-            const params = new URLSearchParams();
-            params.append("year", year);
-            params.append("period", period);
-
-            const response = await fetch(`/api/businesses?${params.toString()}`, {
-                cache: "no-store",
-            });
+            const params = new URLSearchParams({ year, period });
+            const response = await fetch(`/api/businesses?${params}`, { cache: "no-store" });
             if (!response.ok) throw new Error("Failed to fetch data");
-
             const result = await response.json();
-            const fetchedData: BusinessEntry[] = result.businesses || [];
+            if (listRead.current !== read || activePeriod.current !== read.period) return;
 
-            setData(fetchedData);
-            if (options?.silent) {
-                setSelectedBusinessIds((previous) =>
-                    retainAvailableBusinessIds(previous, fetchedData)
-                );
-            } else {
-                setSelectedBusinessIds(new Set());
+            const fetchedData: BusinessEntry[] = result.businesses || [];
+            const newerReads = new Set(fetchedData.filter(item =>
+                (detailReadById.current.get(String(item.id)) || 0) > read.sequence
+            ).map(item => String(item.id)));
+
+            setData(previous => {
+                const oldRows = new Map(previous.map(item => [String(item.id), item]));
+                return fetchedData.map(item => {
+                    const old = oldRows.get(String(item.id));
+                    return old && newerReads.has(String(item.id))
+                        ? mergeNationalSupportTargetState(item, item, old)
+                        : item;
+                });
+            });
+            for (const item of fetchedData) {
+                const id = String(item.id);
+                if (!newerReads.has(id)) detailReadById.current.delete(id);
             }
+            setSelectedBusinessIds(previous => options?.silent
+                ? retainAvailableBusinessIds(previous, fetchedData) : new Set());
         } catch (error) {
             console.error("Error fetching businesses:", error);
         } finally {
-            if (!options?.silent) {
+            if (listRead.current === read) {
+                listRead.current = null;
                 setLoading(false);
+                if (refreshAfterListRead.current) {
+                    refreshAfterListRead.current = false;
+                    void fetchData({ silent: true });
+                }
             }
         }
-        dataFetchInFlightRef.current = false;
-    }, [filters.yearPeriod]);
+    }, []);
+
+    const syncNationalSupportDetail = useCallback((state: NationalSupportTargetState) => {
+        setEditingItem(previous => previous ? mergeNationalSupportTargetState(previous, state, state) : previous);
+        setEditForm(previous => mergeNationalSupportTargetState(previous, state, state));
+    }, []);
+
+    // A scheduled follow-up may be discovered by the list refresh rather than a local job watcher.
+    const editingTargetId = editingItem?.id;
+    useEffect(() => {
+        const currentRow = data.find(item => item.id === editingTargetId);
+        if (currentRow) syncNationalSupportDetail(currentRow);
+    }, [data, editingTargetId, syncNationalSupportDetail]);
+
+    const refreshNationalSupportTarget = useCallback(async (target: Pick<BusinessEntry, "id" | "code" | "year" | "period">) => {
+        const id = String(target.id);
+        const sequence = ++stateReadSequence.current;
+        detailReadById.current.set(id, sequence);
+        try {
+            const response = await fetch(`/api/businesses/national-support/target-state?${new URLSearchParams({
+                id, code: target.code, year: String(target.year), period: target.period,
+            })}`, { cache: "no-store" });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || "사업장 상태 조회 실패");
+            const state: NationalSupportTargetState = result.state;
+            if (String(state?.id) !== id || state?.code !== target.code ||
+                state?.year !== target.year || state?.period !== target.period) throw new Error("사업장 식별자 불일치");
+            if (detailReadById.current.get(id) !== sequence) return;
+            setData(previous => previous.map(item => mergeNationalSupportTargetState(item, target, state)));
+            syncNationalSupportDetail(state);
+        } catch (error) {
+            if (detailReadById.current.get(id) !== sequence) return;
+            console.error("건강디딤돌 완료 상태 동기화 실패:", error);
+            void fetchData({ silent: true, ensureFresh: true });
+        }
+    }, [fetchData, syncNationalSupportDetail]);
+
+    const watchNationalSupportJob = (jobId: string, target: Pick<BusinessEntry, "id" | "code" | "year" | "period">) => {
+        const watchers = nationalSupportWatchers.current;
+        if (watchers.has(jobId)) return;
+        let finished = false;
+        let checking = false;
+        let updatePending = false;
+        let unsubscribe = () => {};
+        const stop = () => {
+            if (finished) return;
+            finished = true;
+            window.clearInterval(timer);
+            document.removeEventListener("visibilitychange", onVisible);
+            unsubscribe();
+            watchers.delete(jobId);
+        };
+        const check = async () => {
+            if (finished) return;
+            if (checking) {
+                updatePending = true;
+                return;
+            }
+            checking = true;
+            try {
+                const job = await fetchAutomationJob(jobId);
+                if (finished) return;
+                setNationalSupportJob(previous => previous?.id === jobId ? { ...previous, job, error: null } : previous);
+                if (AUTOMATION_TERMINAL_STATUSES.has(job.status)) {
+                    stop();
+                    await refreshNationalSupportTarget(target);
+                }
+            } catch {
+                if (!finished) {
+                    setNationalSupportJob(previous => previous?.id === jobId
+                        ? { ...previous, error: "작업 상태를 가져오지 못했습니다." } : previous);
+                }
+            } finally {
+                checking = false;
+                if (updatePending && !finished) {
+                    updatePending = false;
+                    void check();
+                }
+            }
+        };
+        const onVisible = () => {
+            if (document.visibilityState === "visible" && !checking) void check();
+        };
+        const timer = window.setInterval(onVisible, 5000);
+        document.addEventListener("visibilitychange", onVisible);
+        watchers.set(jobId, { targetId: String(target.id), stop });
+        unsubscribe = subscribeAutomationJob(jobId, () => void check());
+        void check();
+    };
+
+    useEffect(() => {
+        const watchers = nationalSupportWatchers.current;
+        return () => { for (const { stop } of watchers.values()) stop(); };
+    }, []);
 
     // Client-side Filtering
     useEffect(() => {
@@ -1330,7 +1459,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     useEffect(() => {
         fetchData();
-    }, [fetchData]);
+    }, [fetchData, filters.yearPeriod]);
 
     useEffect(() => {
         fetch("/api/user-schedule-blocks", { cache: "no-store" })
@@ -1354,14 +1483,25 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             }
         };
 
-        const timer = hasPendingNationalSupport
-            ? window.setInterval(refreshWhenVisible, 30000)
-            : null;
+        const hasUnwatchedPendingTargets = () => {
+            const observed = new Set(Array.from(nationalSupportWatchers.current.values(), watcher => watcher.targetId));
+            return dataRef.current.some(item => ["신청중", "조회중", "신청완료대기"].includes(item.sync_status || "") &&
+                !observed.has(String(item.id)));
+        };
+        const refreshPending = () => {
+            if (hasUnwatchedPendingTargets()) refreshWhenVisible();
+        };
+        const timer = hasPendingNationalSupport ? window.setInterval(refreshPending, 30000) : null;
+        const unsubscribe = hasPendingNationalSupport ? subscribeNationalSupportChanges(jobId => {
+            if (!nationalSupportWatchers.current.has(jobId) && hasUnwatchedPendingTargets() &&
+                document.visibilityState === "visible") void fetchData({ silent: true, ensureFresh: true });
+        }) : undefined;
         window.addEventListener("focus", refreshWhenVisible);
         document.addEventListener("visibilitychange", refreshWhenVisible);
 
         return () => {
             if (timer !== null) window.clearInterval(timer);
+            unsubscribe?.();
             window.removeEventListener("focus", refreshWhenVisible);
             document.removeEventListener("visibilitychange", refreshWhenVisible);
         };
@@ -1546,6 +1686,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     const errData = await manualResponse.json().catch(() => ({}));
                     throw new Error(errData.error || "국고지원 수동 확정에 실패했습니다.");
                 }
+                void refreshNationalSupportTarget(editingItem);
             }
             closeEditModal();
 
@@ -1590,6 +1731,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     target_id: item.id,
+                    intent: "direct",
                     sanjae: sanjaeVal,
                     commencement: commencementVal,
                     representative: representativeVal,
@@ -1599,6 +1741,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
                     code: item.code,
                     year: item.year,
                     mode: hasNationalSupportApplicationInformation({
+                        ...item,
                         industrial_accident_number: sanjaeVal,
                         commencement_number: commencementVal,
                         representative_name: representativeVal,
@@ -1615,23 +1758,25 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
             }
 
             if (nationalSupportApplyOutcome(resData) === "excluded") {
-                alert("측정일지가 등록되어 건강디딤돌 조회·신청 대상에서 제외했습니다.");
-                fetchData();
+                void refreshNationalSupportTarget(item);
+                alert(resData.message || "정책 조건에 따라 처리하지 않았습니다.");
             } else if (nationalSupportApplyOutcome(resData) === "instant") {
+                void refreshNationalSupportTarget(item);
                 alert(resData.message || "건강디딤돌 신청결과가 즉시 반영되었습니다.");
-                fetchData();
             } else {
                 if (typeof resData.jobId === "string") {
-                    setNationalSupportJob({ id: resData.jobId, applying: hasNationalSupportApplicationInformation({ industrial_accident_number: sanjaeVal, commencement_number: commencementVal, representative_name: representativeVal, manager_name: item.manager_name, manager_mobile: item.manager_mobile }) });
+                    setNationalSupportJob({ id: resData.jobId, job: null, error: null, applying: resData.mode === "apply_if_missing" });
+                    watchNationalSupportJob(resData.jobId, item);
                 } else {
-                    alert(resData.message || "조회 요청이 백그라운드 작업자에 전달되었습니다. 완료될 때까지 결과를 자동 갱신합니다.");
+                    void refreshNationalSupportTarget(item);
+                    alert("조회 작업 번호를 확인할 수 없습니다. 사업장 상태를 확인해 주세요.");
                 }
             }
 
         } catch (error) {
+            void refreshNationalSupportTarget(item);
             console.error("Check result error:", error);
             alert(`조회 요청 중 오류가 발생했습니다.\n${error instanceof Error ? error.message : String(error)}`);
-            fetchData();
         }
     };
 
@@ -1851,7 +1996,7 @@ export const MeasurementTargetBusinessManagement: React.FC = () => {
 
     return (
         <>
-        {nationalSupportJob && <AutomationProgressModal jobId={nationalSupportJob.id} title="건강디딤돌 작업을 처리하고 있습니다" processingMessage={nationalSupportJob.applying ? "깡통컴에서 건강디딤돌 조회·신청을 처리 중입니다" : "깡통컴에서 건강디딤돌 조회를 처리 중입니다"} nationalSupport onClose={() => setNationalSupportJob(null)} />}
+        {nationalSupportJob && <AutomationProgressModal jobId={nationalSupportJob.id} title="건강디딤돌 작업을 처리하고 있습니다" processingMessage={nationalSupportJob.applying ? "깡통컴에서 건강디딤돌 조회·신청을 처리 중입니다" : "깡통컴에서 건강디딤돌 조회를 처리 중입니다"} nationalSupport observedJob={nationalSupportJob} onClose={() => setNationalSupportJob(null)} />}
         <div className="w-full min-w-0 max-w-full p-2 sm:p-4">
             {/* Sticky Container for Filter & Table Header */}
             <div className="sm:sticky sm:top-16 lg:top-[113px] z-40 space-y-4 bg-gray-50/95 backdrop-blur">
